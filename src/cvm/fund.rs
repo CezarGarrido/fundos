@@ -14,14 +14,12 @@ pub struct Register {
 }
 
 pub enum Situation {
-    Canceled,
     Normal,
 }
 
 impl Situation {
     pub fn to_string(&self) -> &str {
         match self {
-            Situation::Canceled => "CANCELADA",
             Situation::Normal => "EM FUNCIONAMENTO NORMAL",
         }
     }
