@@ -11,3 +11,8 @@ target_wasm
 
 # https://github.com/lycheeverse/lychee
 .lycheecache
+
+# download files
+dataset
+*.csv
+*.zip
