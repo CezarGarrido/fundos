@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{Datelike, Utc};
 use curl::easy::Easy;
-use egui::{Align, Button, Layout, Window};
+use egui::{Align, Button, Layout};
 use partialzip::partzip::PartialZip;
 use std::{
     fs::{self, File},
@@ -28,16 +28,6 @@ pub struct Downloader {
 impl Downloader {
     pub fn new(downloads: Vec<Download>, sender: mpsc::UnboundedSender<Message>) -> Self {
         Self { downloads, sender }
-    }
-
-    pub fn start_download(&self, ctx: &egui::Context) {
-        for d in self.downloads.clone() {
-            let sender = self.sender.clone();
-            let ctx_clone = ctx.clone();
-            tokio::spawn(async move {
-                d.download(sender, &ctx_clone).await;
-            });
-        }
     }
 
     pub fn start_download_one(&mut self, idx: usize, ctx: &egui::Context) {

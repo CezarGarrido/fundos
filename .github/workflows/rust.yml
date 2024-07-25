@@ -131,6 +131,14 @@ jobs:
       - name: Building ${{ matrix.TARGET }}
         run: echo "${{ matrix.TARGET }}"
 
+      - name: Set up dependencies on Ubuntu
+        if: contains(matrix.TARGET, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc ca-certificates make libc6-dev \
+            libssl-dev libcurl4-openssl-dev pkg-config
+
       - uses: actions/checkout@master
       - name: Install build dependencies - Rustup
         run: |
