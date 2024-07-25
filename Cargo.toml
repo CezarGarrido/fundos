@@ -34,7 +34,7 @@ chrono = "0.4.19"
 
 tokio = { version = "1.37.0", features = ["full"] }
 partialzip = "3.4.1"
-curl = "0.4.46"
+curl = {version = "0.4.46", default-features = false}
 encoding_rs = "0.8.33"
 encoding_rs_io = "0.1.7"
 egui_plot = "0.27.2"
