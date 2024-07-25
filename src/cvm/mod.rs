@@ -1,11 +1,11 @@
 use chrono::NaiveDate;
+use glob::glob;
 use polars::{
     error::PolarsError,
     lazy::dsl::{col, lit, Expr},
     prelude::{DataType, LazyCsvReader, LazyFileListReader, LazyFrame, NULL},
 };
 use regex::Regex;
-use glob::glob;
 
 pub mod fund;
 pub mod indicator;

@@ -84,7 +84,7 @@ impl Register {
         if let Some(limit) = limit {
             filtered = filtered.limit(limit);
         }
-        
+
         filtered
             .sort("DENOM_SOCIAL", SortOptions::default())
             .collect()

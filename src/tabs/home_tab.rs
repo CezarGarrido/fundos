@@ -17,7 +17,6 @@ impl HomeTab {
         sender: mpsc::UnboundedSender<Message>,
         history: History,
     ) -> Self {
-        
         HomeTab {
             title,
             config,

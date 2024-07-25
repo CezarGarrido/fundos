@@ -1,8 +1,8 @@
 use egui::{Ui, WidgetText};
 pub mod fund_tab;
 pub mod home_tab;
-use egui_dock::{NodeIndex, SurfaceIndex};
 use crate::tabs::fund_tab::fund_tab::FundTab;
+use egui_dock::{NodeIndex, SurfaceIndex};
 use home_tab::HomeTab;
 
 pub trait Tab {
@@ -14,7 +14,7 @@ pub trait Tab {
 // Adicione outro tipo de tab
 pub enum TabType {
     Fund(FundTab),
-    Home(HomeTab)
+    Home(HomeTab),
 }
 
 impl Tab for TabType {
@@ -30,7 +30,6 @@ impl Tab for TabType {
         match self {
             TabType::Fund(tab) => tab.ui(ui),
             TabType::Home(tab) => tab.ui(ui),
-
             // Adicione outros tipos de tabs aqui
         }
     }

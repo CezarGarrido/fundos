@@ -46,7 +46,7 @@ impl Portfolio {
                 }
             }
         }
-        
+
         if lfs.is_empty() {
             return Err(PolarsError::NoData(
                 "No CSV files found or all failed to read".into(),

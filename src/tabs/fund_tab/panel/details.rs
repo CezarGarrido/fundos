@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use egui::{Frame, Ui};
 use egui_extras::{Column, TableBuilder};
 use polars::frame::DataFrame;
+use std::collections::HashMap;
 
 pub fn show_ui(df: DataFrame, ui: &mut Ui) {
     ui.group(|ui| {

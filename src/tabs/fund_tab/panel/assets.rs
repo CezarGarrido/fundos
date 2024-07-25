@@ -202,7 +202,6 @@ pub fn assets_ui(
         });
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        
         ui.push_id("filter_assets", |ui| {
             let mut filters = Vec::new();
             for r in selection.iter() {
