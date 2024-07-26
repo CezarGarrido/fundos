@@ -130,7 +130,7 @@ jobs:
     steps:
     - name: Building ${{ matrix.TARGET }}
       run: echo "${{ matrix.TARGET }}"
-      
+
     - uses: actions/checkout@master
     - name: Install build dependencies - Rustup
       run: |
@@ -148,6 +148,12 @@ jobs:
       if: ${{ !contains(matrix.TARGET, 'linux') }}
       run: |
         cargo install cross
+
+    - name: Enable Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: build-cache-${{ matrix.TARGET }}-${{ matrix.os }}
+        save-if: "false"
 
     - name: Build
       run: |
