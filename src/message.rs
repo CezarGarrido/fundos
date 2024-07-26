@@ -11,6 +11,6 @@ pub enum Message {
     Assets(String, String, String),
     ProfitResult(String, DataFrame, DataFrame),
     AssetsResult(String, DataFrame, DataFrame, DataFrame),
-    DownloadMessage(usize, String),
+    DownloadProgress(usize, String),
     OpenSearchWindow(bool),
 }

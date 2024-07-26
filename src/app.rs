@@ -1,9 +1,7 @@
 use egui::{Align2, Vec2};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabAddAlign};
 use egui_extras::{Column, TableBuilder};
-
 use polars::frame::DataFrame;
-
 use tokio::sync::mpsc;
 
 use crate::{
@@ -16,7 +14,7 @@ use crate::{
     },
     history::History,
     message::Message,
-    tabs::{fund_tab::fund_tab::FundTab, home_tab::HomeTab, Tab, TabType, TabViewer},
+    tabs::{fund_tab::FundTab, home_tab::HomeTab, Tab, TabType, TabViewer},
 };
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -141,16 +139,13 @@ impl TemplateApp {
                 Message::OpenSearchWindow(value) => {
                     self.tab_viewer.open_window = value;
                 }
-                Message::DownloadMessage(idx, progress) => {
+                Message::DownloadProgress(idx, progress) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
-                        match tb {
-                            TabType::Home(stb) => {
-                                stb.config.downloader.update_download(idx, progress);
-                                ctxc.request_repaint();
-                                break;
-                            }
-                            _ => {}
+                        if let TabType::Home(stb) = tb {
+                            stb.config.downloader.update_download(idx, progress);
+                            ctxc.request_repaint();
+                            break;
                         }
                     }
                 }
@@ -169,15 +164,9 @@ impl TemplateApp {
                 Message::Profit(cnpj, start_date, end_date) => {
                     let informe = self.informe.clone();
                     tokio::spawn(async move {
-                        let cdi_future =
-                            async { indicator::cdi(start_date.clone(), end_date.clone()) };
-                        let profitability_future = async {
-                            informe.profitability(
-                                cnpj.clone(),
-                                start_date.clone(),
-                                end_date.clone(),
-                            )
-                        };
+                        let cdi_future = async { indicator::cdi(start_date, end_date) };
+                        let profitability_future =
+                            async { informe.profitability(cnpj.clone(), start_date, end_date) };
                         let (cdi_result, profitability_result) =
                             tokio::join!(cdi_future, profitability_future);
                         match (cdi_result, profitability_result) {
@@ -216,17 +205,14 @@ impl TemplateApp {
                 Message::ProfitResult(cnpj, df, cdi) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
-                        match tb {
-                            TabType::Fund(stb) => {
-                                if stb.title().text().to_string() == cnpj {
-                                    stb.set_profit_dataframe(df.clone());
-                                    stb.set_cdi_dataframe(cdi.clone());
-                                    stb.set_profit_loading(false);
-                                    ctx.request_repaint();
-                                    break;
-                                }
+                        if let TabType::Fund(stb) = tb {
+                            if *stb.title().text().to_string() == cnpj {
+                                stb.set_profit_dataframe(df.clone());
+                                stb.set_cdi_dataframe(cdi.clone());
+                                stb.set_profit_loading(false);
+                                ctx.request_repaint();
+                                break;
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -272,17 +258,14 @@ impl TemplateApp {
                 Message::AssetsResult(cnpj, assets, top_assets, patrimonio_liquido) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
-                        match tb {
-                            TabType::Fund(tab) => {
-                                if tab.title().text().to_string() == cnpj {
-                                    tab.set_assets_dataframe(assets.clone());
-                                    tab.set_top_assets_dataframe(top_assets.clone());
-                                    tab.set_pl_dataframe(patrimonio_liquido.clone());
-                                    ctxc.request_repaint();
-                                    break;
-                                }
+                        if let TabType::Fund(tab) = tb {
+                            if *tab.title().text().to_string() == cnpj {
+                                tab.set_assets_dataframe(assets.clone());
+                                tab.set_top_assets_dataframe(top_assets.clone());
+                                tab.set_pl_dataframe(patrimonio_liquido.clone());
+                                ctxc.request_repaint();
+                                break;
                             }
-                            _ => {}
                         }
                     }
                 }

@@ -1,7 +1,6 @@
 use lru::LruCache;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
 use std::hash::{Hash, Hasher};

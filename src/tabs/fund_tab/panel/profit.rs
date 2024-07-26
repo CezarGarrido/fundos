@@ -81,7 +81,7 @@ impl ProfitUI {
                 .selectable_value(
                     &mut self.profit_filter_date,
                     FilterMonth::Custom,
-                    format!("{}", egui_phosphor::regular::CALENDAR),
+                    egui_phosphor::regular::CALENDAR.to_string(),
                 )
                 .clicked()
             {
@@ -149,7 +149,7 @@ impl ProfitUI {
     }
 
     fn show_profit_filter_window(&mut self, ui: &mut egui::Ui, cnpj: &str) {
-        let mut open_profit = self.open_profit_filter.clone();
+        let mut open_profit = self.open_profit_filter;
         let mut other = true;
         egui::Window::new("Período")
             .resizable(false)
@@ -181,8 +181,8 @@ impl ProfitUI {
                     {
                         self.send_profit_message(
                             cnpj,
-                            self.profit_filter_start_date.clone(),
-                            self.profit_filter_end_date.clone(),
+                            self.profit_filter_start_date,
+                            self.profit_filter_end_date,
                         );
                         other = false;
                     }

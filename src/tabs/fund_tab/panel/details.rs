@@ -69,12 +69,12 @@ fn show_dataframe(columns: Vec<&str>, df: DataFrame, ui: &mut Ui) {
                         }
                         body.row(18.0, |mut row_ui| {
                             row_ui.col(|ui| {
-                                ui.label(&format!("{}", header_title(field_name)));
+                                ui.label(header_title(field_name));
                             });
                             row_ui.col(|ui| {
                                 let value = col.get(row).unwrap();
                                 if let Some(value_str) = value.get_str() {
-                                    ui.label(format!("{}", value_str));
+                                    ui.label(value_str.to_string());
                                 } else {
                                     ui.label("-");
                                 }

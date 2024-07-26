@@ -31,7 +31,7 @@ impl Default for PortfolioUI {
         let mut year = now.year().to_string();
         let mut month = now.month().to_string();
 
-        if available_dates.len() > 0 {
+        if !available_dates.is_empty() {
             let date = available_dates[0].clone();
             let v: Vec<&str> = date.split('/').collect();
             year = v[0].to_string();
@@ -82,13 +82,13 @@ impl PortfolioUI {
 
     fn create_date_combobox(&mut self, ui: &mut egui::Ui) {
         ComboBox::from_label("Selecione a data")
-            .selected_text(format!("{}", self.assets_filter_date))
+            .selected_text(self.assets_filter_date.to_string())
             .show_ui(ui, |ui| {
                 for date in self.available_dates.clone() {
                     let v: Vec<&str> = date.split('/').collect();
                     let year = v[0].to_string();
                     let month = v[1].to_string();
-                    let date = format!("{}/{}", year, format!("{:02}", month));
+                    let date = format!("{}/{:02}", year, month);
                     if ui
                         .selectable_value(&mut self.assets_filter_date, date.clone(), date)
                         .clicked()
@@ -169,11 +169,9 @@ pub fn assets_ui(
                                                     let a =
                                                         value.to_string().parse::<f64>().unwrap();
                                                     let r = real(a).unwrap();
-                                                    ui.weak(format!("{}", r.format()));
-                                                } else {
-                                                    if let Some(value_str) = value.get_str() {
-                                                        ui.weak(value_str);
-                                                    }
+                                                    ui.weak(r.format());
+                                                } else if let Some(value_str) = value.get_str() {
+                                                    ui.weak(value_str);
                                                 }
                                             }
                                         }
@@ -206,7 +204,7 @@ pub fn assets_ui(
             let mut filters = Vec::new();
             for r in selection.iter() {
                 if let Ok(column) = top_assets.column("TP_APLIC") {
-                    if let Ok(value) = column.get(r.clone()) {
+                    if let Ok(value) = column.get(*r) {
                         let v = value.get_str().unwrap();
                         filters.push(v.to_string())
                     }
@@ -288,7 +286,7 @@ pub fn assets_ui(
                                                             .parse::<f64>()
                                                             .unwrap();
                                                         let r = real(a).unwrap();
-                                                        ui.label(format!("{}", r.format()));
+                                                        ui.label(r.format());
                                                     } else {
                                                         ui.label(value_str);
                                                     }

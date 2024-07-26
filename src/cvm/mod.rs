@@ -86,15 +86,16 @@ pub fn portfolio_available_dates() -> Vec<String> {
     let re = Regex::new(r"cda_fi_(\d{6})").unwrap();
     let mut year_month_list = Vec::new();
     // Busca os arquivos usando o padrão
-    for entry in glob("./dataset/cda/cda_fi_*/cda_fi_*.csv").expect("Failed to read glob pattern") {
-        if let Ok(path) = entry {
-            if let Some(path_str) = path.to_str() {
-                if let Some(caps) = re.captures(path_str) {
-                    // Extrai o ano e mês do capture
-                    let year_month = &caps[1];
-                    let formatted = format!("{}/{}", &year_month[..4], &year_month[4..6]);
-                    year_month_list.push(formatted);
-                }
+    for path in glob("./dataset/cda/cda_fi_*/cda_fi_*.csv")
+        .expect("Failed to read glob pattern")
+        .flatten()
+    {
+        if let Some(path_str) = path.to_str() {
+            if let Some(caps) = re.captures(path_str) {
+                // Extrai o ano e mês do capture
+                let year_month = &caps[1];
+                let formatted = format!("{}/{}", &year_month[..4], &year_month[4..6]);
+                year_month_list.push(formatted);
             }
         }
     }

@@ -45,7 +45,7 @@ impl Downloader {
         t.token.cancel();
         let _ = self
             .sender
-            .send(Message::DownloadMessage(idx, "cancelando...".to_string()));
+            .send(Message::DownloadProgress(idx, "cancelando...".to_string()));
         t.token = CancellationToken::new();
     }
 
@@ -64,7 +64,7 @@ impl Downloader {
                 ui.separator();
             }
             ui.horizontal(|ui| {
-                ui.label(format!("{}", d.document.description));
+                ui.label(d.document.description.to_string());
             });
 
             ui.horizontal(|ui| {
@@ -228,7 +228,7 @@ impl Download {
             let final_url = format!(
                 "{}/HIST/{}.zip",
                 &self.document.url,
-                &self.document.make_historical_date(year.clone())
+                &self.document.make_historical_date(*year)
             );
 
             let msg: String = format!(
@@ -240,7 +240,7 @@ impl Download {
             self.update_progress(msg, sender.clone(), ctx);
             match self.download_and_save(&final_url, "hist", token).await {
                 Ok(_) => continue,
-                Err(_) => return Ok(Some(year.clone())),
+                Err(_) => return Ok(Some(*year)),
             }
         }
         Ok(None)
@@ -269,7 +269,7 @@ impl Download {
 
             self.update_progress(msg, sender.clone(), ctx);
             let final_url = format!("{}/{}.zip", self.document.url, date);
-            self.download_and_save(&final_url, &date, token).await?;
+            self.download_and_save(&final_url, date, token).await?;
         }
         Ok(())
     }
@@ -329,10 +329,9 @@ impl Download {
             .map_err(|e| DownloadError::DownloadFailed(e.to_string()))?;
         let path = Path::new(&final_output_file);
         let mut file = File::options()
-            .write(true)
             .append(true)
             .create(true)
-            .open(&path)
+            .open(path)
             .map_err(|e| DownloadError::WriteFileFailed(e.to_string()))?;
 
         let existing_size = file
@@ -355,7 +354,7 @@ impl Download {
                 return Ok(0);
             }
 
-            let (decoded_str, _, had_errors) = WINDOWS_1252.decode(&data);
+            let (decoded_str, _, had_errors) = WINDOWS_1252.decode(data);
             if had_errors {
                 let mut error_lock = error_clone.lock().unwrap();
                 *error_lock = Some(DownloadError::DecodeFailed(
@@ -395,7 +394,7 @@ impl Download {
         sender: mpsc::UnboundedSender<Message>,
         ctx: &egui::Context,
     ) {
-        let _ = sender.send(Message::DownloadMessage(self.id, progress));
+        let _ = sender.send(Message::DownloadProgress(self.id, progress));
         ctx.request_repaint();
     }
 }

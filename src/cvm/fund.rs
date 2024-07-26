@@ -1,3 +1,5 @@
+use std::fmt;
+
 use polars::{
     error::PolarsError,
     frame::DataFrame,
@@ -33,13 +35,13 @@ pub enum Class {
     MultiMarket,
 }
 
-impl Class {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for Class {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Class::Acoes => String::from("Fundo de Ações"),
-            Class::RendaFixa => String::from("Fundo de Renda Fixa"),
-            Class::Cambial => String::from("Fundo Cambial"),
-            Class::MultiMarket => String::from("Fundo Multimercado"),
+            Class::Acoes => write!(f, "Fundo de Ações"),
+            Class::RendaFixa => write!(f, "Fundo de Renda Fixa"),
+            Class::Cambial => write!(f, "Fundo Cambial"),
+            Class::MultiMarket => write!(f, "Fundo Multimercado"),
         }
     }
 }

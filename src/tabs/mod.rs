@@ -1,7 +1,7 @@
 use egui::{Ui, WidgetText};
 pub mod fund_tab;
 pub mod home_tab;
-use crate::tabs::fund_tab::fund_tab::FundTab;
+use crate::tabs::fund_tab::FundTab;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use home_tab::HomeTab;
 

@@ -26,7 +26,8 @@ impl Portfolio {
     }
 
     fn read_assets(&self, year: String, month: String) -> Result<LazyFrame, PolarsError> {
-        let pattern = format!("{}", self.path)
+        let pattern = self
+            .path
             .replace("{year}", &year.to_string())
             .replace("{month}", &month.to_string());
 
