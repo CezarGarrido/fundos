@@ -1,5 +1,5 @@
-use egui::{Frame, Ui};
-use egui_extras::{Column, TableBuilder};
+use egui::{Frame, Grid, Ui};
+
 use polars::frame::DataFrame;
 use std::collections::HashMap;
 
@@ -8,29 +8,18 @@ pub fn show_ui(df: DataFrame, ui: &mut Ui) {
         ui.label(format!("{} Detalhes", egui_phosphor::regular::NOTE));
         ui.separator();
         Frame::none().inner_margin(5.0).show(ui, |ui| {
-            ui.push_id("dados_id", |ui| {
-                show_dataframe(
+            let grouped_columns = vec![
+                (
+                    "dados_id",
                     vec!["TP_FUNDO", "CNPJ_FUNDO", "DT_REG", "DT_CONST", "CD_CVM"],
-                    df.clone(),
-                    ui,
-                );
-            });
-            ui.separator();
-
-            ui.push_id("classe_id", |ui| {
-                show_dataframe(vec!["CLASSE", "CLASSE_ANBIMA"], df.clone(), ui);
-            });
-            ui.separator();
-            ui.push_id("situacao_id", |ui| {
-                show_dataframe(
+                ),
+                ("classe_id", vec!["CLASSE", "CLASSE_ANBIMA"]),
+                (
+                    "situacao_id",
                     vec!["SIT", "DT_INI_SIT", "DT_INI_ATIV", "DT_CANCEL"],
-                    df.clone(),
-                    ui,
-                );
-            });
-            ui.separator();
-            ui.push_id("admin_id", |ui| {
-                show_dataframe(
+                ),
+                (
+                    "admin_id",
                     vec![
                         "DIRETOR",
                         "ADMIN",
@@ -42,47 +31,100 @@ pub fn show_ui(df: DataFrame, ui: &mut Ui) {
                         "CNPJ_AUDITOR",
                         "CUSTODIANTE",
                     ],
-                    df,
-                    ui,
-                );
-            });
+                ),
+            ];
+
+            // Descobrir todas as colunas presentes nos grupos acima
+            let grouped_column_names: Vec<&str> = grouped_columns
+                .iter()
+                .flat_map(|(_, cols)| cols.clone())
+                .collect();
+
+            // Adicionar o grupo "ALL" com as colunas restantes
+            let all_columns: Vec<&str> = df
+                .get_columns()
+                .iter()
+                .map(|col| col.name())
+                .filter(|col_name| !grouped_column_names.contains(col_name))
+                .collect();
+
+            let mut extended_grouped_columns = grouped_columns.clone();
+            extended_grouped_columns.push(("all_id", all_columns));
+
+            show_dataframe(extended_grouped_columns, df.clone(), ui);
         });
     });
 }
 
-fn show_dataframe(columns: Vec<&str>, df: DataFrame, ui: &mut Ui) {
+fn show_dataframe(grouped_columns: Vec<(&str, Vec<&str>)>, df: DataFrame, ui: &mut Ui) {
     let n_rows = df.height();
     let cols = df.get_columns();
-    ui.horizontal(|ui| {
-        ui.set_width(ui.available_width());
-        ui.set_height(ui.available_height());
-        TableBuilder::new(ui)
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        // Exibir os grupos específicos
+        Grid::new("data_grid")
             .striped(true)
-            .column(Column::auto().resizable(false))
-            .column(Column::remainder())
-            .body(|mut body| {
-                for row in 0..n_rows {
-                    for col in cols.iter() {
-                        let field_name = col.name();
-                        if !columns.contains(&field_name) {
-                            continue;
-                        }
-                        body.row(18.0, |mut row_ui| {
-                            row_ui.col(|ui| {
+            .min_col_width(ui.available_width() / 2.0)
+            .max_col_width(ui.available_width() / 2.0)
+            .show(ui, |ui| {
+                for (group_id, columns) in &grouped_columns {
+                    if group_id != &"all_id" {
+                        for row in 0..n_rows {
+                            for col in cols.iter() {
+                                let field_name = col.name();
+                                if !columns.contains(&field_name) {
+                                    continue;
+                                }
                                 ui.label(header_title(field_name));
-                            });
-                            row_ui.col(|ui| {
                                 let value = col.get(row).unwrap();
                                 if let Some(value_str) = value.get_str() {
                                     ui.label(value_str.to_string());
                                 } else {
                                     ui.label("-");
                                 }
-                            });
-                        });
+                                ui.end_row();
+                            }
+                        }
+                        // ui.end_row(); // Adicionar uma linha final para cada grupo
                     }
                 }
             });
+
+        // Identificar as colunas para o grupo "ALL"
+        let all_columns: Vec<&str> = grouped_columns
+            .iter()
+            .find_map(|(group_id, cols)| {
+                if group_id == &"all_id" {
+                    Some(cols.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        ui.collapsing("ver mais", |ui| {
+            Grid::new("all_data_grid")
+                .striped(true)
+                .max_col_width(ui.available_width() / 2.0)
+                .min_col_width(ui.available_width() / 2.0)
+                .show(ui, |ui| {
+                    for row in 0..n_rows {
+                        for col in cols.iter() {
+                            let field_name = col.name();
+                            if !all_columns.contains(&field_name) {
+                                continue;
+                            }
+                            ui.label(header_title(field_name));
+                            let value = col.get(row).unwrap();
+                            if let Some(value_str) = value.get_str() {
+                                ui.label(value_str.to_string());
+                            } else {
+                                ui.label("-");
+                            }
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
     });
 }
 

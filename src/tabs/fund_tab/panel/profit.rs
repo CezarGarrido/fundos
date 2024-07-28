@@ -20,6 +20,7 @@ pub struct ProfitUI {
     pub open_profit_filter: bool,
     pub profit: DataFrame,
     pub cdi: DataFrame,
+    pub ibov: DataFrame,
     pub cnpj: String,
     pub loading: bool,
     pub sender: Option<UnboundedSender<message::Message>>,
@@ -42,6 +43,7 @@ impl Default for ProfitUI {
             profit_filter_end_date: now,
             open_profit_filter: false,
             loading: false,
+            ibov: DataFrame::empty(),
         }
     }
 }
@@ -69,8 +71,24 @@ impl ProfitUI {
                 });
             });
             ui.separator();
+            egui::TopBottomPanel::top("vl_pl").show_inside(ui, |ui| {
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.weak("Rentabilidade");
+
+                    self.profit
+                        .column("RENT_ACUM")
+                        .ok()
+                        .and_then(|col| col.get(self.profit.height() - 1).ok())
+                        .and_then(|val| val.to_string().into())
+                        .and_then(|value_str| value_str.parse::<f64>().ok())
+                        .map(|v| ui.heading(format!("%{}", v)))
+                        .unwrap_or_else(|| ui.label("-"));
+                });
+                ui.add_space(8.0);
+            });
             Frame::none().inner_margin(10.0).show(ui, |ui| {
-                profit_chart(&self.profit, &self.cdi, ui); // Ajuste conforme o tipo real dos seus dados
+                profit_chart(&self.profit, &self.cdi, &self.ibov, ui); // Ajuste conforme o tipo real dos seus dados
             });
         });
     }

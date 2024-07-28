@@ -1,0 +1,49 @@
+app:
+  name: "opaa"
+  cvm:
+    documents:
+      - description: "IBOVESPA"
+        url: "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv"
+        hist: false
+        ext: "csv"
+        filename: "ibov.json"
+        pattern: ""
+        pattern_hist: ""
+        download_path: "./dataset/ibov"
+        limit_years: -1
+      - description: "Informação Cadastral"
+        url: "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv"
+        hist: false
+        ext: "csv"
+        filename: "cad_fi.csv"
+        pattern: ""
+        pattern_hist: ""
+        download_path: "./dataset/cad"
+        limit_years: -1
+      - description: "CDI Acumulado"
+        url: "https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json"
+        hist: false
+        ext: "json"
+        filename: "bcdata.sgs.12.json"
+        pattern: ""
+        pattern_hist: ""
+        download_path: "./dataset/cdi"
+        limit_years: -1
+      - description: "CDA"
+        url: "https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS"
+        hist: false
+        ext: "zip"
+        filename: ""
+        pattern: "cda_fi_{ano}{mes}"
+        pattern_hist: "cda_fi_{ano}"
+        download_path: "./dataset/cda"
+        limit_years: -1
+      - description: "Informes Diários"
+        url: "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS"
+        hist: false
+        ext: "zip"
+        filename: ""
+        pattern: "inf_diario_fi_{ano}{mes}"
+        pattern_hist: "inf_diario_fi_{ano}"
+        download_path: "./dataset/infdiario"
+        limit_years: 3

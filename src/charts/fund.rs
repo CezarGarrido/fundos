@@ -6,7 +6,7 @@ use egui_plot::{AxisHints, GridMark, Legend, Line, Plot};
 use polars::frame::DataFrame;
 
 //TODO: refatorar para unificar as datas
-pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ui: &mut Ui) {
+pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ibov: &DataFrame, ui: &mut Ui) {
     let chart = match (dataframe.column("DT_COMPTC"), dataframe.column("RENT_ACUM")) {
         (Ok(dates), Ok(rentabilidade)) => {
             let mut line_data = Vec::new();
@@ -34,7 +34,7 @@ pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ui: &mut Ui) {
             .name("Fundo"),
     };
 
-    let chart_cdi = match (cdi.column("data"), cdi.column("cdi_acumulado")) {
+    let chart_cdi = match (cdi.column("date"), cdi.column("value")) {
         (Ok(dates), Ok(rentabilidade)) => {
             let mut line_data = Vec::new();
             let dates = dates.utf8().unwrap();
@@ -58,6 +58,32 @@ pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ui: &mut Ui) {
         }
         _ => Line::new(Vec::new()).color(egui::Color32::RED).name("CDI"),
     };
+
+    let chart_ibov = match (ibov.column("date"), ibov.column("value")) {
+        (Ok(dates), Ok(rentabilidade)) => {
+            let mut line_data = Vec::new();
+            let dates = dates.utf8().unwrap();
+
+            let rentabilidade = rentabilidade.f64().unwrap();
+
+            for (date, rent) in dates.into_iter().zip(rentabilidade.into_iter()) {
+                if let (Some(date), Some(rent)) = (date, rent) {
+                    if let Ok(parsed_date) = chrono::NaiveDate::parse_from_str(date, "%d/%m/%Y") {
+                        let timestamp = parsed_date
+                            .and_hms_opt(0, 0, 0)
+                            .unwrap()
+                            .and_utc()
+                            .timestamp() as f64;
+                        line_data.push([timestamp, rent]);
+                    }
+                }
+            }
+
+            Line::new(line_data).color(egui::Color32::YELLOW).name("Ibovespa")
+        }
+        _ => Line::new(Vec::new()).color(egui::Color32::YELLOW).name("Ibovespa"),
+    };
+
     let x_formatter = |mark: GridMark, _digits, _range: &RangeInclusive<f64>| {
         let timestamp = mark.value as i64;
         if timestamp <= 0 {
@@ -100,5 +126,6 @@ pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ui: &mut Ui) {
         .show(ui, |plot_ui| {
             plot_ui.line(chart);
             plot_ui.line(chart_cdi);
+            plot_ui.line(chart_ibov);
         });
 }

@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+
 use glob::glob;
 use polars::{
     error::PolarsError,
@@ -7,6 +7,8 @@ use polars::{
 };
 use regex::Regex;
 
+pub mod config;
+pub mod downloader;
 pub mod fund;
 pub mod indicator;
 pub mod informe;
@@ -69,16 +71,6 @@ fn align_and_convert_columns_to_string(lf: LazyFrame, all_columns: &[String]) ->
     );
 
     aligned_lf
-}
-
-fn extract_date_from_filename(file_name: &str) -> Option<NaiveDate> {
-    let parts: Vec<&str> = file_name.split('_').collect();
-    if parts.len() < 4 {
-        return None;
-    }
-    let year = parts[3][..4].parse().ok()?;
-    let month = parts[3][4..6].parse().ok()?;
-    Some(NaiveDate::from_ymd_opt(year, month, 1).unwrap())
 }
 
 pub fn portfolio_available_dates() -> Vec<String> {

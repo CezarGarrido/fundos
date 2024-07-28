@@ -10,6 +10,8 @@ use polars::{
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
+const REGISTER_PATH: &str = "./dataset/cad/cad_fi.csv";
+
 #[derive(Clone)]
 pub struct Register {
     funds: LazyFrame,
@@ -48,17 +50,25 @@ impl fmt::Display for Class {
 
 impl Register {
     pub fn new() -> Self {
-        let path = "./dataset/cad/cad_fi.csv".to_string();
+        Self {
+            funds: LazyFrame::default(),
+        }
+    }
 
-        let lf = LazyCsvReader::new(path.clone())
+    pub fn load(&mut self) -> Result<(), PolarsError> {
+        match LazyCsvReader::new(REGISTER_PATH)
             .has_header(true)
             .with_infer_schema_length(None)
             .with_delimiter(b';')
             .with_cache(true)
             .finish()
-            .unwrap();
-
-        Self { funds: lf }
+        {
+            Ok(lf) => {
+                self.funds = lf;
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     pub fn find(

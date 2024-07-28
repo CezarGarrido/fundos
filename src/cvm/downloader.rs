@@ -1,24 +1,26 @@
 use std::{
+    io::BufWriter,
     path::Path,
     sync::{Arc, Mutex},
 };
 
-use chrono::{Datelike, Utc};
+use crate::message::Message;
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use curl::easy::Easy;
 use egui::{Align, Button, Layout};
+use encoding_rs::WINDOWS_1252;
 use partialzip::partzip::PartialZip;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
     io::Write,
 };
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
+use yahoo_finance_api::time::{Date, Month, OffsetDateTime, Time};
 
-use encoding_rs::WINDOWS_1252;
-
-use crate::message::Message;
-
+use super::config::load;
 #[derive(Clone)]
 pub struct Downloader {
     sender: mpsc::UnboundedSender<Message>,
@@ -26,7 +28,20 @@ pub struct Downloader {
 }
 
 impl Downloader {
-    pub fn new(downloads: Vec<Download>, sender: mpsc::UnboundedSender<Message>) -> Self {
+    pub fn new(sender: mpsc::UnboundedSender<Message>) -> Self {
+        let mut downloads = Vec::new();
+        if let Ok(options) = load() {
+            let docs = options.documents.clone();
+            for (i, d) in docs.clone().iter().enumerate() {
+                downloads.push(Download {
+                    document: d.clone(),
+                    token: CancellationToken::new(),
+                    progress: String::from(""),
+                    id: i,
+                })
+            }
+        };
+
         Self { downloads, sender }
     }
 
@@ -63,33 +78,26 @@ impl Downloader {
             if i != 0 {
                 ui.separator();
             }
-            ui.horizontal(|ui| {
-                ui.label(d.document.description.to_string());
-            });
 
             ui.horizontal(|ui| {
-                ui.label("Histórico? ");
-                if d.document.hist {
-                    ui.weak("Sim");
-                } else {
-                    ui.weak("Não");
-                }
-            });
-
-            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(d.document.description.to_string());
+                    ui.horizontal(|ui| {
+                        ui.label("Histórico? ");
+                        if d.document.hist {
+                            ui.weak("Sim");
+                        } else {
+                            ui.weak("Não");
+                        }
+                    });
+                });
                 ui.weak(d.progress.to_string());
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.add(Button::new("Cancelar")).clicked() {
                         self.cancel_one(i);
                     }
 
-                    if ui
-                        .add(Button::new(format!(
-                            "{} Baixar",
-                            egui_phosphor::regular::DOWNLOAD
-                        )))
-                        .clicked()
-                    {
+                    if ui.add(Button::new("Baixar".to_string())).clicked() {
                         self.start_download_one(i, ui.ctx());
                     }
                 });
@@ -99,6 +107,14 @@ impl Downloader {
 }
 
 #[derive(Clone)]
+pub struct Download {
+    pub id: usize,
+    pub token: CancellationToken,
+    pub progress: String,
+    pub document: Document,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub struct Document {
     pub description: String,
     pub url: String,
@@ -150,14 +166,6 @@ impl Document {
     }
 }
 
-#[derive(Clone)]
-pub struct Download {
-    pub id: usize,
-    pub token: CancellationToken,
-    pub progress: String,
-    pub document: Document,
-}
-
 #[derive(Error, Debug)]
 pub enum DownloadError {
     #[error("Operation was cancelled")]
@@ -174,9 +182,7 @@ pub enum DownloadError {
 
 impl Download {
     pub async fn download(&self, sender: mpsc::UnboundedSender<Message>, ctx: &egui::Context) {
-        println!("Baixando..");
-
-        self.update_progress("preparando...".to_string(), sender.clone(), ctx);
+        self.update_progress("Inicianco download...".to_string(), sender.clone(), ctx);
 
         let result = if self.document.ext == "zip" {
             let current_year = Utc::now().year();
@@ -195,9 +201,22 @@ impl Download {
                 current_year
             };
 
-            self.download_zip(initial_year, &self.token, sender.clone(), ctx)
+            self.download_zip_parallel(initial_year, &self.token, sender.clone(), ctx, 5)
                 .await
         } else {
+            self.update_progress(
+                format!("Baixando arquivo {}...", self.document.filename),
+                sender.clone(),
+                ctx,
+            );
+
+            if self.document.description == "IBOVESPA" {
+                let start_date = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+                let end_date = NaiveDate::from_ymd_opt(2024, 7, 25).unwrap();
+
+                return self.download_ibov(&self.token, start_date, end_date).await;
+            }
+
             self.download_file(&self.token)
         };
 
@@ -246,31 +265,50 @@ impl Download {
         Ok(None)
     }
 
-    async fn download_zip(
+    pub async fn download_zip_parallel(
         &self,
         initial_year: i32,
         token: &CancellationToken,
         sender: mpsc::UnboundedSender<Message>,
         ctx: &egui::Context,
+        max_spawn: usize,
     ) -> Result<(), DownloadError> {
         let dates = self.document.generate_dates(initial_year);
+        let semaphore = Arc::new(Semaphore::new(max_spawn));
+        let mut handles = Vec::new();
 
         for (i, date) in dates.iter().enumerate() {
             if token.is_cancelled() {
                 return Err(DownloadError::Cancelled);
             }
-            let count = i + 1;
-            let msg: String = format!(
-                "({}/{}) Baixando arquivo {}...",
-                count,
-                dates.len() - 1,
-                date.clone()
-            );
 
-            self.update_progress(msg, sender.clone(), ctx);
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let date = date.clone();
             let final_url = format!("{}/{}.zip", self.document.url, date);
-            self.download_and_save(&final_url, date, token).await?;
+            let self_clone = self.clone();
+            let sender_clone = sender.clone();
+            let ctx_clone = ctx.clone();
+            let token_clone = token.clone();
+            let len_dates = dates.len() - 1;
+            let handle = tokio::spawn(async move {
+                let count = i;
+                let msg = format!("({}/{}) Baixando arquivo {}...", count, len_dates, date);
+                self_clone.update_progress(msg, sender_clone, &ctx_clone);
+                let result = self_clone
+                    .download_and_save(&final_url, &date, &token_clone)
+                    .await;
+
+                drop(permit); // Libera o semáforo
+                result
+            });
+
+            handles.push(handle);
         }
+
+        for handle in handles {
+            handle.await.unwrap()?
+        }
+
         Ok(())
     }
 
@@ -388,6 +426,65 @@ impl Download {
         Ok(())
     }
 
+    pub async fn download_ibov(
+        &self,
+        _token: &CancellationToken,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    ) {
+        use yahoo_finance_api as yahoo;
+        let provider = yahoo::YahooConnector::new().unwrap();
+
+        let start = OffsetDateTime::new_utc(
+            Date::from_calendar_date(start_date.year(), Month::January, start_date.day() as u8)
+                .unwrap(),
+            Time::from_hms_nano(0, 0, 0, 0).unwrap(),
+        );
+        let end = OffsetDateTime::new_utc(
+            Date::from_calendar_date(end_date.year(), Month::December, end_date.day() as u8)
+                .unwrap(),
+            Time::from_hms_nano(0, 0, 0, 0).unwrap(),
+        );
+
+        let resp = provider
+            .get_quote_history("^BVSP", start, end)
+            .await
+            .unwrap();
+
+        let quotes: Vec<yahoo_finance_api::Quote> = resp.quotes().unwrap();
+        let mut ibovs = Vec::new();
+        for q in quotes {
+            let ibov = Ibov {
+                timestamp: q.timestamp,
+                adjclose: q.adjclose,
+                date: DateTime::from_timestamp(q.timestamp as i64, 0)
+                    .unwrap()
+                    .format("%d/%m/%Y")
+                    .to_string(),
+                open: q.open,
+                high: q.high,
+                low: q.low,
+                volume: q.volume,
+                close: q.close,
+            };
+            ibovs.push(ibov);
+        }
+        fs::create_dir_all(&self.document.download_path)
+            .map_err(|e| DownloadError::CreateDirFailed(e.to_string()))
+            .unwrap();
+
+        let final_output_file = format!(
+            "{}/{}",
+            &self.document.download_path, &self.document.filename
+        );
+
+        let file = File::create(final_output_file).unwrap();
+        let writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(writer, &ibovs).unwrap();
+
+        println!("quotes {:?}", ibovs);
+    }
+
     fn update_progress(
         &self,
         progress: String,
@@ -397,4 +494,16 @@ impl Download {
         let _ = sender.send(Message::DownloadProgress(self.id, progress));
         ctx.request_repaint();
     }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct Ibov {
+    pub date: String,
+    pub timestamp: u64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub volume: u64,
+    pub close: f64,
+    pub adjclose: f64,
 }

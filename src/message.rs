@@ -9,7 +9,7 @@ pub enum Message {
     NewTab(String),
     Profit(String, NaiveDate, NaiveDate),
     Assets(String, String, String),
-    ProfitResult(String, DataFrame, DataFrame),
+    ProfitResult(String, DataFrame, DataFrame,DataFrame),
     AssetsResult(String, DataFrame, DataFrame, DataFrame),
     DownloadProgress(usize, String),
     OpenSearchWindow(bool),

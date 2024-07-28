@@ -1,11 +1,12 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
+mod util;
 mod app;
 mod charts;
-mod config;
+pub mod config;
 mod cvm;
-mod downloader;
 mod history;
+pub mod logger;
 mod message;
 mod statusbar;
 mod tabs;

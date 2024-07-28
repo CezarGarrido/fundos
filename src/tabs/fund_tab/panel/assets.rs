@@ -1,4 +1,4 @@
-use crate::{cvm, message};
+use crate::{cvm, message, util};
 use chrono::Datelike;
 use egui::{ComboBox, Layout, Sense, TopBottomPanel, Ui};
 use egui_extras::{Column, TableBuilder};
@@ -130,12 +130,14 @@ pub fn assets_ui(
         .default_width(400.0)
         .width_range(200.0..=450.0)
         .show_inside(ui, |ui| {
+            ui.add_space(10.0);
+            //egui::Frame::none().inner_margin(10.0).show(ui, |ui| {
             let nr_rows = top_assets.height();
             let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
             ui.push_id("top_assets", |ui| {
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     TableBuilder::new(ui)
-                        .column(Column::auto().at_most(150.0))
+                        .column(Column::auto().resizable(true).clip(true))
                         .column(Column::auto().at_most(150.0))
                         .column(Column::remainder())
                         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -164,11 +166,14 @@ pub fn assets_ui(
                                                 if col.contains("VL_PORCENTAGEM_PL") {
                                                     let a =
                                                         value.to_string().parse::<f64>().unwrap();
-                                                    ui.label(format!("{}%", a));
+                                                    ui.colored_label(
+                                                        egui::Color32::DARK_GREEN,
+                                                        format!("{}%", a),
+                                                    );
                                                 } else if col.contains("VL_MERC_POS_FINAL") {
                                                     let a =
                                                         value.to_string().parse::<f64>().unwrap();
-                                                    let r = real(a).unwrap();
+                                                    let r = util::to_real(a).unwrap();
                                                     ui.weak(r.format());
                                                 } else if let Some(value_str) = value.get_str() {
                                                     ui.weak(value_str);
@@ -184,18 +189,19 @@ pub fn assets_ui(
 
                 TopBottomPanel::bottom("vl_pl").show_inside(ui, |ui: &mut Ui| {
                     ui.add_space(8.0);
-                    ui.horizontal_centered(|ui| {
-                        ui.label("Patrimonio Líquido");
+                    ui.vertical(|ui| {
+                        ui.weak("Patrimonio Líquido");
                         pl.column("VL_PATRIM_LIQ")
                             .ok()
                             .and_then(|col| col.get(0).ok())
                             .and_then(|val| val.get_str().map(|s| s.to_string()))
                             .and_then(|value_str| value_str.parse::<f64>().ok())
-                            .and_then(|parsed_value| real(parsed_value).ok())
+                            .and_then(|parsed_value| util::to_real(parsed_value).ok())
                             .map(|v| ui.heading(v.format()))
                             .unwrap_or_else(|| ui.label("-"));
                     });
                 });
+                //});
             });
         });
 
@@ -242,10 +248,10 @@ pub fn assets_ui(
 
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     TableBuilder::new(ui)
-                        .column(Column::auto().at_least(100.0).resizable(false))
-                        .column(Column::auto().at_least(100.0).resizable(false))
-                        .column(Column::auto().at_least(40.0).resizable(false))
-                        .column(Column::auto().at_least(40.0).resizable(false))
+                        .column(Column::auto().resizable(true).clip(true))
+                        .column(Column::auto().at_least(100.0).resizable(true))
+                        .column(Column::auto().at_least(50.0).resizable(true).clip(true))
+                        .column(Column::remainder().at_least(50.0).resizable(true))
                         .column(Column::remainder())
                         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                         .striped(true)
@@ -285,7 +291,7 @@ pub fn assets_ui(
                                                             .to_string()
                                                             .parse::<f64>()
                                                             .unwrap();
-                                                        let r = real(a).unwrap();
+                                                        let r = util::to_real(a).unwrap();
                                                         ui.label(r.format());
                                                     } else {
                                                         ui.label(value_str);
@@ -315,13 +321,4 @@ fn toggle_row_selection(
             selection.insert(row_index);
         }
     }
-}
-
-fn real(value: f64) -> Result<currency_rs::Currency, currency_rs::CurrencyErr> {
-    let otp = currency_rs::CurrencyOpts::new()
-        .set_separator(".")
-        .set_decimal(",")
-        .set_symbol("R$ ");
-
-    Ok(currency_rs::Currency::new_float(value, Some(otp)))
 }

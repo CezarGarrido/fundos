@@ -5,8 +5,8 @@ use polars::frame::DataFrame;
 use tokio::sync::mpsc;
 
 use crate::{
-    config::Config,
     cvm::{
+        downloader,
         fund::{Class, Register},
         indicator,
         informe::Informe,
@@ -28,8 +28,6 @@ pub struct TemplateApp {
     #[serde(skip)]
     tree: DockState<TabType>,
     #[serde(skip)]
-    config: Config,
-    #[serde(skip)]
     query: String,
     #[serde(skip)]
     result_funds: DataFrame,
@@ -46,27 +44,35 @@ pub struct TemplateApp {
     informe: Informe,
     #[serde(skip)]
     portfolio: Portfolio,
+
+    pub open_logs: bool,
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
         let channel = mpsc::unbounded_channel();
-        let config = Config::new(channel.0.clone());
-
         let history = History::new();
         let _ = history.load();
 
+        let downloader = downloader::Downloader::new(channel.0.clone());
+
         let tree: DockState<TabType> = DockState::new(vec![TabType::Home(HomeTab::new(
             "Início".to_string(),
-            config.clone(),
             channel.0.clone(),
             history.clone(),
+            downloader.clone(),
         ))]);
 
         let tab_viewer = TabViewer { open_window: false };
-        let register = Register::new();
+
+        let mut register = Register::new();
+        if register.load().is_err() {
+            log::error!("erro ao carregar dataframe");
+        }
+
         let informe: Informe = Informe::new();
         let portfolio = Portfolio::new();
+
         let initial_funds = register
             .find(None, None, None, Some(10))
             .unwrap_or(DataFrame::empty());
@@ -75,7 +81,6 @@ impl Default for TemplateApp {
             tree,
             tab_viewer,
             fund_class: None,
-            config,
             query: "".to_owned(),
             channel,
             result_funds: initial_funds,
@@ -83,6 +88,7 @@ impl Default for TemplateApp {
             register,
             informe,
             portfolio,
+            open_logs: false,
         }
     }
 }
@@ -143,10 +149,13 @@ impl TemplateApp {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
                         if let TabType::Home(stb) = tb {
-                            stb.config.downloader.update_download(idx, progress);
+                            stb.downloader.update_download(idx, progress.clone());
                             ctxc.request_repaint();
                             break;
                         }
+                    }
+                    if progress.contains("concluido") && self.register.load().is_err() {
+                        log::error!("erro ao carregar dataframe");
                     }
                 }
                 Message::NewTab(cnpj) => {
@@ -157,7 +166,7 @@ impl TemplateApp {
                             self.add_tab(cnpj, fund_dataframe);
                         }
                         Err(err) => {
-                            println!("err {}", err);
+                            log::error!("erro ao carregar fundo {}", err);
                         }
                     }
                 }
@@ -165,50 +174,92 @@ impl TemplateApp {
                     let informe = self.informe.clone();
                     tokio::spawn(async move {
                         let cdi_future = async { indicator::cdi(start_date, end_date) };
+                        let ibov_future = async { indicator::get_ibovespa(start_date, end_date) };
+
                         let profitability_future =
                             async { informe.profitability(cnpj.clone(), start_date, end_date) };
-                        let (cdi_result, profitability_result) =
-                            tokio::join!(cdi_future, profitability_future);
-                        match (cdi_result, profitability_result) {
-                            (Ok(cdi_dataframe), Ok(profit_dataframe)) => {
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj,
-                                    profit_dataframe,
-                                    cdi_dataframe,
-                                ));
-                                ctxc.request_repaint();
-                            }
-                            (Ok(cdi_dataframe), Err(err)) => {
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    DataFrame::empty(), // Placeholder for empty DataFrame
-                                    cdi_dataframe,
-                                ));
-                                println!("Profitability error: {}", err);
-                                ctxc.request_repaint();
-                            }
-                            (Err(err), Ok(profit_dataframe)) => {
+                        let (cdi_result, profitability_result, ibov_result) =
+                            tokio::join!(cdi_future, profitability_future, ibov_future);
+
+                        match (cdi_result, profitability_result, ibov_result) {
+                            (Ok(cdi_dataframe), Ok(profit_dataframe), Ok(ibov_dataframe)) => {
                                 let _ = sender.send(Message::ProfitResult(
                                     cnpj.clone(),
                                     profit_dataframe,
-                                    DataFrame::empty(), // Placeholder for empty DataFrame
+                                    cdi_dataframe,
+                                    ibov_dataframe,
                                 ));
-                                println!("CDI error: {}", err);
-                                ctxc.request_repaint();
                             }
-                            (Err(err1), Err(err2)) => {
-                                println!("Both errors: {}, {}", err1, err2);
+                            (Ok(cdi_dataframe), Ok(profit_dataframe), Err(_)) => {
+                                log::warn!("Erro ao carregar ibov rentabilidade");
+                                let _ = sender.send(Message::ProfitResult(
+                                    cnpj.clone(),
+                                    profit_dataframe,
+                                    cdi_dataframe,
+                                    DataFrame::empty(), // ou algum valor padrão
+                                ));
+                            }
+                            (Ok(cdi_dataframe), Err(_), Ok(ibov_dataframe)) => {
+                                log::warn!("Erro ao carregar profit rentabilidade");
+                                let _ = sender.send(Message::ProfitResult(
+                                    cnpj.clone(),
+                                    DataFrame::empty(), // ou algum valor padrão
+                                    cdi_dataframe,
+                                    ibov_dataframe,
+                                ));
+                            }
+                            (Err(_), Ok(profit_dataframe), Ok(ibov_dataframe)) => {
+                                log::warn!("Erro ao carregar CDI rentabilidade");
+                                let _ = sender.send(Message::ProfitResult(
+                                    cnpj.clone(),
+                                    profit_dataframe,
+                                    DataFrame::empty(), // ou algum valor padrão
+                                    ibov_dataframe,
+                                ));
+                            }
+                            (Ok(cdi_dataframe), Err(_), Err(_)) => {
+                                log::warn!("Erro ao carregar profit e ibov rentabilidade");
+                                let _ = sender.send(Message::ProfitResult(
+                                    cnpj.clone(),
+                                    DataFrame::empty(), // ou algum valor padrão
+                                    cdi_dataframe,
+                                    DataFrame::empty(), // ou algum valor padrão
+                                ));
+                            }
+                            (Err(_), Ok(profit_dataframe), Err(_)) => {
+                                log::warn!("Erro ao carregar CDI e ibov rentabilidade");
+                                let _ = sender.send(Message::ProfitResult(
+                                    cnpj.clone(),
+                                    profit_dataframe,
+                                    DataFrame::empty(), // ou algum valor padrão
+                                    DataFrame::empty(), // ou algum valor padrão
+                                ));
+                            }
+                            (Err(_), Err(_), Ok(ibov_dataframe)) => {
+                                log::warn!("Erro ao carregar CDI e profit rentabilidade");
+                                let _ = sender.send(Message::ProfitResult(
+                                    cnpj.clone(),
+                                    DataFrame::empty(), // ou algum valor padrão
+                                    DataFrame::empty(), // ou algum valor padrão
+                                    ibov_dataframe,
+                                ));
+                            }
+                            (Err(_), Err(_), Err(_)) => {
+                                log::error!("Erro ao carregar todas as rentabilidades");
                             }
                         }
+                        ctxc.request_repaint();
                     });
                 }
-                Message::ProfitResult(cnpj, df, cdi) => {
+                Message::ProfitResult(cnpj, df, cdi, ibov) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
                         if let TabType::Fund(stb) = tb {
                             if *stb.title().text().to_string() == cnpj {
                                 stb.set_profit_dataframe(df.clone());
                                 stb.set_cdi_dataframe(cdi.clone());
+                                stb.set_ibov_dataframe(ibov.clone());
+
                                 stb.set_profit_loading(false);
                                 ctx.request_repaint();
                                 break;
@@ -217,7 +268,6 @@ impl TemplateApp {
                     }
                 }
                 Message::Assets(cnpj, year, month) => {
-                    println!("cnpj {} ano {} mes {}", cnpj, year, month);
                     let portfolio = self.portfolio.clone();
                     tokio::spawn(async move {
                         let pl = match portfolio.patrimonio_liquido(
@@ -227,7 +277,7 @@ impl TemplateApp {
                         ) {
                             Ok(df) => df,
                             Err(e) => {
-                                eprintln!("Erro ao obter patrimônio líquido: {:?}", e);
+                                log::error!("erro ao obter patrimônio líquido: {:?}", e);
                                 return; // Não envie a mensagem se ocorrer erro
                             }
                         };
@@ -241,7 +291,7 @@ impl TemplateApp {
                         ) {
                             Ok(dfs) => dfs,
                             Err(e) => {
-                                eprintln!("Erro ao obter ativos: {:?}", e);
+                                log::error!("erro ao obter ativos: {:?}", e);
                                 return; // Não envie a mensagem se ocorrer erro
                             }
                         };
@@ -249,7 +299,7 @@ impl TemplateApp {
                         if let Err(e) =
                             sender.send(Message::AssetsResult(cnpj.clone(), assets, top_assets, pl))
                         {
-                            eprintln!("Erro ao enviar mensagem: {:?}", e);
+                            log::error!("rrro ao enviar mensagem: {:?}", e);
                         }
 
                         ctxc.request_repaint();
@@ -283,7 +333,7 @@ impl TemplateApp {
                                 ctxc.request_repaint();
                             }
                             Err(err) => {
-                                log::error!("{}", err); // TODO: tratar erro
+                                log::error!("erro ao buscar fundos {:?}", err);
                             }
                         }
                     });
@@ -309,7 +359,7 @@ impl eframe::App for TemplateApp {
                 if !is_web {
                     ui.menu_button("Arquivo", |ui| {
                         if ui.button("Configuração").clicked() {
-                            self.config.open = !self.config.open;
+                            //self.config.open = !self.config.open;
                         }
                         ui.separator();
                         if ui.button("Sair").clicked() {
@@ -321,7 +371,7 @@ impl eframe::App for TemplateApp {
                 egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
-        self.config.show(ctx);
+        //self.config.show(ctx);
         self.show_statusbar(ctx, frame);
 
         egui::CentralPanel::default().show(ctx, |ui| {

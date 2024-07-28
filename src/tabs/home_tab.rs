@@ -1,27 +1,27 @@
 use super::Tab;
-use crate::{config::Config, history::History, message::Message};
+use crate::{cvm::downloader, history::History, message::Message};
 use egui::{CentralPanel, Frame, Ui, WidgetText};
 use tokio::sync::mpsc;
 
 pub struct HomeTab {
     pub title: String,
-    pub config: Config,
     pub history: History,
     pub sender: mpsc::UnboundedSender<Message>,
+    pub downloader: downloader::Downloader,
 }
 
 impl HomeTab {
     pub fn new(
         title: String,
-        config: Config,
         sender: mpsc::UnboundedSender<Message>,
         history: History,
+        downloader: downloader::Downloader,
     ) -> Self {
         HomeTab {
             title,
-            config,
             sender,
             history,
+            downloader,
         }
     }
 }
@@ -45,6 +45,7 @@ impl Tab for HomeTab {
                         let _ = self.sender.send(Message::OpenSearchWindow(true));
                     }
                     let _ = ui.small_button("Abrir Configuração..");
+                    let _ = ui.small_button("Mudar Tema");
                 });
 
                 ui.add_space(50.0);
@@ -61,7 +62,7 @@ impl Tab for HomeTab {
                 ui.group(|ui| {
                     ui.label(format!("{} Downloads", egui_phosphor::regular::DOWNLOAD));
                     ui.separator();
-                    self.config.downloader.ui(ui);
+                    self.downloader.ui(ui);
                 });
             });
         });

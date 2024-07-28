@@ -75,6 +75,11 @@ impl FundTab {
         self.profit_ui.cdi = df;
     }
 
+    pub fn set_ibov_dataframe(&mut self, df: DataFrame) {
+        self.profit_ui.ibov = df;
+    }
+
+
     pub fn set_profit_dataframe(&mut self, df: DataFrame) {
         self.profit_ui.profit = df;
     }
@@ -107,18 +112,21 @@ impl Tab for FundTab {
 
     fn ui(&mut self, ui: &mut Ui) {
         let sender = self.sender().clone();
-        egui::TopBottomPanel::top("top_bottom_panel").show_inside(ui, |ui| {
-            if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
-                ui.heading(s.get(0).unwrap().get_str().unwrap());
-            }
-            ui.horizontal(|ui| {
-                display_column_value(ui, "CNPJ:", "CNPJ_FUNDO", &self.fund);
-                ui.separator();
-                display_column_value(ui, "Gestor:", "GESTOR", &self.fund);
-                ui.separator();
-                display_column_value(ui, "Administrador:", "ADMIN", &self.fund);
-            });
-        });
+        egui::TopBottomPanel::top(format!("{}_bottom_panel", ui.id().value())).show_inside(
+            ui,
+            |ui| {
+                if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
+                    ui.heading(s.get(0).unwrap().get_str().unwrap());
+                }
+                ui.horizontal(|ui| {
+                    display_column_value(ui, "CNPJ:", "CNPJ_FUNDO", &self.fund);
+                    ui.separator();
+                    display_column_value(ui, "Gestor:", "GESTOR", &self.fund);
+                    ui.separator();
+                    display_column_value(ui, "Administrador:", "ADMIN", &self.fund);
+                });
+            },
+        );
 
         Frame::none().inner_margin(10.0).show(ui, |ui| {
             ui.group(|ui| {

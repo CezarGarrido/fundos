@@ -1,28 +1,34 @@
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use glob::glob;
 
 use polars::{
-    datatypes::{DataType, Float64Chunked},
+    datatypes::{DataType},
     error::PolarsError,
     frame::DataFrame,
     lazy::{
-        dsl::{col, concat, lit},
+        dsl::{col, concat, lit, StrptimeOptions},
         frame::LazyFrame,
     },
-    prelude::{ChunkCumAgg, ChunkShift, UnionArgs},
-    series::IntoSeries,
+    prelude::{NamedFrom, SortOptions, UnionArgs},
+    series::{Series},
 };
 
-use crate::cvm::{align_columns, extract_date_from_filename, get_all_columns, read_csv_lazy};
+use crate::cvm::{align_columns, get_all_columns, read_csv_lazy};
+
+const INFORM_PATH: &str = "./dataset/infdiario/";
 
 #[derive(Clone)]
 pub struct Informe {
     path: String,
 }
 
+fn path_pattern() -> String {
+    format!("{}{}", INFORM_PATH, "inf_diario_fi_{year}{month}/*.csv")
+}
+
 impl Informe {
     pub fn new() -> Self {
-        let path = "./dataset/infdiario/inf_diario_fi_*/*.csv".to_string();
+        let path = path_pattern();
         Self { path }
     }
 
@@ -35,68 +41,118 @@ impl Informe {
         let res = self.read_informes(start_date, end_date);
         match res {
             Ok(lf) => {
-                let start_date_str = start_date.format("%Y-%m-%d").to_string();
-                let end_date_str = end_date.format("%Y-%m-%d").to_string();
-                let cotas = lf
+                let mut cotas = lf
                     .filter(col("CNPJ_FUNDO").str().contains(lit(cnpj), false))
-                    .filter(col("DT_COMPTC").gt_eq(lit(start_date_str)))
-                    .filter(col("DT_COMPTC").lt_eq(lit(end_date_str)))
-                    .collect()
-                    .unwrap();
+                    .with_column(col("VL_QUOTA").cast(DataType::Float64))
+                    .with_column(
+                        col("DT_COMPTC")
+                            .str()
+                            .strptime(
+                                DataType::Date,
+                                StrptimeOptions {
+                                    format: Some("%Y-%m-%d".into()),
+                                    ..Default::default()
+                                },
+                            )
+                            .cast(DataType::Date)
+                            .alias("AS_DATE"),
+                    )
+                    .filter(
+                        col("AS_DATE")
+                            .gt_eq(lit(start_date))
+                            .and(col("AS_DATE").cast(DataType::Date).lt_eq(lit(end_date))),
+                    )
+                    .sort("AS_DATE", SortOptions::default())
+                    .collect()?;
 
-                let q = cotas
-                    .column("VL_QUOTA")
-                    .unwrap()
-                    .cast(&DataType::Float64)
-                    .unwrap();
+                // Obter a coluna de cotas
+                let quotas = cotas.column("VL_QUOTA")?.f64()?;
+                let mut rentabilidades_diarias = Vec::new();
+                let mut prev_quota = None;
+                let mut rentabilidade_acumulada = 1.0;
+                let mut rentabilidades_acumuladas = Vec::new();
 
-                let vl_quota = q.f64()?;
-                let shifted = vl_quota.shift(1);
+                for quota in quotas.into_iter() {
+                    if let Some(prev) = prev_quota {
+                        if let Some(current) = quota {
+                            let rentabilidade_diaria = (current - prev) / prev;
+                            rentabilidade_acumulada *= 1.0 + rentabilidade_diaria;
+                            rentabilidades_diarias.push(rentabilidade_diaria);
+                        }
+                    } else {
+                        rentabilidades_diarias.push(0.0); // Inicial para o primeiro valor
+                    }
+                    rentabilidades_acumuladas.push(rentabilidade_acumulada - 1.0); // Rentabilidade acumulada progressiva
 
-                let rent = vl_quota
-                    .into_iter()
-                    .zip(shifted.into_iter())
-                    .map(|(current, previous)| match (current, previous) {
-                        (Some(current), Some(previous)) => Some(current / previous - 1.0),
-                        _ => Some(0.0),
-                    })
-                    .collect::<Float64Chunked>()
-                    .into_series();
+                    prev_quota = quota;
+                }
+                let rentabilidades_acumuladas_percent: Vec<f64> = rentabilidades_acumuladas
+                    .iter()
+                    .map(|&r| r * 100.0)
+                    .collect();
 
-                let mut rent_acum = rent
-                    .clone()
-                    .f64()?
-                    .cumsum(false)
-                    .into_iter()
-                    .map(|opt| opt.map(|v| v * 100.0))
-                    .collect::<Float64Chunked>()
-                    .into_series();
-
-                let mut cotas = cotas.clone();
-                //cotas.with_column(rent.rename("RENT").to_owned())?;
-                cotas.with_column(rent_acum.rename("RENT_ACUM").to_owned())?;
+                // Criar Series para rentabilidade diária e acumulada
+                let series_acumulada = Series::new("RENT_ACUM", rentabilidades_acumuladas_percent);
+                cotas.with_column(series_acumulada)?;
                 Ok(cotas)
             }
-            Err(err) => Err(err),
+            Err(err) => {
+                println!("errrror {}", err);
+                Err(err)
+            }
         }
     }
 
-    fn find(&self, start_date: NaiveDate, end_date: NaiveDate) -> Vec<LazyFrame> {
-        glob(&self.path)
-            .unwrap()
-            .filter_map(|entry| match entry {
-                Ok(path) => {
-                    let file_name = path.file_name()?.to_str()?;
-                    let file_date = extract_date_from_filename(file_name)?;
-                    if file_date >= start_date && file_date <= end_date {
-                        read_csv_lazy(path.to_str()?).ok()
-                    } else {
-                        None
+    fn files_glob(&self, start_date: NaiveDate, end_date: NaiveDate) -> Vec<LazyFrame> {
+        let mut lfs = Vec::new();
+        let mut errs = Vec::new();
+        let patterns = self.generate_patterns(start_date, end_date, self.path.as_str());
+        for pattern in patterns {
+            for path in glob(&pattern).unwrap().filter_map(Result::ok) {
+                if path.is_file() {
+                    let file = path.display().to_string();
+                    println!("file {}", file);
+                    let res = read_csv_lazy(&file);
+                    match res {
+                        Ok(lf) => lfs.push(lf),
+                        Err(err) => errs.push(err),
                     }
                 }
-                Err(_) => None,
-            })
-            .collect()
+            }
+        }
+        lfs
+    }
+
+    fn generate_patterns(
+        &self,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+        path_template: &str,
+    ) -> Vec<String> {
+        let mut patterns = Vec::new();
+
+        let mut current_date = start_date;
+        while current_date <= end_date {
+            // Formata o ano e o mês no formato desejado
+            let year = current_date.year();
+            let month = current_date.month();
+
+            // Substitua os placeholders no template do caminho com o ano e o mês atuais
+            let mut pattern = path_template.to_string();
+            pattern = pattern.replace("{year}", &year.to_string());
+            pattern = pattern.replace("{month}", &format!("{:02}", month));
+
+            // Adiciona o padrão à lista
+            patterns.push(pattern);
+
+            // Avança para o próximo mês
+            current_date = current_date
+                .with_month(month + 1)
+                .unwrap_or(NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap());
+        }
+        patterns.dedup();
+
+        patterns
     }
 
     fn read_informes(
@@ -104,7 +160,7 @@ impl Informe {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<LazyFrame, PolarsError> {
-        let lfs = self.find(start_date, end_date);
+        let lfs = self.files_glob(start_date, end_date);
         if lfs.is_empty() {
             return Err(PolarsError::NoData(
                 "No CSV files found or all failed to read".into(),

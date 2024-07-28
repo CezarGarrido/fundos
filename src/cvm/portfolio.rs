@@ -1,5 +1,5 @@
+use crate::cvm::{align_and_convert_columns_to_string, get_all_columns, read_csv_lazy};
 use glob::glob;
-
 use polars::{
     datatypes::DataType,
     error::PolarsError,
@@ -11,7 +11,7 @@ use polars::{
     prelude::{IntoLazy, UnionArgs},
 };
 
-use crate::cvm::{align_and_convert_columns_to_string, get_all_columns, read_csv_lazy};
+const PORTFOLIO_PATH: &str = "./dataset/cda/";
 
 #[derive(Clone)]
 pub struct Portfolio {
@@ -20,8 +20,7 @@ pub struct Portfolio {
 
 impl Portfolio {
     pub fn new() -> Self {
-        let path = "./dataset/cda/cda_fi_{year}{month}/cda*.csv".to_string();
-
+        let path = format!("{}{}", PORTFOLIO_PATH, "cda_fi_{year}{month}/cda*.csv");
         Self { path }
     }
 
@@ -32,17 +31,15 @@ impl Portfolio {
             .replace("{month}", &month.to_string());
 
         let mut lfs = Vec::new();
+        let mut errs = Vec::new();
         for path in glob(&pattern).unwrap().filter_map(Result::ok) {
             if path.is_file() {
                 let file = path.display().to_string();
                 if !file.contains("PL") {
-                    log::info!("Reading file: {:?}", path.display());
                     let res = read_csv_lazy(&file);
                     match res {
                         Ok(lf) => lfs.push(lf),
-                        Err(err) => {
-                            log::info!("Error reading file: {:?} {}", path.display(), err);
-                        }
+                        Err(err) => errs.push(err),
                     }
                 }
             }
@@ -53,6 +50,7 @@ impl Portfolio {
                 "No CSV files found or all failed to read".into(),
             ));
         }
+
         let all_columns = get_all_columns(&lfs);
         let aligned_lfs: Vec<LazyFrame> = lfs
             .into_iter()
@@ -127,9 +125,16 @@ impl Portfolio {
         match res {
             Ok(lf) => {
                 let mut valor_pl = 0.0;
-                if let Ok(s) = pl.column("VL_PATRIM_LIQ") {
-                    valor_pl = s.get(0).unwrap().get_str().unwrap().parse::<f64>().unwrap();
+                if let Some(parsed_value) = pl
+                    .column("VL_PATRIM_LIQ")
+                    .ok()
+                    .and_then(|col| col.get(0).ok())
+                    .and_then(|val| val.get_str().map(|s| s.to_string()))
+                    .and_then(|value_str| value_str.parse::<f64>().ok())
+                {
+                    valor_pl = parsed_value;
                 }
+
                 let assets = lf
                     .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
                     .with_column(

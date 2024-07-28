@@ -27,11 +27,19 @@ impl Tab for TabType {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        match self {
-            TabType::Fund(tab) => tab.ui(ui),
-            TabType::Home(tab) => tab.ui(ui),
-            // Adicione outros tipos de tabs aqui
-        }
+        ui.push_id(format!("{}_", self.title().text()), |ui| {
+            egui::Frame::none()
+                //.fill(ui.style().visuals.extreme_bg_color)
+                .inner_margin(-2.0)
+                .outer_margin(0.0)
+                .show(ui, |ui| {
+                    match self {
+                        TabType::Fund(tab) => tab.ui(ui),
+                        TabType::Home(tab) => tab.ui(ui),
+                        // Adicione outros tipos de tabs aqui
+                    }
+                });
+        });
     }
 
     fn closeable(&self) -> bool {
