@@ -1,5 +1,15 @@
 app:
   name: "opaa"
+  indicator:
+    cdi:
+      description: "CDI"
+      url: "https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json"
+      path: "./dataset/cdi/bcdata.sgs.12.json"
+    ibovespa:
+      description: "Ibovespa"
+      path: "./dataset/ibovespa.csv"
+      start_date: "01/01/2020"
+      end_date: "27/07/2024"
   cvm:
     documents:
       - description: "IBOVESPA"
@@ -9,7 +19,7 @@ app:
         filename: "ibov.json"
         pattern: ""
         pattern_hist: ""
-        download_path: "./dataset/ibov"
+        download_path: "./dataset/ibov/"
         limit_years: -1
       - description: "Informação Cadastral"
         url: "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv"

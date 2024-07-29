@@ -2,7 +2,7 @@ use chrono::{Datelike, NaiveDate};
 use glob::glob;
 
 use polars::{
-    datatypes::{DataType},
+    datatypes::DataType,
     error::PolarsError,
     frame::DataFrame,
     lazy::{
@@ -10,10 +10,10 @@ use polars::{
         frame::LazyFrame,
     },
     prelude::{NamedFrom, SortOptions, UnionArgs},
-    series::{Series},
+    series::Series,
 };
 
-use crate::cvm::{align_columns, get_all_columns, read_csv_lazy};
+use super::{align_columns, get_all_columns, read_csv_lazy};
 
 const INFORM_PATH: &str = "./dataset/infdiario/";
 

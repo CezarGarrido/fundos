@@ -1,4 +1,4 @@
-use crate::cvm::{align_and_convert_columns_to_string, get_all_columns, read_csv_lazy};
+
 use glob::glob;
 use polars::{
     datatypes::DataType,
@@ -11,6 +11,7 @@ use polars::{
     prelude::{IntoLazy, UnionArgs},
 };
 
+use super::{align_and_convert_columns_to_string, get_all_columns, read_csv_lazy};
 const PORTFOLIO_PATH: &str = "./dataset/cda/";
 
 #[derive(Clone)]

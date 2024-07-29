@@ -1,36 +1,30 @@
-use egui::{Align2, Vec2};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabAddAlign};
-use egui_extras::{Column, TableBuilder};
-use polars::frame::DataFrame;
+use polars::{error::PolarsError, frame::DataFrame};
+use std::collections::HashMap;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
-    cvm::{
-        downloader,
-        fund::{Class, Register},
-        indicator,
-        informe::Informe,
-        portfolio::Portfolio,
-    },
     history::History,
     message::Message,
-    tabs::{fund_tab::FundTab, home_tab::HomeTab, Tab, TabType, TabViewer},
+    provider::{
+        cvm::{fund::Register, informe::Informe, portfolio::Portfolio},
+        indices::{self},
+    },
+    ui::{
+        fund::{modal::search::Search, tab::FundTab},
+        tabs::{home_tab::HomeTab, Tab, TabType, TabViewer},
+    },
 };
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-    #[serde(skip)] // This how you opt-out of serialization of a field
-    fund_class: Option<Class>,
     #[serde(skip)]
     tab_viewer: TabViewer,
     #[serde(skip)]
     tree: DockState<TabType>,
-    #[serde(skip)]
-    query: String,
-    #[serde(skip)]
-    result_funds: DataFrame,
     #[serde(skip)]
     channel: (
         mpsc::UnboundedSender<Message>,
@@ -44,7 +38,10 @@ pub struct TemplateApp {
     informe: Informe,
     #[serde(skip)]
     portfolio: Portfolio,
-
+    #[serde(skip)]
+    downloads: HashMap<String, CancellationToken>,
+    #[serde(skip)]
+    search: Search,
     pub open_logs: bool,
 }
 
@@ -52,15 +49,14 @@ impl Default for TemplateApp {
     fn default() -> Self {
         let channel = mpsc::unbounded_channel();
         let history = History::new();
-        let _ = history.load();
-
-        let downloader = downloader::Downloader::new(channel.0.clone());
+        if history.load().is_err() {
+            log::error!("erro ao carregar dataframe");
+        }
 
         let tree: DockState<TabType> = DockState::new(vec![TabType::Home(HomeTab::new(
             "Início".to_string(),
             channel.0.clone(),
             history.clone(),
-            downloader.clone(),
         ))]);
 
         let tab_viewer = TabViewer { open_window: false };
@@ -77,28 +73,30 @@ impl Default for TemplateApp {
             .find(None, None, None, Some(10))
             .unwrap_or(DataFrame::empty());
 
+        let s = channel.0.clone();
+        let mut search = Search::new(false, s);
+
+        search.set_result(initial_funds);
+
         Self {
             tree,
             tab_viewer,
-            fund_class: None,
-            query: "".to_owned(),
             channel,
-            result_funds: initial_funds,
             history,
             register,
             informe,
             portfolio,
             open_logs: false,
+            downloads: HashMap::new(),
+            search,
         }
     }
 }
 
 impl TemplateApp {
-    /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
-
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
@@ -108,8 +106,19 @@ impl TemplateApp {
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
-
         Default::default()
+    }
+
+    fn start_download(&mut self, key: String) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.downloads.insert(key, token.clone());
+        token
+    }
+
+    fn cancel_download(&mut self, key: String) {
+        if let Some(token) = self.downloads.remove(&key) {
+            token.cancel();
+        }
     }
 
     pub fn add_tab(&mut self, cnpj: String, df: DataFrame) {
@@ -142,27 +151,41 @@ impl TemplateApp {
 
         if let Ok(message) = self.channel.1.try_recv() {
             match message {
-                Message::OpenSearchWindow(value) => {
-                    self.tab_viewer.open_window = value;
-                }
-                Message::DownloadProgress(idx, progress) => {
+                Message::ProgressDownload(group, index, dl) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
                         if let TabType::Home(stb) = tb {
-                            stb.downloader.update_download(idx, progress.clone());
-                            ctxc.request_repaint();
+                            stb.download_manager
+                                .update_download(group.as_str(), index, dl);
+                            ctx.request_repaint(); // Solicita um redesenho da interface
                             break;
                         }
                     }
-                    if progress.contains("concluido") && self.register.load().is_err() {
-                        log::error!("erro ao carregar dataframe");
-                    }
+                }
+                Message::CancelDownload(key) => {
+                    self.cancel_download(key);
+                }
+                Message::StartDownload(group, index, download_item) => {
+                    // Crie um novo token de cancelamento e inicie o download
+                    let token = { self.start_download(format!("{}_{}", group, index)) };
+                    let g = group.clone();
+                    tokio::spawn(async move {
+                        indices::download(token.clone(), download_item.id, move |dl| {
+                            let _ = sender.send(Message::ProgressDownload(g.clone(), index, dl));
+                            ctxc.request_repaint(); // Wake up UI thread
+                        })
+                    });
+                }
+                Message::OpenSearchWindow(value) => {
+                    // self.tab_viewer.open_window = value;
+                    self.search.open(value)
                 }
                 Message::NewTab(cnpj) => {
                     let res = self.register.find_by_cnpj(cnpj.clone());
                     match res {
                         Ok(fund_dataframe) => {
                             self.tab_viewer.open_window = false;
+                            self.search.open(false);
                             self.add_tab(cnpj, fund_dataframe);
                         }
                         Err(err) => {
@@ -172,81 +195,26 @@ impl TemplateApp {
                 }
                 Message::Profit(cnpj, start_date, end_date) => {
                     let informe = self.informe.clone();
-                    tokio::spawn(async move {
-                        let cdi_future = async { indicator::cdi(start_date, end_date) };
-                        let ibov_future = async { indicator::get_ibovespa(start_date, end_date) };
 
+                    tokio::spawn(async move {
+                        let cdi_future = async { indices::cdi::dataframe(start_date, end_date) };
+                        let ibov_future =
+                            async { indices::ibovespa::dataframe(start_date, end_date) };
                         let profitability_future =
                             async { informe.profitability(cnpj.clone(), start_date, end_date) };
-                        let (cdi_result, profitability_result, ibov_result) =
+                        let (profitability_result, cdi_result, ibov_result) =
                             tokio::join!(cdi_future, profitability_future, ibov_future);
-
-                        match (cdi_result, profitability_result, ibov_result) {
-                            (Ok(cdi_dataframe), Ok(profit_dataframe), Ok(ibov_dataframe)) => {
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    profit_dataframe,
-                                    cdi_dataframe,
-                                    ibov_dataframe,
-                                ));
-                            }
-                            (Ok(cdi_dataframe), Ok(profit_dataframe), Err(_)) => {
-                                log::warn!("Erro ao carregar ibov rentabilidade");
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    profit_dataframe,
-                                    cdi_dataframe,
-                                    DataFrame::empty(), // ou algum valor padrão
-                                ));
-                            }
-                            (Ok(cdi_dataframe), Err(_), Ok(ibov_dataframe)) => {
-                                log::warn!("Erro ao carregar profit rentabilidade");
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    DataFrame::empty(), // ou algum valor padrão
-                                    cdi_dataframe,
-                                    ibov_dataframe,
-                                ));
-                            }
-                            (Err(_), Ok(profit_dataframe), Ok(ibov_dataframe)) => {
-                                log::warn!("Erro ao carregar CDI rentabilidade");
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    profit_dataframe,
-                                    DataFrame::empty(), // ou algum valor padrão
-                                    ibov_dataframe,
-                                ));
-                            }
-                            (Ok(cdi_dataframe), Err(_), Err(_)) => {
-                                log::warn!("Erro ao carregar profit e ibov rentabilidade");
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    DataFrame::empty(), // ou algum valor padrão
-                                    cdi_dataframe,
-                                    DataFrame::empty(), // ou algum valor padrão
-                                ));
-                            }
-                            (Err(_), Ok(profit_dataframe), Err(_)) => {
-                                log::warn!("Erro ao carregar CDI e ibov rentabilidade");
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    profit_dataframe,
-                                    DataFrame::empty(), // ou algum valor padrão
-                                    DataFrame::empty(), // ou algum valor padrão
-                                ));
-                            }
-                            (Err(_), Err(_), Ok(ibov_dataframe)) => {
-                                log::warn!("Erro ao carregar CDI e profit rentabilidade");
-                                let _ = sender.send(Message::ProfitResult(
-                                    cnpj.clone(),
-                                    DataFrame::empty(), // ou algum valor padrão
-                                    DataFrame::empty(), // ou algum valor padrão
-                                    ibov_dataframe,
-                                ));
-                            }
-                            (Err(_), Err(_), Err(_)) => {
-                                log::error!("Erro ao carregar todas as rentabilidades");
-                            }
+                        let cdi_dataframe = handle_result(cdi_result);
+                        let profitability_dataframe = handle_result(profitability_result);
+                        let ibov_dataframe = handle_result(ibov_result);
+                        // Envie a mensagem com os DataFrames
+                        if let Err(e) = sender.send(Message::ProfitResult(
+                            cnpj.clone(),
+                            profitability_dataframe,
+                            cdi_dataframe,
+                            ibov_dataframe,
+                        )) {
+                            log::error!("Failed to send ProfitResult message: {}", e);
                         }
                         ctxc.request_repaint();
                     });
@@ -259,7 +227,6 @@ impl TemplateApp {
                                 stb.set_profit_dataframe(df.clone());
                                 stb.set_cdi_dataframe(cdi.clone());
                                 stb.set_ibov_dataframe(ibov.clone());
-
                                 stb.set_profit_loading(false);
                                 ctx.request_repaint();
                                 break;
@@ -320,7 +287,7 @@ impl TemplateApp {
                     }
                 }
                 Message::ResultFunds(df) => {
-                    self.result_funds = df;
+                    self.search.set_result(df);
                 }
                 Message::SearchFunds(keyword, class) => {
                     let keyword = keyword.clone();
@@ -344,196 +311,54 @@ impl TemplateApp {
 }
 
 impl eframe::App for TemplateApp {
-    /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
-    /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.handle_messages(ctx, frame);
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("Arquivo", |ui| {
-                        if ui.button("Configuração").clicked() {
-                            //self.config.open = !self.config.open;
-                        }
-                        ui.separator();
-                        if ui.button("Sair").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    ui.add_space(16.0);
-                }
+                ui.menu_button("Arquivo", |ui| {
+                    if ui.button("Configuração").clicked() {
+                        //self.config.open = !self.config.open;
+                    }
+                    ui.separator();
+                    if ui.button("Sair").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+                ui.add_space(16.0);
                 egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
-        //self.config.show(ctx);
+
         self.show_statusbar(ctx, frame);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Window::new("Fundos")
-                .resizable(false)
-                .collapsible(false)
-                .default_width(550.0)
-                .max_width(550.0)
-                .max_height(700.0)
-                .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 150.0))
-                .open(&mut self.tab_viewer.open_window)
-                .show(ctx, |ui| {
-                    let search_bar = egui::TextEdit::singleline(&mut self.query)
-                        .font(egui::TextStyle::Body)
-                        .hint_text("🔍 Busque pelo nome ou cnpj do fundo..")
-                        .frame(true)
-                        .desired_width(ui.available_width())
-                        .margin(egui::vec2(15.0, 10.0));
-
-                    let search_response: egui::Response = ui.add(search_bar);
-                    if search_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                    {
-                        send_find_message(
-                            self.channel.0.clone(),
-                            &self.query,
-                            self.fund_class.clone(),
-                        )
-                    }
-
-                    ui.add_space(5.0);
-                    ui.horizontal(|ui| {
-                        handle_selectable_value(
-                            ui,
-                            &mut self.fund_class,
-                            None,
-                            "Todos",
-                            self.channel.0.clone(),
-                            &self.query,
-                        );
-                        handle_selectable_value(
-                            ui,
-                            &mut self.fund_class,
-                            Some(Class::Acoes),
-                            "Ações",
-                            self.channel.0.clone(),
-                            &self.query,
-                        );
-                        handle_selectable_value(
-                            ui,
-                            &mut self.fund_class,
-                            Some(Class::RendaFixa),
-                            "Renda Fixa",
-                            self.channel.0.clone(),
-                            &self.query,
-                        );
-                        handle_selectable_value(
-                            ui,
-                            &mut self.fund_class,
-                            Some(Class::Cambial),
-                            "Cambial",
-                            self.channel.0.clone(),
-                            &self.query,
-                        );
-                        handle_selectable_value(
-                            ui,
-                            &mut self.fund_class,
-                            Some(Class::MultiMarket),
-                            "MultiMercado",
-                            self.channel.0.clone(),
-                            &self.query,
-                        );
-                    });
-
-                    ui.add_space(5.0);
-                    let nr_rows = self.result_funds.height();
-                    let cols: Vec<&str> = vec!["CNPJ_FUNDO", "DENOM_SOCIAL"];
-
-                    egui::ScrollArea::horizontal().show(ui, |ui| {
-                        TableBuilder::new(ui)
-                            //.column(Column::auto().at_most(20.0))
-                            .column(Column::auto().at_least(40.0).resizable(false))
-                            .column(Column::remainder().at_most(40.0))
-                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .striped(true)
-                            .resizable(false)
-                            .header(20.0, |mut header| {
-                                header.col(|ui| {
-                                    ui.label("cnpj");
-                                });
-                                header.col(|ui| {
-                                    ui.label("nome");
-                                });
-                            })
-                            .body(|body| {
-                                body.rows(20.0, nr_rows, |mut row| {
-                                    let row_index = row.index();
-
-                                    for col in &cols {
-                                        row.col(|ui| {
-                                            if let Ok(column) = self.result_funds.column(col) {
-                                                if let Ok(value) = column.get(row_index) {
-                                                    if let Some(value_str) = value.get_str() {
-                                                        if col.contains("CNPJ_FUNDO") {
-                                                            if ui.link(value_str).clicked() {
-                                                                let strcnpj = value_str.to_string();
-                                                                let _ = self.channel.0.send(
-                                                                    Message::NewTab(
-                                                                        strcnpj.clone(),
-                                                                    ),
-                                                                );
-                                                            }
-                                                        } else {
-                                                            ui.label(value_str);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    }
-                                });
-                            });
-                    });
-                });
-
-            DockArea::new(&mut self.tree)
-                .style({
-                    let mut style = Style::from_egui(ctx.style().as_ref());
-                    // style.tab_bar.fill_tab_bar = true;
-                    style.buttons.add_tab_align = TabAddAlign::Left;
-                    style
-                })
-                .show_add_buttons(true)
-                .show_inside(ui, &mut self.tab_viewer);
+            self.search.show(ui);
+            egui::Frame::none().inner_margin(5.0).show(ui, |ui| {
+                DockArea::new(&mut self.tree)
+                    .style({
+                        let mut style = Style::from_egui(ctx.style().as_ref());
+                        // style.tab_bar.fill_tab_bar = true;
+                        style.buttons.add_tab_align = TabAddAlign::Left;
+                        style
+                    })
+                    .show_add_buttons(true)
+                    .show_inside(ui, &mut self.tab_viewer);
+            });
         });
     }
 }
 
-fn handle_selectable_value(
-    ui: &mut egui::Ui,
-    fund_class: &mut Option<Class>,
-    class: Option<Class>,
-    label: &str,
-    channel: tokio::sync::mpsc::UnboundedSender<Message>,
-    query: &str,
-) {
-    if ui
-        .selectable_value(fund_class, class.clone(), label)
-        .clicked()
-    {
-        send_find_message(channel, query, class.clone());
+// Função auxiliar para transformar Result em DataFrame
+fn handle_result(result: Result<DataFrame, PolarsError>) -> DataFrame {
+    match result {
+        Ok(df) => df,
+        Err(e) => {
+            log::error!("Failed to load data: {}", e);
+            DataFrame::empty()
+        }
     }
-}
-
-fn send_find_message(
-    channel: tokio::sync::mpsc::UnboundedSender<Message>,
-    query: &str,
-    class: Option<Class>,
-) {
-    let sender = channel.clone();
-    let text = query.to_string();
-    let class = class.clone();
-    tokio::spawn(async move {
-        let _ = sender.send(Message::SearchFunds(text, class));
-    });
 }

@@ -1,9 +1,10 @@
 use egui::{Ui, WidgetText};
-pub mod fund_tab;
 pub mod home_tab;
-use crate::tabs::fund_tab::FundTab;
+
 use egui_dock::{NodeIndex, SurfaceIndex};
 use home_tab::HomeTab;
+
+use super::fund::tab::FundTab;
 
 pub trait Tab {
     fn title(&self) -> WidgetText;
@@ -29,7 +30,7 @@ impl Tab for TabType {
     fn ui(&mut self, ui: &mut Ui) {
         ui.push_id(format!("{}_", self.title().text()), |ui| {
             egui::Frame::none()
-                //.fill(ui.style().visuals.extreme_bg_color)
+                .fill(ui.style().visuals.extreme_bg_color)
                 .inner_margin(-2.0)
                 .outer_margin(0.0)
                 .show(ui, |ui| {

@@ -1,5 +1,5 @@
 use super::Tab;
-use crate::{cvm::downloader, history::History, message::Message};
+use crate::{history::History, message::Message, ui::download::DownloadManager};
 use egui::{CentralPanel, Frame, Ui, WidgetText};
 use tokio::sync::mpsc;
 
@@ -7,21 +7,18 @@ pub struct HomeTab {
     pub title: String,
     pub history: History,
     pub sender: mpsc::UnboundedSender<Message>,
-    pub downloader: downloader::Downloader,
+    pub download_manager: DownloadManager,
 }
 
 impl HomeTab {
-    pub fn new(
-        title: String,
-        sender: mpsc::UnboundedSender<Message>,
-        history: History,
-        downloader: downloader::Downloader,
-    ) -> Self {
+    pub fn new(title: String, sender: mpsc::UnboundedSender<Message>, history: History) -> Self {
+        let dm = DownloadManager::new(sender.clone());
+
         HomeTab {
             title,
             sender,
             history,
-            downloader,
+            download_manager: dm,
         }
     }
 }
@@ -62,7 +59,7 @@ impl Tab for HomeTab {
                 ui.group(|ui| {
                     ui.label(format!("{} Downloads", egui_phosphor::regular::DOWNLOAD));
                     ui.separator();
-                    self.downloader.ui(ui);
+                    self.download_manager.ui(ui);
                 });
             });
         });

@@ -1,16 +1,21 @@
 use chrono::NaiveDate;
 use polars::frame::DataFrame;
 
-use crate::cvm;
+use crate::{
+    provider,
+    ui::download::{Download, DownloadItem},
+};
 
 pub enum Message {
-    SearchFunds(String, Option<cvm::fund::Class>),
+    SearchFunds(String, Option<provider::cvm::fund::Class>),
     ResultFunds(DataFrame),
     NewTab(String),
     Profit(String, NaiveDate, NaiveDate),
     Assets(String, String, String),
-    ProfitResult(String, DataFrame, DataFrame,DataFrame),
+    ProfitResult(String, DataFrame, DataFrame, DataFrame),
     AssetsResult(String, DataFrame, DataFrame, DataFrame),
-    DownloadProgress(usize, String),
     OpenSearchWindow(bool),
+    StartDownload(String, usize, DownloadItem),
+    CancelDownload(String),
+    ProgressDownload(String, usize, Download),
 }

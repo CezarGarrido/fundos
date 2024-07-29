@@ -1,4 +1,4 @@
-use crate::{cvm, message, util};
+use crate::{message, provider::cvm, util};
 use chrono::Datelike;
 use egui::{ComboBox, Layout, Sense, TopBottomPanel, Ui};
 use egui_extras::{Column, TableBuilder};

@@ -1,9 +1,10 @@
-use crate::{charts::fund::profit_chart, message};
 use chrono::NaiveDate;
 use egui::{Align2, Frame, Layout, Vec2, Widget};
 use egui_extras::DatePickerButton;
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
+
+use crate::{message, ui::charts};
 
 #[derive(Debug, PartialEq)]
 pub enum FilterMonth {
@@ -88,7 +89,8 @@ impl ProfitUI {
                 ui.add_space(8.0);
             });
             Frame::none().inner_margin(10.0).show(ui, |ui| {
-                profit_chart(&self.profit, &self.cdi, &self.ibov, ui); // Ajuste conforme o tipo real dos seus dados
+                charts::fund::profit_chart(&self.profit, &self.cdi, &self.ibov, ui);
+                // Ajuste conforme o tipo real dos seus dados
             });
         });
     }

@@ -1,4 +1,3 @@
-
 use glob::glob;
 use polars::{
     error::PolarsError,
@@ -7,12 +6,9 @@ use polars::{
 };
 use regex::Regex;
 
-pub mod config;
-pub mod downloader;
 pub mod fund;
-pub mod indicator;
-pub mod informe;
 pub mod portfolio;
+pub mod informe;
 
 fn read_csv_lazy(file_path: &str) -> Result<LazyFrame, PolarsError> {
     LazyCsvReader::new(file_path)

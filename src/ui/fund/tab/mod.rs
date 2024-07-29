@@ -1,12 +1,13 @@
-mod panel;
 
-use crate::message;
-use crate::tabs::Tab;
+use crate::{message, ui::tabs::Tab};
+
 use egui::{Frame, Ui, WidgetText};
-use panel::assets::PortfolioUI;
-use panel::profit::ProfitUI;
+
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
+
+use super::panel::{self, portfolio::PortfolioUI, profit::ProfitUI};
+
 
 #[derive(PartialEq, Eq, Clone)]
 pub enum Panel {
@@ -164,7 +165,7 @@ impl Tab for FundTab {
                     ui.set_min_height(ui.available_height());
                     match self.open_panel {
                         Panel::Details => {
-                            panel::details::show_ui(self.fund.clone(), ui);
+                            panel::detail::show_ui(self.fund.clone(), ui);
                         }
                         Panel::Profit => {
                             self.profit_ui.show(ui);
