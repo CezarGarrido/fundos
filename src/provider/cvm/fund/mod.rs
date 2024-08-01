@@ -1,5 +1,13 @@
-use std::fmt;
+use std::{
+    fmt,
+    fs::{self, File},
+    io::Write,
+    path::Path,
+};
+pub mod options;
 
+use encoding_rs::WINDOWS_1252;
+use options::{load, Options};
 use polars::{
     error::PolarsError,
     frame::DataFrame,
@@ -8,12 +16,14 @@ use polars::{
     series::IntoSeries,
 };
 use regex::Regex;
+use tokio_util::sync::CancellationToken;
 use unicode_normalization::UnicodeNormalization;
 
-const REGISTER_PATH: &str = "./dataset/cad/cad_fi.csv";
+use crate::ui::download::Download;
 
 #[derive(Clone)]
 pub struct Register {
+    options: Options,
     funds: LazyFrame,
 }
 
@@ -50,13 +60,16 @@ impl fmt::Display for Class {
 
 impl Register {
     pub fn new() -> Self {
+        let options = load().unwrap();
+
         Self {
+            options,
             funds: LazyFrame::default(),
         }
     }
 
     pub fn load(&mut self) -> Result<(), PolarsError> {
-        match LazyCsvReader::new(REGISTER_PATH)
+        match LazyCsvReader::new(&self.options.path)
             .has_header(true)
             .with_infer_schema_length(None)
             .with_delimiter(b';')
@@ -143,5 +156,59 @@ impl Register {
             .str()
             .contains(lit(q.clone()), false)
             .or(col("CNPJ_FUNDO").str().contains(lit(q), false))
+    }
+
+    pub fn download(
+        &self,
+        token: CancellationToken,
+        mut on_progress: impl 'static + Send + FnMut(Download),
+    ) {
+        let options = self.options.clone();
+        let request = ehttp::Request::get(options.url);
+
+        on_progress(Download::InProgress("Baixando (0/1)...".to_string()));
+        ehttp::fetch(request, move |on_done: Result<ehttp::Response, String>| {
+            if token.is_cancelled() {
+                on_progress(Download::Cancel);
+                return;
+            }
+
+            on_progress(Download::InProgress("Baixando (0/1)...".to_string()));
+
+            match on_done {
+                Ok(res) => {
+                    let (decoded_str, _, had_errors) = WINDOWS_1252.decode(&res.bytes);
+                    if had_errors {
+                        on_progress(Download::Cancel); // Or another appropriate error handling
+                        return;
+                    }
+
+                    if Self::create_and_write_csv(&options.path, decoded_str.as_bytes()).is_err() {
+                        on_progress(Download::Cancel); // Or another appropriate error handling
+                        return;
+                    }
+
+                    on_progress(Download::InProgress("Baixando (1/1)...".to_string()));
+                    on_progress(Download::Done);
+                }
+                Err(_) => {
+                    on_progress(Download::Cancel); // Or another appropriate error handling
+                }
+            }
+        });
+    }
+
+    fn create_and_write_csv<P: AsRef<Path>>(
+        path: P,
+        buf: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Create the directories if they do not exist
+        if let Some(parent) = path.as_ref().parent() {
+            fs::create_dir_all(parent)?;
+        }
+        // Create the file and write the JSON data
+        let mut file = File::create(&path)?;
+        file.write_all(buf)?;
+        Ok(())
     }
 }

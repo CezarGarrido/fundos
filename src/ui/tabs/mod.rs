@@ -3,6 +3,9 @@ pub mod home_tab;
 
 use egui_dock::{NodeIndex, SurfaceIndex};
 use home_tab::HomeTab;
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::message::Message;
 
 use super::fund::tab::FundTab;
 
@@ -29,17 +32,11 @@ impl Tab for TabType {
 
     fn ui(&mut self, ui: &mut Ui) {
         ui.push_id(format!("{}_", self.title().text()), |ui| {
-            egui::Frame::none()
-                .fill(ui.style().visuals.extreme_bg_color)
-                .inner_margin(-2.0)
-                .outer_margin(0.0)
-                .show(ui, |ui| {
-                    match self {
-                        TabType::Fund(tab) => tab.ui(ui),
-                        TabType::Home(tab) => tab.ui(ui),
-                        // Adicione outros tipos de tabs aqui
-                    }
-                });
+            match self {
+                TabType::Fund(tab) => tab.ui(ui),
+                TabType::Home(tab) => tab.ui(ui),
+                // Adicione outros tipos de tabs aqui
+            }
         });
     }
 
@@ -54,6 +51,7 @@ impl Tab for TabType {
 
 pub struct TabViewer {
     pub open_window: bool,
+    pub sender: UnboundedSender<Message>,
 }
 
 impl egui_dock::TabViewer for TabViewer {
@@ -73,6 +71,7 @@ impl egui_dock::TabViewer for TabViewer {
 
     fn on_add(&mut self, _surface: SurfaceIndex, _node: NodeIndex) {
         self.open_window = true;
+        let _ = self.sender.send(Message::OpenSearchWindow(true));
     }
 
     fn scroll_bars(&self, _tab: &Self::Tab) -> [bool; 2] {

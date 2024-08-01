@@ -106,9 +106,9 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
     );
 
     let path = options.path.clone();
-
     let h = async move {
         if token.is_cancelled() {
+            on_progress(Download::Cancel);
             return;
         }
 
@@ -120,6 +120,7 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
         let quotes: Vec<yahoo_finance_api::Quote> = resp.quotes().unwrap();
         let total_quotes = quotes.len() as f64;
         let mut ibovs = Vec::new();
+
         on_progress(Download::InProgress(format!(
             "Baixando (0/{})",
             total_quotes
@@ -129,10 +130,9 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
             // Adiciona um delay para simular carga de trabalho e permitir o cancelamento
             sleep(tokio::time::Duration::from_millis(50)).await;
             if token.is_cancelled() {
-                println!("Download cancelled at quote {}", i);
-                return; // Interrompe a execução se cancelado
+                on_progress(Download::Cancel);
+                return;
             }
-
             let ibov = Ibov {
                 timestamp: q.timestamp,
                 adjclose: q.adjclose,
@@ -151,8 +151,8 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
             let progress = i as f64 + 1.0;
 
             if token.is_cancelled() {
-                println!("Download cancelled at quote {}", i);
-                return; // Interrompe a execução se cancelado
+                on_progress(Download::Cancel);
+                return;
             }
 
             on_progress(Download::InProgress(format!(
@@ -160,11 +160,12 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
                 progress, total_quotes
             )));
         }
-
-        if !token.is_cancelled() {
-            create_and_write_json(&path, &ibovs).unwrap();
+        if token.is_cancelled() {
+            on_progress(Download::Cancel);
+            return;
         }
 
+        create_and_write_json(&path, &ibovs).unwrap();
         on_progress(Download::Done);
     };
     tokio::spawn(h);

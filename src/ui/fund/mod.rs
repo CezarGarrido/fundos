@@ -1,3 +1,3 @@
 pub mod modal;
-pub mod tab;
 pub mod panel;
+pub mod tab;

@@ -1,10 +1,12 @@
+use crate::{
+    message,
+    ui::charts::{self, profit::Indice},
+};
 use chrono::NaiveDate;
-use egui::{Align2, Frame, Layout, Vec2, Widget};
+use egui::{Align2, Color32, Frame, Layout, Vec2, Widget};
 use egui_extras::DatePickerButton;
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
-
-use crate::{message, ui::charts};
 
 #[derive(Debug, PartialEq)]
 pub enum FilterMonth {
@@ -56,7 +58,7 @@ impl ProfitUI {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.horizontal_centered(|ui| {
-                            ui.label(format!(
+                            ui.heading(format!(
                                 "{} Gráfico de Rentabilidade",
                                 egui_phosphor::regular::CHART_LINE
                             ));
@@ -76,21 +78,38 @@ impl ProfitUI {
                 ui.add_space(8.0);
                 ui.vertical(|ui| {
                     ui.weak("Rentabilidade");
-
-                    self.profit
-                        .column("RENT_ACUM")
-                        .ok()
-                        .and_then(|col| col.get(self.profit.height() - 1).ok())
-                        .and_then(|val| val.to_string().into())
-                        .and_then(|value_str| value_str.parse::<f64>().ok())
-                        .map(|v| ui.heading(format!("%{}", v)))
-                        .unwrap_or_else(|| ui.label("-"));
+                    if self.profit.height() > 0 {
+                        self.profit
+                            .column("RENT_ACUM")
+                            .ok()
+                            .and_then(|col| col.get(self.profit.height() - 1).ok())
+                            .and_then(|val| val.to_string().into())
+                            .and_then(|value_str| value_str.parse::<f64>().ok())
+                            .map(|v| ui.heading(format!("%{}", v)))
+                            .unwrap_or_else(|| ui.label("-"));
+                    } else {
+                        ui.label("-");
+                    }
                 });
                 ui.add_space(8.0);
             });
             Frame::none().inner_margin(10.0).show(ui, |ui| {
-                charts::fund::profit_chart(&self.profit, &self.cdi, &self.ibov, ui);
-                // Ajuste conforme o tipo real dos seus dados
+                charts::profit::chart(
+                    &self.profit,
+                    vec![
+                        Indice {
+                            name: "CDI".to_string(),
+                            color: Color32::BLUE,
+                            dataframe: self.cdi.clone(),
+                        },
+                        Indice {
+                            name: "IBOV".to_string(),
+                            color: Color32::YELLOW,
+                            dataframe: self.ibov.clone(),
+                        },
+                    ],
+                    ui,
+                );
             });
         });
     }
@@ -177,7 +196,7 @@ impl ProfitUI {
             .default_width(200.0)
             .max_width(200.0)
             .max_height(350.0)
-            .anchor(Align2::RIGHT_TOP, Vec2::new(0.0, 150.0))
+            .anchor(Align2::RIGHT_TOP, Vec2::new(-20.0, 150.0))
             .open(&mut open_profit)
             .show(ui.ctx(), |ui| {
                 ui.horizontal(|ui| {

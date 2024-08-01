@@ -160,6 +160,9 @@ jobs:
 
     - name: Rename
       run: cp target/${{ matrix.TARGET }}/release/eframe_template${{ matrix.EXTENSION }} eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+    
+    - name: Config
+      run: cp ./config.toml config.toml
 
     - uses: actions/upload-artifact@master
       with:

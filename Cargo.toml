@@ -40,7 +40,6 @@ polars = { version = "0.32.0", features = [
     "lazy",
     "strings",
     "describe",
-    "diagonal_concat",
     "json",
 ] }
 glob = "0.3.1"
@@ -58,6 +57,7 @@ serde_yaml = "0.9.34"
 yahoo_finance_api = "2.2.1"
 async-trait = "0.1.81"
 ehttp = "0.5.0"
+zip = "2.1.5"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -70,6 +70,8 @@ wasm-bindgen-futures = "0.4"
 
 [profile.release]
 opt-level = 2 # fast and small wasm
+strip = true        # Automatically strip symbols from the binary.
+lto = true          # optimize at the linking stage
 
 # Optimize all dependencies even in debug builds:
 [profile.dev.package."*"]

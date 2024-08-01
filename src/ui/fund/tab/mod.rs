@@ -1,4 +1,3 @@
-
 use crate::{message, ui::tabs::Tab};
 
 use egui::{Frame, Ui, WidgetText};
@@ -7,7 +6,6 @@ use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::panel::{self, portfolio::PortfolioUI, profit::ProfitUI};
-
 
 #[derive(PartialEq, Eq, Clone)]
 pub enum Panel {
@@ -80,7 +78,6 @@ impl FundTab {
         self.profit_ui.ibov = df;
     }
 
-
     pub fn set_profit_dataframe(&mut self, df: DataFrame) {
         self.profit_ui.profit = df;
     }
@@ -122,61 +119,62 @@ impl Tab for FundTab {
                 ui.horizontal(|ui| {
                     display_column_value(ui, "CNPJ:", "CNPJ_FUNDO", &self.fund);
                     ui.separator();
-                    display_column_value(ui, "Gestor:", "GESTOR", &self.fund);
-                    ui.separator();
+                    // display_column_value(ui, "Gestor:", "GESTOR", &self.fund);
+                    //ui.separator();
                     display_column_value(ui, "Administrador:", "ADMIN", &self.fund);
                 });
             },
         );
+        ui.add_space(5.0);
 
-        Frame::none().inner_margin(10.0).show(ui, |ui| {
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.open_panel, Panel::Details, "Detalhes");
+        // Frame::none().inner_margin(10.0).show(ui, |ui| {
+        //   ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.open_panel, Panel::Details, "Detalhes");
 
-                    if ui
-                        .selectable_value(&mut self.open_panel, Panel::Profit, "Rentabilidade")
-                        .clicked()
-                        && self.profit_ui.profit.is_empty()
-                    {
-                        let _ = sender.send(message::Message::Profit(
-                            self.title().text().to_string(),
-                            self.profit_ui.profit_filter_start_date,
-                            self.profit_ui.profit_filter_end_date,
-                        ));
-                    }
+            if ui
+                .selectable_value(&mut self.open_panel, Panel::Profit, "Rentabilidade")
+                .clicked()
+                && self.profit_ui.profit.is_empty()
+            {
+                let _ = sender.send(message::Message::Profit(
+                    self.title().text().to_string(),
+                    self.profit_ui.profit_filter_start_date,
+                    self.profit_ui.profit_filter_end_date,
+                ));
+            }
 
-                    if ui
-                        .selectable_value(&mut self.open_panel, Panel::Assets, "Carteira")
-                        .clicked()
-                        && self.portfolio_ui.assets.is_empty()
-                    {
-                        let _ = sender.send(message::Message::Assets(
-                            self.title().text().to_string(),
-                            self.portfolio_ui.assets_filter_year.clone(),
-                            self.portfolio_ui.assets_filter_month.clone(),
-                        ));
-                    }
-                });
-
-                ui.separator();
-
-                Frame::none().inner_margin(30.0).show(ui, |ui| {
-                    ui.set_min_height(ui.available_height());
-                    match self.open_panel {
-                        Panel::Details => {
-                            panel::detail::show_ui(self.fund.clone(), ui);
-                        }
-                        Panel::Profit => {
-                            self.profit_ui.show(ui);
-                        }
-                        Panel::Assets => {
-                            self.portfolio_ui.show(ui);
-                        }
-                    };
-                });
-            });
+            if ui
+                .selectable_value(&mut self.open_panel, Panel::Assets, "Carteira")
+                .clicked()
+                && self.portfolio_ui.assets.is_empty()
+            {
+                let _ = sender.send(message::Message::Assets(
+                    self.title().text().to_string(),
+                    self.portfolio_ui.assets_filter_year.clone(),
+                    self.portfolio_ui.assets_filter_month.clone(),
+                ));
+            }
         });
+
+        ui.separator();
+
+        Frame::none().inner_margin(30.0).show(ui, |ui| {
+            ui.set_min_height(ui.available_height());
+            match self.open_panel {
+                Panel::Details => {
+                    panel::detail::show_ui(self.fund.clone(), ui);
+                }
+                Panel::Profit => {
+                    self.profit_ui.show(ui);
+                }
+                Panel::Assets => {
+                    self.portfolio_ui.show(ui);
+                }
+            };
+        });
+        //    });
+        //   });
     }
 }
 

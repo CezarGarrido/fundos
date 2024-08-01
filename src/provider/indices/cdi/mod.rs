@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::Write,
+    io::BufWriter,
     path::Path,
 };
 
@@ -22,8 +22,7 @@ use crate::ui::download::Download;
 
 pub fn dataframe(start_date: NaiveDate, end_date: NaiveDate) -> Result<DataFrame, PolarsError> {
     let options = load().unwrap();
-
-    let mut file = std::fs::File::open(options.path.clone())?;
+    let mut file = std::fs::File::open(options.path)?;
     let res = JsonReader::new(&mut file).finish()?;
 
     // Calcular a rentabilidade diária acumulada
@@ -68,36 +67,43 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
             on_progress(Download::Cancel);
             return;
         }
-
         on_progress(Download::InProgress("Baixando (0/1)...".to_string()));
-
         match on_done {
             Ok(res) => {
-                if create_and_write_csv(&options.path, &res.bytes).is_err() {
-                    on_progress(Download::Cancel); // Or another appropriate error handling
-                    return;
+                if res.ok {
+                    if token.is_cancelled() {
+                        on_progress(Download::Cancel);
+                        return;
+                    }
+                    if create_and_write_json(&options.path, &res.bytes).is_err() {
+                        on_progress(Download::Cancel); // Or another appropriate error handling
+                        return;
+                    }
+                    on_progress(Download::InProgress("Baixando (1/1)...".to_string()));
+                } else {
+                    log::error!("Falha {}", res.status_text);
                 }
-
-                on_progress(Download::InProgress("Baixando (1/1)...".to_string()));
-                on_progress(Download::Done);
             }
-            Err(_) => {
-                on_progress(Download::Cancel); // Or another appropriate error handling
+            Err(msg) => {
+                log::error!("Falha {}", msg);
             }
         }
+        
+        on_progress(Download::Done);
     });
 }
 
-fn create_and_write_csv<P: AsRef<Path>>(
+fn create_and_write_json<P: AsRef<Path>, T: serde::Serialize>(
     path: P,
-    buf: &[u8],
+    data: &T,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create the directories if they do not exist
     if let Some(parent) = path.as_ref().parent() {
         fs::create_dir_all(parent)?;
     }
     // Create the file and write the JSON data
-    let mut file = File::create(&path)?;
-    file.write_all(buf)?;
+    let file = File::create(&path)?;
+    let writer = BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, data)?;
     Ok(())
 }

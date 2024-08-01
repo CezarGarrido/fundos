@@ -5,22 +5,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::get;
 
-const ROOT: &str = "app.indices.ibovespa";
+const ROOT: &str = "app.cvm.fundo.informe";
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Options {
     pub description: String,
+    pub url: String,
+    pub path: PathBuf,
     pub start_date: String,
     pub end_date: String,
-    pub path: PathBuf,
 }
 
 impl Options {
     pub fn start_date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.start_date, "%d/%m/%Y").unwrap()
+        NaiveDate::parse_from_str(&self.start_date, "%Y/%m/%d").unwrap()
     }
     pub fn end_date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.end_date, "%d/%m/%Y").unwrap()
+        NaiveDate::parse_from_str(&self.end_date, "%Y/%m/%d").unwrap()
     }
 }
 

@@ -57,7 +57,7 @@ impl Tab for HomeTab {
 
                 ui.add_space(50.0);
                 ui.group(|ui| {
-                    ui.label(format!("{} Downloads", egui_phosphor::regular::DOWNLOAD));
+                    ui.heading(format!("{} Downloads", egui_phosphor::regular::DOWNLOAD));
                     ui.separator();
                     self.download_manager.ui(ui);
                 });

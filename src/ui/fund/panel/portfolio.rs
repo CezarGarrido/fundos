@@ -107,206 +107,242 @@ impl PortfolioUI {
             });
     }
 
-    fn show_assets_panel(&mut self, ui: &mut egui::Ui) {
-        assets_ui(
-            &self.pl,
-            &self.assets,
-            &self.top_assets,
-            &mut self.assets_filter_tp_aplic_selection,
-            ui,
-        );
-    }
-}
-
-pub fn assets_ui(
-    pl: &DataFrame,
-    assets: &DataFrame,
-    top_assets: &DataFrame,
-    selection: &mut std::collections::HashSet<usize>,
-    ui: &mut Ui,
-) {
-    egui::SidePanel::left("left_panel")
-        .resizable(true)
-        .default_width(400.0)
-        .width_range(200.0..=450.0)
-        .show_inside(ui, |ui| {
-            ui.add_space(10.0);
-            //egui::Frame::none().inner_margin(10.0).show(ui, |ui| {
-            let nr_rows = top_assets.height();
-            let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
-            ui.push_id("top_assets", |ui| {
-                egui::ScrollArea::horizontal().show(ui, |ui| {
-                    TableBuilder::new(ui)
-                        .column(Column::auto().resizable(true).clip(true))
-                        .column(Column::auto().at_most(150.0))
-                        .column(Column::remainder())
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .striped(true)
-                        .resizable(false)
-                        .sense(Sense::click())
-                        .header(20.0, |mut header| {
-                            header.col(|ui| {
-                                ui.label("Aplicação");
-                            });
-                            header.col(|ui| {
-                                ui.label("Posição Final");
-                            });
-                            header.col(|ui| {
-                                ui.label("% Patrim. Líq");
-                            });
-                        })
-                        .body(|body| {
-                            body.rows(20.0, nr_rows, |mut row| {
-                                let row_index = row.index();
-                                row.set_selected(selection.contains(&row_index));
-                                for col in &cols {
-                                    row.col(|ui| {
-                                        if let Ok(column) = top_assets.column(col) {
-                                            if let Ok(value) = column.get(row_index) {
-                                                if col.contains("VL_PORCENTAGEM_PL") {
-                                                    let a =
-                                                        value.to_string().parse::<f64>().unwrap();
-                                                    ui.colored_label(
-                                                        egui::Color32::DARK_GREEN,
-                                                        format!("{}%", a),
-                                                    );
-                                                } else if col.contains("VL_MERC_POS_FINAL") {
-                                                    let a =
-                                                        value.to_string().parse::<f64>().unwrap();
-                                                    let r = util::to_real(a).unwrap();
-                                                    ui.weak(r.format());
-                                                } else if let Some(value_str) = value.get_str() {
-                                                    ui.weak(value_str);
-                                                }
-                                            }
-                                        }
-                                    });
-                                }
-                                toggle_row_selection(selection, row_index, &row.response());
-                            });
-                        });
-                });
-
-                TopBottomPanel::bottom("vl_pl").show_inside(ui, |ui: &mut Ui| {
-                    ui.add_space(8.0);
-                    ui.vertical(|ui| {
-                        ui.weak("Patrimonio Líquido");
-                        pl.column("VL_PATRIM_LIQ")
-                            .ok()
-                            .and_then(|col| col.get(0).ok())
-                            .and_then(|val| val.get_str().map(|s| s.to_string()))
-                            .and_then(|value_str| value_str.parse::<f64>().ok())
-                            .and_then(|parsed_value| util::to_real(parsed_value).ok())
-                            .map(|v| ui.heading(v.format()))
-                            .unwrap_or_else(|| ui.label("-"));
-                    });
-                });
-                //});
-            });
-        });
-
-    egui::CentralPanel::default().show_inside(ui, |ui| {
-        ui.push_id("filter_assets", |ui| {
-            let mut filters = Vec::new();
-            for r in selection.iter() {
-                if let Ok(column) = top_assets.column("TP_APLIC") {
-                    if let Ok(value) = column.get(*r) {
-                        let v = value.get_str().unwrap();
-                        filters.push(v.to_string())
-                    }
-                }
-            }
-
-            let filters_series = Series::new("filters", filters);
-            let lf = if filters_series.len() > 0 {
-                assets
-                    .clone()
-                    .lazy()
-                    .filter(col("TP_APLIC").is_in(lit(filters_series)))
-                    .sort(
-                        "VL_PORCENTAGEM_PL",
-                        polars::prelude::SortOptions {
-                            descending: true,
-                            ..Default::default()
-                        },
-                    )
-            } else {
-                assets.clone().lazy()
-            };
-
-            let filtered_df = lf.collect().unwrap();
-            let nr_rows = filtered_df.height();
-            let cols: Vec<&str> = vec![
-                "TP_APLIC",
-                "DS_ATIVO",
-                "NM_FUNDO_COTA",
-                "VL_MERC_POS_FINAL",
-                "VL_PORCENTAGEM_PL",
-            ];
-            ui.group(|ui| {
-                ui.set_min_height(ui.available_height());
-
-                egui::ScrollArea::horizontal().show(ui, |ui| {
-                    TableBuilder::new(ui)
-                        .column(Column::auto().resizable(true).clip(true))
-                        .column(Column::auto().at_least(100.0).resizable(true))
-                        .column(Column::auto().at_least(50.0).resizable(true).clip(true))
-                        .column(Column::remainder().at_least(50.0).resizable(true))
-                        .column(Column::remainder())
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .striped(true)
-                        .resizable(false)
-                        .header(20.0, |mut header| {
-                            header.col(|ui| {
-                                ui.label("Aplicação");
-                            });
-
-                            header.col(|ui| {
-                                ui.label("Ativo");
-                            });
-                            header.col(|ui| {
-                                ui.label("Detalhes");
-                            });
-                            header.col(|ui| {
-                                ui.label("Valor");
-                            });
-                            header.col(|ui| {
-                                ui.label("% Patrim. Liq");
-                            });
-                        })
-                        .body(|body| {
-                            body.rows(20.0, nr_rows, |mut row| {
-                                let row_index = row.index();
-                                for col in &cols {
-                                    row.col(|ui| {
-                                        if let Ok(column) = filtered_df.column(col) {
-                                            if let Ok(value) = column.get(row_index) {
-                                                if col.contains("VL_PORCENTAGEM_PL") {
-                                                    let a =
-                                                        value.to_string().parse::<f64>().unwrap();
-                                                    ui.label(format!("{}%", a));
-                                                } else if let Some(value_str) = value.get_str() {
-                                                    if col.contains("VL_MERC_POS_FINAL") {
-                                                        let a = value_str
+    pub fn show_assets_panel(&mut self, ui: &mut Ui) {
+        egui::SidePanel::left("left_panel")
+            .resizable(true)
+            .default_width(400.0)
+            .width_range(200.0..=450.0)
+            .show_inside(ui, |ui| {
+                ui.add_space(10.0);
+                let nr_rows = self.top_assets.height();
+                let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
+                ui.push_id("top_assets", |ui| {
+                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                        TableBuilder::new(ui)
+                            .column(Column::auto().at_least(100.0).resizable(true).clip(true))
+                            .column(Column::auto().at_most(150.0))
+                            .column(Column::remainder())
+                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                            .striped(true)
+                            .resizable(false)
+                            .sense(Sense::click())
+                            .header(20.0, |mut header| {
+                                header.col(|ui| {
+                                    ui.label("Aplicação");
+                                });
+                                header.col(|ui| {
+                                    ui.label("Posição Final");
+                                });
+                                header.col(|ui| {
+                                    ui.label("% Patrim. Líq");
+                                });
+                            })
+                            .body(|body| {
+                                body.rows(20.0, nr_rows, |mut row| {
+                                    let row_index = row.index();
+                                    row.set_selected(
+                                        self.assets_filter_tp_aplic_selection.contains(&row_index),
+                                    );
+                                    for col in &cols {
+                                        row.col(|ui| {
+                                            if let Ok(column) = self.top_assets.column(col) {
+                                                if let Ok(value) = column.get(row_index) {
+                                                    if col.contains("VL_PORCENTAGEM_PL") {
+                                                        let a = value
+                                                            .to_string()
+                                                            .parse::<f64>()
+                                                            .unwrap();
+                                                        ui.label(format!("{}%", a));
+                                                    } else if col.contains("VL_MERC_POS_FINAL") {
+                                                        let a = value
                                                             .to_string()
                                                             .parse::<f64>()
                                                             .unwrap();
                                                         let r = util::to_real(a).unwrap();
                                                         ui.label(r.format());
-                                                    } else {
+                                                    } else if let Some(value_str) = value.get_str()
+                                                    {
                                                         ui.label(value_str);
                                                     }
                                                 }
                                             }
-                                        }
-                                    });
-                                }
+                                        });
+                                    }
+                                    toggle_row_selection(
+                                        &mut self.assets_filter_tp_aplic_selection,
+                                        row_index,
+                                        &row.response(),
+                                    );
+                                });
                             });
+                    });
+
+                    TopBottomPanel::bottom("vl_pl").show_inside(ui, |ui: &mut Ui| {
+                        ui.add_space(8.0);
+                        ui.vertical(|ui| {
+                            ui.weak("Patrimonio Líquido");
+                            self.pl
+                                .column("VL_PATRIM_LIQ")
+                                .ok()
+                                .and_then(|col| col.get(0).ok())
+                                .and_then(|val| val.get_str().map(|s| s.to_string()))
+                                .and_then(|value_str| value_str.parse::<f64>().ok())
+                                .and_then(|parsed_value| util::to_real(parsed_value).ok())
+                                .map(|v| ui.heading(v.format()))
+                                .unwrap_or_else(|| ui.label("-"));
                         });
+                    });
+                    //});
+                });
+            });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.push_id("filter_assets", |ui| {
+                let mut filters = Vec::new();
+                for r in self.assets_filter_tp_aplic_selection.iter() {
+                    if let Ok(column) = self.top_assets.column("TP_APLIC") {
+                        if let Ok(value) = column.get(*r) {
+                            let v = value.get_str().unwrap();
+                            filters.push(v.to_string())
+                        }
+                    }
+                }
+
+                let filters_series = Series::new("filters", filters);
+                let lf = if filters_series.len() > 0 {
+                    self.assets
+                        .clone()
+                        .lazy()
+                        .filter(col("TP_APLIC").is_in(lit(filters_series)))
+                        .sort(
+                            "VL_PORCENTAGEM_PL",
+                            polars::prelude::SortOptions {
+                                descending: true,
+                                ..Default::default()
+                            },
+                        )
+                } else {
+                    self.assets.clone().lazy()
+                };
+
+                let filtered_df = lf.collect().unwrap();
+                let nr_rows = filtered_df.height();
+                let cols: Vec<&str> = vec![
+                    "TP_APLIC",
+                    "DETALHES",
+                    "VL_MERC_POS_FINAL",
+                    "VL_PORCENTAGEM_PL",
+                ];
+                ui.group(|ui| {
+                    ui.set_min_height(ui.available_height());
+
+                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                        TableBuilder::new(ui)
+                            .column(Column::auto().at_least(300.0).resizable(true).clip(true))
+                            .column(Column::auto().at_least(400.0).resizable(true).clip(true))
+                            .column(
+                                Column::remainder()
+                                    .at_least(200.0)
+                                    .resizable(true)
+                                    .clip(true),
+                            )
+                            .column(Column::remainder())
+                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                            .striped(true)
+                            .resizable(false)
+                            .header(20.0, |mut header| {
+                                header.col(|ui| {
+                                    ui.label("Aplicação");
+                                });
+                                header.col(|ui| {
+                                    ui.label("Detalhes");
+                                });
+                                header.col(|ui| {
+                                    ui.label("Valor");
+                                });
+                                header.col(|ui| {
+                                    ui.label("% Patrim. Liq");
+                                });
+                            })
+                            .body(|body| {
+                                body.rows(20.0, nr_rows, |mut row| {
+                                    let row_index = row.index();
+                                    for (i, col_name) in cols.iter().enumerate() {
+                                        row.col(|ui| {
+                                            if i == 1 {
+                                                let details_label = [
+                                                    "CD_ATIVO",
+                                                    "DS_ATIVO",
+                                                    "NM_FUNDO_COTA",
+                                                    "TP_TITPUB",
+                                                    "CD_SELIC",
+                                                    "TP_APLIC",
+                                                ]
+                                                .iter()
+                                                .filter_map(|&col| {
+                                                    get_value_from_column(
+                                                        col,
+                                                        &filtered_df,
+                                                        row_index,
+                                                    )
+                                                })
+                                                .next()
+                                                .unwrap_or_else(|| "N/A".to_string());
+                                                if ui.link(details_label.clone()).clicked() {
+                                                    let row_values =
+                                                        filtered_df.get_row(row_index).unwrap().0;
+                                                    let row_df = DataFrame::new(
+                                                        filtered_df
+                                                            .get_column_names()
+                                                            .iter()
+                                                            .cloned()
+                                                            .zip(row_values)
+                                                            .map(|(name, value)| {
+                                                                Series::new(name, vec![value])
+                                                            })
+                                                            .collect(),
+                                                    )
+                                                    .unwrap();
+                                                    let _ = self.sender.clone().unwrap().send(
+                                                        message::Message::ShowAssetDetail(
+                                                            row_df.clone(),
+                                                        ),
+                                                    );
+                                                    println!("row_df {:?}", row_df);
+                                                }
+                                            } else if let Ok(column) = filtered_df.column(col_name)
+                                            {
+                                                if let Ok(value) = column.get(row_index) {
+                                                    if col_name.contains("VL_PORCENTAGEM_PL") {
+                                                        let a = value
+                                                            .to_string()
+                                                            .parse::<f64>()
+                                                            .unwrap();
+                                                        ui.label(format!("{}%", a));
+                                                    } else if let Some(value_str) = value.get_str()
+                                                    {
+                                                        if col_name.contains("VL_MERC_POS_FINAL") {
+                                                            let a = value_str
+                                                                .to_string()
+                                                                .parse::<f64>()
+                                                                .unwrap();
+                                                            let r = util::to_real(a).unwrap();
+                                                            ui.label(r.format());
+                                                        } else {
+                                                            ui.label(value_str);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                            });
+                    });
                 });
             });
         });
-    });
+    }
 }
 
 fn toggle_row_selection(
@@ -321,4 +357,18 @@ fn toggle_row_selection(
             selection.insert(row_index);
         }
     }
+}
+fn get_value_from_column(
+    column_name: &str,
+    filtered_df: &DataFrame,
+    row_index: usize,
+) -> Option<String> {
+    if let Ok(column) = filtered_df.column(column_name) {
+        if let Ok(value) = column.get(row_index) {
+            if let Some(value_str) = value.get_str() {
+                return Some(value_str.to_string());
+            }
+        }
+    }
+    None
 }

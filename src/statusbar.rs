@@ -10,9 +10,9 @@ impl TemplateApp {
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
                 egui::warn_if_debug_build(ui);
+                egui::widgets::global_dark_light_mode_buttons(ui);
                 ui.horizontal(|ui| {
                     let log_messages = LOG_MESSAGES.lock().unwrap();
-
                     if ui
                         .small_button(format!(
                             "{} {}",

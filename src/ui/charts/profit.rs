@@ -1,12 +1,18 @@
 use std::ops::RangeInclusive;
 
 use chrono::DateTime;
-use egui::Ui;
+use egui::{Color32, Ui};
 use egui_plot::{AxisHints, GridMark, Legend, Line, Plot};
 use polars::frame::DataFrame;
 
-//TODO: refatorar para unificar as datas
-pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ibov: &DataFrame, ui: &mut Ui) {
+pub struct Indice {
+    pub name: String,
+    pub color: Color32,
+    pub dataframe: DataFrame,
+}
+
+///TODO: refatorar para unificar as datas
+pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
     let chart = match (dataframe.column("DT_COMPTC"), dataframe.column("RENT_ACUM")) {
         (Ok(dates), Ok(rentabilidade)) => {
             let mut line_data = Vec::new();
@@ -34,55 +40,38 @@ pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ibov: &DataFrame, ui
             .name("Fundo"),
     };
 
-    let chart_cdi = match (cdi.column("date"), cdi.column("value")) {
-        (Ok(dates), Ok(rentabilidade)) => {
-            let mut line_data = Vec::new();
-            let dates = dates.utf8().unwrap();
-
-            let rentabilidade = rentabilidade.f64().unwrap();
-
-            for (date, rent) in dates.into_iter().zip(rentabilidade.into_iter()) {
-                if let (Some(date), Some(rent)) = (date, rent) {
-                    if let Ok(parsed_date) = chrono::NaiveDate::parse_from_str(date, "%d/%m/%Y") {
-                        let timestamp = parsed_date
-                            .and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_utc()
-                            .timestamp() as f64;
-                        line_data.push([timestamp, rent]);
+    let mut charts = Vec::new();
+    for (index, indice) in indices.iter().enumerate() {
+        let chart = match (
+            indice.dataframe.column("date"),
+            indice.dataframe.column("value"),
+        ) {
+            (Ok(dates), Ok(rentabilidade)) => {
+                let mut line_data = Vec::new();
+                let dates = dates.utf8().unwrap();
+                let rentabilidade = rentabilidade.f64().unwrap();
+                for (date, rent) in dates.into_iter().zip(rentabilidade.into_iter()) {
+                    if let (Some(date), Some(rent)) = (date, rent) {
+                        if let Ok(parsed_date) = chrono::NaiveDate::parse_from_str(date, "%d/%m/%Y")
+                        {
+                            let timestamp = parsed_date
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap()
+                                .and_utc()
+                                .timestamp() as f64;
+                            line_data.push([timestamp, rent]);
+                        }
                     }
                 }
+                Line::new(line_data)
+                    .color(indice.color)
+                    .name(indice.name.to_string())
             }
+            _ => Line::new(Vec::new()).color(generate_color(index)),
+        };
 
-            Line::new(line_data).color(egui::Color32::RED).name("CDI")
-        }
-        _ => Line::new(Vec::new()).color(egui::Color32::RED).name("CDI"),
-    };
-
-    let chart_ibov = match (ibov.column("date"), ibov.column("value")) {
-        (Ok(dates), Ok(rentabilidade)) => {
-            let mut line_data = Vec::new();
-            let dates = dates.utf8().unwrap();
-
-            let rentabilidade = rentabilidade.f64().unwrap();
-
-            for (date, rent) in dates.into_iter().zip(rentabilidade.into_iter()) {
-                if let (Some(date), Some(rent)) = (date, rent) {
-                    if let Ok(parsed_date) = chrono::NaiveDate::parse_from_str(date, "%d/%m/%Y") {
-                        let timestamp = parsed_date
-                            .and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_utc()
-                            .timestamp() as f64;
-                        line_data.push([timestamp, rent]);
-                    }
-                }
-            }
-
-            Line::new(line_data).color(egui::Color32::YELLOW).name("Ibovespa")
-        }
-        _ => Line::new(Vec::new()).color(egui::Color32::YELLOW).name("Ibovespa"),
-    };
+        charts.push(chart);
+    }
 
     let x_formatter = |mark: GridMark, _digits, _range: &RangeInclusive<f64>| {
         let timestamp = mark.value as i64;
@@ -125,7 +114,20 @@ pub fn profit_chart(dataframe: &DataFrame, cdi: &DataFrame, ibov: &DataFrame, ui
         .height(400.0)
         .show(ui, |plot_ui| {
             plot_ui.line(chart);
-            plot_ui.line(chart_cdi);
-            plot_ui.line(chart_ibov);
+            for chart in charts {
+                plot_ui.line(chart)
+            }
         });
+}
+
+fn generate_color(index: usize) -> Color32 {
+    match index % 3 {
+        0 => Color32::from_rgb(255, 0, 0), // Vermelho
+        1 => Color32::from_rgb(0, 255, 0), // Verde
+        _ => Color32::from_rgb(0, 0, 255), // Azul
+    };
+    let r = (index * 30 % 256) as u8;
+    let g = (index * 60 % 256) as u8;
+    let b = (index * 90 % 256) as u8;
+    Color32::from_rgb(r, g, b)
 }

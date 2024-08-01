@@ -1,66 +1,67 @@
 use egui::{Frame, Grid, Ui};
-
-use polars::frame::DataFrame;
+use polars::prelude::*;
 use std::collections::HashMap;
 
 pub fn show_ui(df: DataFrame, ui: &mut Ui) {
     ui.group(|ui| {
-        ui.label(format!("{} Detalhes", egui_phosphor::regular::NOTE));
+        ui.heading(format!("{} Detalhes", egui_phosphor::regular::NOTE));
         ui.separator();
-        Frame::none().inner_margin(5.0).show(ui, |ui| {
-            let grouped_columns = vec![
-                (
-                    "dados_id",
-                    vec!["TP_FUNDO", "CNPJ_FUNDO", "DT_REG", "DT_CONST", "CD_CVM"],
-                ),
-                ("classe_id", vec!["CLASSE", "CLASSE_ANBIMA"]),
-                (
-                    "situacao_id",
-                    vec!["SIT", "DT_INI_SIT", "DT_INI_ATIV", "DT_CANCEL"],
-                ),
-                (
-                    "admin_id",
-                    vec![
-                        "DIRETOR",
-                        "ADMIN",
-                        "CNPJ_ADMIN",
-                        "GESTOR",
-                        "CPF_CNPJ_GESTOR",
-                        "PF_PJ_GESTOR",
-                        "AUDITOR",
-                        "CNPJ_AUDITOR",
-                        "CUSTODIANTE",
-                    ],
-                ),
-            ];
-
-            // Descobrir todas as colunas presentes nos grupos acima
-            let grouped_column_names: Vec<&str> = grouped_columns
-                .iter()
-                .flat_map(|(_, cols)| cols.clone())
-                .collect();
-
-            // Adicionar o grupo "ALL" com as colunas restantes
-            let all_columns: Vec<&str> = df
-                .get_columns()
-                .iter()
-                .map(|col| col.name())
-                .filter(|col_name| !grouped_column_names.contains(col_name))
-                .collect();
-
-            let mut extended_grouped_columns = grouped_columns.clone();
-            extended_grouped_columns.push(("all_id", all_columns));
-
-            show_dataframe(extended_grouped_columns, df.clone(), ui);
+        Frame::none().inner_margin(0.0).show(ui, |ui| {
+            let grouped_columns = get_grouped_columns(&df);
+            show_dataframe(grouped_columns, df.clone(), ui);
         });
     });
+}
+
+fn get_grouped_columns(df: &DataFrame) -> Vec<(&str, Vec<&str>)> {
+    let predefined_groups = vec![
+        (
+            "dados_id",
+            vec!["TP_FUNDO", "CNPJ_FUNDO", "DT_REG", "DT_CONST", "CD_CVM"],
+        ),
+        ("classe_id", vec!["CLASSE", "CLASSE_ANBIMA"]),
+        (
+            "situacao_id",
+            vec!["SIT", "DT_INI_SIT", "DT_INI_ATIV", "DT_CANCEL"],
+        ),
+        (
+            "admin_id",
+            vec![
+                "DIRETOR",
+                "ADMIN",
+                "CNPJ_ADMIN",
+                "GESTOR",
+                "CPF_CNPJ_GESTOR",
+                "PF_PJ_GESTOR",
+                "AUDITOR",
+                "CNPJ_AUDITOR",
+                "CUSTODIANTE",
+            ],
+        ),
+    ];
+
+    let grouped_column_names: Vec<&str> = predefined_groups
+        .iter()
+        .flat_map(|(_, cols)| cols.iter().copied())
+        .collect();
+
+    let all_columns: Vec<&str> = df
+        .get_columns()
+        .iter()
+        .map(|col| col.name())
+        .filter(|col_name| !grouped_column_names.contains(col_name))
+        .collect();
+
+    let mut extended_grouped_columns = predefined_groups;
+    extended_grouped_columns.push(("all_id", all_columns));
+    extended_grouped_columns
 }
 
 fn show_dataframe(grouped_columns: Vec<(&str, Vec<&str>)>, df: DataFrame, ui: &mut Ui) {
     let n_rows = df.height();
     let cols = df.get_columns();
+
     egui::ScrollArea::vertical().show(ui, |ui| {
-        // Exibir os grupos específicos
         Grid::new("data_grid")
             .striped(true)
             .min_col_width(ui.available_width() / 2.0)
@@ -68,29 +69,12 @@ fn show_dataframe(grouped_columns: Vec<(&str, Vec<&str>)>, df: DataFrame, ui: &m
             .show(ui, |ui| {
                 for (group_id, columns) in &grouped_columns {
                     if group_id != &"all_id" {
-                        for row in 0..n_rows {
-                            for col in cols.iter() {
-                                let field_name = col.name();
-                                if !columns.contains(&field_name) {
-                                    continue;
-                                }
-                                ui.label(header_title(field_name));
-                                let value = col.get(row).unwrap();
-                                if let Some(value_str) = value.get_str() {
-                                    ui.label(value_str.to_string());
-                                } else {
-                                    ui.label("-");
-                                }
-                                ui.end_row();
-                            }
-                        }
-                        // ui.end_row(); // Adicionar uma linha final para cada grupo
+                        show_columns(group_id, columns, cols, n_rows, ui);
                     }
                 }
             });
 
-        // Identificar as colunas para o grupo "ALL"
-        let all_columns: Vec<&str> = grouped_columns
+        let all_columns = grouped_columns
             .iter()
             .find_map(|(group_id, cols)| {
                 if group_id == &"all_id" {
@@ -107,27 +91,32 @@ fn show_dataframe(grouped_columns: Vec<(&str, Vec<&str>)>, df: DataFrame, ui: &m
                 .max_col_width(ui.available_width() / 2.0)
                 .min_col_width(ui.available_width() / 2.0)
                 .show(ui, |ui| {
-                    for row in 0..n_rows {
-                        for col in cols.iter() {
-                            let field_name = col.name();
-                            if !all_columns.contains(&field_name) {
-                                continue;
-                            }
-                            ui.label(header_title(field_name));
-                            let value = col.get(row).unwrap();
-                            if let Some(value_str) = value.get_str() {
-                                ui.label(value_str.to_string());
-                            } else {
-                                ui.label("-");
-                            }
-                            ui.end_row();
-                        }
-                    }
+                    show_columns("all_id", &all_columns, cols, n_rows, ui);
                 });
         });
     });
 }
 
+fn show_columns(_group_id: &str, columns: &[&str], cols: &[Series], n_rows: usize, ui: &mut Ui) {
+    for row in 0..n_rows {
+        for col in cols.iter() {
+            let field_name = col.name();
+            if !columns.contains(&field_name) {
+                continue;
+            }
+            ui.label(header_title(field_name));
+            let value = col.get(row).unwrap();
+    
+            if let Some(value_str) = value.get_str() {
+                ui.label(value_str.to_string());
+            } else {
+            
+                ui.label(format!("{:#}", value));
+            }
+            ui.end_row();
+        }
+    }
+}
 fn header_title(header: &str) -> String {
     let mut headers_map = HashMap::new();
     headers_map.insert("TP_FUNDO", "Tipo de Fundo");
@@ -171,6 +160,7 @@ fn header_title(header: &str) -> String {
     headers_map.insert("CONTROLADOR", "Controlador");
     headers_map.insert("INVEST_CEMPR_EXTER", "Investimento em Empresas no Exterior");
     headers_map.insert("CLASSE_ANBIMA", "Classe ANBIMA");
+
     match headers_map.get(header) {
         Some(humanized_name) => humanized_name.to_string(),
         None => String::from(header),

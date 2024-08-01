@@ -18,4 +18,5 @@ pub enum Message {
     StartDownload(String, usize, DownloadItem),
     CancelDownload(String),
     ProgressDownload(String, usize, Download),
+    ShowAssetDetail(DataFrame),
 }

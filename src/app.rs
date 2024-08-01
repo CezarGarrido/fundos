@@ -8,11 +8,14 @@ use crate::{
     history::History,
     message::Message,
     provider::{
-        cvm::{fund::Register, informe::Informe, portfolio::Portfolio},
+        cvm::{self, fund::Register, informe::Informe, portfolio::Portfolio},
         indices::{self},
     },
     ui::{
-        fund::{modal::search::Search, tab::FundTab},
+        fund::{
+            modal::{asset::AssetDetail, search::Search},
+            tab::FundTab,
+        },
         tabs::{home_tab::HomeTab, Tab, TabType, TabViewer},
     },
 };
@@ -43,6 +46,8 @@ pub struct TemplateApp {
     #[serde(skip)]
     search: Search,
     pub open_logs: bool,
+    #[serde(skip)]
+    asset_detail_modal: AssetDetail,
 }
 
 impl Default for TemplateApp {
@@ -50,7 +55,7 @@ impl Default for TemplateApp {
         let channel = mpsc::unbounded_channel();
         let history = History::new();
         if history.load().is_err() {
-            log::error!("erro ao carregar dataframe");
+            log::error!("Erro ao carregar histórico");
         }
 
         let tree: DockState<TabType> = DockState::new(vec![TabType::Home(HomeTab::new(
@@ -59,18 +64,21 @@ impl Default for TemplateApp {
             history.clone(),
         ))]);
 
-        let tab_viewer = TabViewer { open_window: false };
+        let tab_viewer = TabViewer {
+            open_window: false,
+            sender: channel.0.clone(),
+        };
 
         let mut register = Register::new();
         if register.load().is_err() {
-            log::error!("erro ao carregar dataframe");
+            log::error!("Erro ao carregar cadastro");
         }
 
         let informe: Informe = Informe::new();
         let portfolio = Portfolio::new();
 
         let initial_funds = register
-            .find(None, None, None, Some(10))
+            .find(None, None, None, Some(20))
             .unwrap_or(DataFrame::empty());
 
         let s = channel.0.clone();
@@ -89,20 +97,19 @@ impl Default for TemplateApp {
             open_logs: false,
             downloads: HashMap::new(),
             search,
+            asset_detail_modal: AssetDetail {
+                asset: DataFrame::empty(),
+                open_window: false,
+            },
         }
     }
 }
 
 impl TemplateApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // This is also where you can customize the look and feel of egui using
-        // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-
         cc.egui_ctx.set_fonts(fonts);
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
@@ -166,18 +173,43 @@ impl TemplateApp {
                     self.cancel_download(key);
                 }
                 Message::StartDownload(group, index, download_item) => {
-                    // Crie um novo token de cancelamento e inicie o download
-                    let token = { self.start_download(format!("{}_{}", group, index)) };
-                    let g = group.clone();
-                    tokio::spawn(async move {
-                        indices::download(token.clone(), download_item.id, move |dl| {
-                            let _ = sender.send(Message::ProgressDownload(g.clone(), index, dl));
-                            ctxc.request_repaint(); // Wake up UI thread
-                        })
-                    });
+                    let id = download_item.id.clone();
+                    let token = self.start_download(format!("{}_{}", group, index));
+                    let group_clone = group.clone();
+                    let handle_download = move || match group.as_str() {
+                        "Indices" => {
+                            tokio::spawn(async move {
+                                indices::download(token.clone(), id.clone(), move |dl| {
+                                    let _ = sender.send(Message::ProgressDownload(
+                                        group_clone.clone(),
+                                        index,
+                                        dl,
+                                    ));
+                                    ctxc.request_repaint();
+                                })
+                            });
+                        }
+                        "Fundos" => {
+                            tokio::spawn(async move {
+                                cvm::download(token.clone(), id, move |dl| {
+                                    let _ = sender.send(Message::ProgressDownload(
+                                        group_clone.clone(),
+                                        index,
+                                        dl,
+                                    ));
+                                    ctxc.request_repaint();
+                                })
+                            });
+                        }
+                        _ => {
+                            log::error!("Grupo desconhecido: {}", group);
+                        }
+                    };
+                    handle_download();
                 }
+
                 Message::OpenSearchWindow(value) => {
-                    // self.tab_viewer.open_window = value;
+                    self.asset_detail_modal.open_window = false;
                     self.search.open(value)
                 }
                 Message::NewTab(cnpj) => {
@@ -189,13 +221,12 @@ impl TemplateApp {
                             self.add_tab(cnpj, fund_dataframe);
                         }
                         Err(err) => {
-                            log::error!("erro ao carregar fundo {}", err);
+                            log::error!("Erro ao carregar fundo {}", err);
                         }
                     }
                 }
                 Message::Profit(cnpj, start_date, end_date) => {
                     let informe = self.informe.clone();
-
                     tokio::spawn(async move {
                         let cdi_future = async { indices::cdi::dataframe(start_date, end_date) };
                         let ibov_future =
@@ -203,18 +234,17 @@ impl TemplateApp {
                         let profitability_future =
                             async { informe.profitability(cnpj.clone(), start_date, end_date) };
                         let (profitability_result, cdi_result, ibov_result) =
-                            tokio::join!(cdi_future, profitability_future, ibov_future);
+                            tokio::join!(profitability_future, cdi_future, ibov_future);
                         let cdi_dataframe = handle_result(cdi_result);
                         let profitability_dataframe = handle_result(profitability_result);
                         let ibov_dataframe = handle_result(ibov_result);
-                        // Envie a mensagem com os DataFrames
                         if let Err(e) = sender.send(Message::ProfitResult(
                             cnpj.clone(),
                             profitability_dataframe,
                             cdi_dataframe,
                             ibov_dataframe,
                         )) {
-                            log::error!("Failed to send ProfitResult message: {}", e);
+                            log::error!("Falha ao enviar mensagem: {}", e);
                         }
                         ctxc.request_repaint();
                     });
@@ -244,7 +274,7 @@ impl TemplateApp {
                         ) {
                             Ok(df) => df,
                             Err(e) => {
-                                log::error!("erro ao obter patrimônio líquido: {:?}", e);
+                                log::error!("Erro ao obter patrimônio líquido: {:?}", e);
                                 return; // Não envie a mensagem se ocorrer erro
                             }
                         };
@@ -258,7 +288,7 @@ impl TemplateApp {
                         ) {
                             Ok(dfs) => dfs,
                             Err(e) => {
-                                log::error!("erro ao obter ativos: {:?}", e);
+                                log::error!("Erro ao obter ativos: {:?}", e);
                                 return; // Não envie a mensagem se ocorrer erro
                             }
                         };
@@ -266,7 +296,7 @@ impl TemplateApp {
                         if let Err(e) =
                             sender.send(Message::AssetsResult(cnpj.clone(), assets, top_assets, pl))
                         {
-                            log::error!("rrro ao enviar mensagem: {:?}", e);
+                            log::error!("Erro ao enviar mensagem: {:?}", e);
                         }
 
                         ctxc.request_repaint();
@@ -300,10 +330,14 @@ impl TemplateApp {
                                 ctxc.request_repaint();
                             }
                             Err(err) => {
-                                log::error!("erro ao buscar fundos {:?}", err);
+                                log::error!("Erro ao buscar fundos {:?}", err);
                             }
                         }
                     });
+                }
+                Message::ShowAssetDetail(df) => {
+                    self.asset_detail_modal.asset = df;
+                    self.asset_detail_modal.open_window = true;
                 }
             }
         }
@@ -329,7 +363,6 @@ impl eframe::App for TemplateApp {
                     }
                 });
                 ui.add_space(16.0);
-                egui::widgets::global_dark_light_mode_buttons(ui);
             });
         });
 
@@ -337,6 +370,7 @@ impl eframe::App for TemplateApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.search.show(ui);
+            self.asset_detail_modal.show(ui);
             egui::Frame::none().inner_margin(5.0).show(ui, |ui| {
                 DockArea::new(&mut self.tree)
                     .style({
