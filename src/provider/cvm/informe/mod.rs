@@ -1,6 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use chrono::{Datelike, NaiveDate};
 use ehttp::Request;
@@ -22,7 +20,6 @@ use polars::{
 };
 
 use tokio_util::sync::CancellationToken;
-
 
 use crate::ui::download::Download;
 

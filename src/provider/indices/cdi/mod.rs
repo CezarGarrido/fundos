@@ -88,7 +88,7 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
                 log::error!("Falha {}", msg);
             }
         }
-        
+
         on_progress(Download::Done);
     });
 }

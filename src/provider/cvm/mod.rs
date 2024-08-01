@@ -1,4 +1,8 @@
-use std::{fs::File, io::{self, Cursor, Write}, path::{Path, PathBuf}};
+use std::{
+    fs::File,
+    io::{self, Cursor, Write},
+    path::{Path, PathBuf},
+};
 
 use encoding_rs::WINDOWS_1252;
 use fund::Register;

@@ -106,11 +106,10 @@ fn show_columns(_group_id: &str, columns: &[&str], cols: &[Series], n_rows: usiz
             }
             ui.label(header_title(field_name));
             let value = col.get(row).unwrap();
-    
+
             if let Some(value_str) = value.get_str() {
                 ui.label(value_str.to_string());
             } else {
-            
                 ui.label(format!("{:#}", value));
             }
             ui.end_row();
