@@ -177,8 +177,8 @@ jobs:
       if: ${{ github.event_name == 'push' }}
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: eframe_template-${{ matrix.TARGET }}
-        asset_name: eframe_template-${{ matrix.TARGET }}
+        file: eframe_template-${{ matrix.TARGET }}.zip
+        asset_name: eframe_template-${{ matrix.TARGET }}.zip
         tag: ${{ github.ref }}
         prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
         overwrite: true
