@@ -168,7 +168,12 @@ jobs:
         run: cp config.yaml eframe_template-${{ matrix.TARGET }}/config.yaml
 
       - name: Create ZIP file
-        run: zip -r eframe_template-${{ matrix.TARGET }}.zip eframe_template-${{ matrix.TARGET }}
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            powershell -Command "Compress-Archive -Path eframe_template-${{ matrix.TARGET }} -DestinationPath eframe_template-${{ matrix.TARGET }}.zip"
+          else
+            zip -r eframe_template-${{ matrix.TARGET }}.zip eframe_template-${{ matrix.TARGET }}
+          fi
 
       - name: List files
         run: ls -al

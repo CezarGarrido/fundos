@@ -48,10 +48,10 @@ impl Informe {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<DataFrame, PolarsError> {
-        let res = self.read_informes(start_date, end_date);
-        match res {
-            Ok(lf) => {
-                let mut cotas = lf
+        let result_informes = self.read_informes(start_date, end_date);
+        match result_informes {
+            Ok(informes) => {
+                let mut cotas = informes
                     .filter(col("CNPJ_FUNDO").str().contains(lit(cnpj), false))
                     .with_column(col("VL_QUOTA").cast(DataType::Float64))
                     .with_column(
@@ -241,23 +241,3 @@ impl Informe {
         }
     }
 }
-
-/* Calcular a rentabilidade acumulada
- let initial_value = cotas
-     .column("VL_QUOTA")
-     .unwrap()
-     .f64()
-     .unwrap()
-     .get(0)
-     .unwrap();
- let final_value = cotas
-     .column("VL_QUOTA")
-     .unwrap()
-     .f64()
-     .unwrap()
-     .get(cotas.height() - 1)
-     .unwrap();
-// let rentabilidade_ac umulada = (final_value / initial_value - 1.0) * 100.0;
-// println!("Rentabilidade acumulada no período: {:.2}%", rentabilidade_acumulada);
-
-*/

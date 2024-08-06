@@ -19,4 +19,7 @@ pub enum Message {
     CancelDownload(String),
     ProgressDownload(String, usize, Download),
     ShowAssetDetail(DataFrame),
+    OpenDashboardTab,
+    DashboardTabResult(DataFrame, DataFrame, DataFrame),
+    OpenConfigWindow(bool),
 }

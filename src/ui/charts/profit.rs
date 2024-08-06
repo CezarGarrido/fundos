@@ -32,11 +32,11 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
             }
 
             Line::new(line_data)
-                .color(egui::Color32::GREEN)
+                .color(Color32::from_rgb(0, 0, 255))
                 .name("Fundo")
         }
         _ => Line::new(Vec::new())
-            .color(egui::Color32::GREEN)
+            .color(Color32::from_rgb(0, 0, 255))
             .name("Fundo"),
     };
 

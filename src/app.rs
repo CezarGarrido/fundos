@@ -1,3 +1,4 @@
+use egui::FontId;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabAddAlign};
 use polars::{error::PolarsError, frame::DataFrame};
 use std::collections::HashMap;
@@ -14,7 +15,7 @@ use crate::{
     ui::{
         fund::{
             modal::{asset::AssetDetail, search::Search},
-            tab::FundTab,
+            tab::{dashboard::DashboardTab, FundTab},
         },
         tabs::{home_tab::HomeTab, Tab, TabType, TabViewer},
     },
@@ -48,6 +49,7 @@ pub struct TemplateApp {
     pub open_logs: bool,
     #[serde(skip)]
     asset_detail_modal: AssetDetail,
+    open_list_tab: bool,
 }
 
 impl Default for TemplateApp {
@@ -101,6 +103,7 @@ impl Default for TemplateApp {
                 asset: DataFrame::empty(),
                 open_window: false,
             },
+            open_list_tab: false,
         }
     }
 }
@@ -150,6 +153,32 @@ impl TemplateApp {
         self.history.add(cnpj.clone());
         let _ = self.history.save();
         let _ = self.history.load();
+    }
+
+    pub fn add_dashboard_tab(&mut self) {
+        let tabs: Vec<_> = self
+            .tree
+            .iter_all_tabs()
+            .map(|(_, tab)| tab.to_owned())
+            .collect();
+
+        if let Some(index) = tabs
+            .iter()
+            .position(|tb| tb.title().text().contains("Dashboard"))
+        {
+            let main_surface = self.tree.main_surface_mut();
+            main_surface.set_active_tab(NodeIndex(0), egui_dock::TabIndex(index));
+        } else {
+            let main_surface = self.tree.main_surface_mut();
+            main_surface.set_focused_node(egui_dock::NodeIndex(2));
+            let dash_tab = DashboardTab {
+                title: "Dashboard".to_string(),
+                by_year: DataFrame::empty(),
+                by_situation: DataFrame::empty(),
+                by_class: DataFrame::empty(),
+            };
+            main_surface.push_to_focused_leaf(TabType::Dashboard(dash_tab));
+        }
     }
 
     fn handle_messages(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -339,6 +368,37 @@ impl TemplateApp {
                     self.asset_detail_modal.asset = df;
                     self.asset_detail_modal.open_window = true;
                 }
+                Message::OpenDashboardTab => {
+                    self.add_dashboard_tab();
+
+                    let sender = sender.clone();
+                    let r = self.register.clone();
+                    tokio::spawn(async move {
+                        let result = r.stats();
+                        match result {
+                            Ok((a, b, c)) => {
+                                let _ = sender.send(Message::DashboardTabResult(a, b, c));
+                                ctxc.request_repaint();
+                            }
+                            Err(err) => {
+                                log::error!("Erro ao buscar estatisticas {}", err);
+                            }
+                        }
+                    });
+                }
+                Message::DashboardTabResult(a, b, c) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Dashboard(tab) = tb {
+                            tab.set_dataframes(a.clone(), b.clone(), c.clone());
+                            ctxc.request_repaint();
+                            break;
+                        }
+                    }
+                }
+                Message::OpenConfigWindow(_) => {
+                    //self.config_modal.open = true;
+                }
             }
         }
     }
@@ -353,10 +413,26 @@ impl eframe::App for TemplateApp {
         self.handle_messages(ctx, frame);
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("Arquivo", |ui| {
+                let font_id = FontId::proportional(16.0);
+
+                let txt =
+                    egui::RichText::new(egui_phosphor::regular::LIST.to_string()).font(font_id);
+
+                ui.menu_button(txt, |ui| {
+                    ui.menu_button("Fundo", |ui| {
+                        if ui.button("Pesquisar").clicked() {
+                            let _ = self.channel.0.send(Message::OpenSearchWindow(true));
+                        }
+                    });
+
                     if ui.button("Configuração").clicked() {
-                        //self.config.open = !self.config.open;
+                        let _ = self.channel.0.send(Message::OpenConfigWindow(true));
                     }
+
+                    if ui.button("Sobre").clicked() {
+                        // ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+
                     ui.separator();
                     if ui.button("Sair").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -371,6 +447,7 @@ impl eframe::App for TemplateApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.search.show(ui);
             self.asset_detail_modal.show(ui);
+
             egui::Frame::none().inner_margin(5.0).show(ui, |ui| {
                 DockArea::new(&mut self.tree)
                     .style({
@@ -391,7 +468,7 @@ fn handle_result(result: Result<DataFrame, PolarsError>) -> DataFrame {
     match result {
         Ok(df) => df,
         Err(e) => {
-            log::error!("Failed to load data: {}", e);
+            log::error!("Falha ao carregar dados: {}", e);
             DataFrame::empty()
         }
     }

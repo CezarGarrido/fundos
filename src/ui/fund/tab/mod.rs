@@ -1,4 +1,5 @@
 use crate::{message, ui::tabs::Tab};
+pub mod dashboard;
 
 use egui::{Frame, Ui, WidgetText};
 

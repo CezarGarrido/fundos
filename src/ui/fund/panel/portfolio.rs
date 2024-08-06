@@ -62,7 +62,7 @@ impl PortfolioUI {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.horizontal_centered(|ui| {
-                            ui.label(format!(
+                            ui.heading(format!(
                                 "{} Composição da Carteira",
                                 egui_phosphor::regular::WALLET
                             ));

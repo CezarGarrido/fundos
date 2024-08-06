@@ -1,4 +1,4 @@
-use egui::{Align2, Vec2};
+use egui::{Align2, TopBottomPanel, Vec2};
 use egui_extras::{Column, TableBuilder};
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
@@ -56,8 +56,8 @@ impl Search {
             .collapsible(false)
             .default_width(550.0)
             .max_width(550.0)
-            .max_height(700.0)
-            .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 150.0))
+            .max_height(500.0)
+            .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 120.0))
             .open(&mut open)
             .show(ui.ctx(), |ui| {
                 let search_bar = egui::TextEdit::singleline(&mut self.query)
@@ -126,6 +126,10 @@ impl Search {
                                 }
                             });
                         });
+                });
+
+                TopBottomPanel::bottom("top_bottom_window").show_inside(ui, |ui| {
+                    ui.add_space(5.0);
                 });
             });
 

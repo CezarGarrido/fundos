@@ -11,8 +11,8 @@ use options::{load, Options};
 use polars::{
     error::PolarsError,
     frame::DataFrame,
-    lazy::dsl::{col, lit, Expr, GetOutput},
-    prelude::{LazyCsvReader, LazyFileListReader, LazyFrame, SortOptions},
+    lazy::dsl::{col, lit, Expr, GetOutput, StrptimeOptions},
+    prelude::{DataType, LazyCsvReader, LazyFileListReader, LazyFrame, SortOptions},
     series::IntoSeries,
 };
 use regex::Regex;
@@ -196,6 +196,59 @@ impl Register {
                 }
             }
         });
+    }
+
+    pub fn stats(&self) -> Result<(DataFrame, DataFrame, DataFrame), PolarsError> {
+        let filtered = self.funds.clone();
+        // Chama as funções para obter os DataFrames desejados
+        let by_year = self.count_funds_by_year(filtered.clone())?;
+        let by_status = self.count_funds_by_status(filtered.clone())?;
+        let by_class = self.count_funds_by_class(filtered.clone())?;
+
+        Ok((by_year, by_status, by_class))
+    }
+
+    pub fn count_funds_by_year(&self, fund_lazyframe: LazyFrame) -> Result<DataFrame, PolarsError> {
+        let expr = fund_lazyframe
+            .with_column(
+                col("DT_CONST")
+                    .str()
+                    .strptime(
+                        DataType::Date,
+                        StrptimeOptions {
+                            format: Some("%Y-%m-%d".into()),
+                            ..Default::default()
+                        },
+                    )
+                    .alias("DT_CONST_DATE"),
+            )
+            .with_column(col("DT_CONST_DATE").dt().year().alias("Ano"))
+            .groupby(vec![col("Ano")])
+            .agg(vec![col("Ano").count().alias("Quant")]);
+
+        expr.collect()
+    }
+
+    pub fn count_funds_by_status(
+        &self,
+        fund_lazyframe: LazyFrame,
+    ) -> Result<DataFrame, PolarsError> {
+        fund_lazyframe
+            .groupby(vec![col("SIT")])
+            .agg(vec![col("TP_FUNDO").count()])
+            .sort("TP_FUNDO", Default::default())
+            .collect()
+    }
+
+    pub fn count_funds_by_class(
+        &self,
+        fund_lazyframe: LazyFrame,
+    ) -> Result<DataFrame, PolarsError> {
+        fund_lazyframe
+            .groupby(vec![col("CLASSE")])
+            .agg(vec![col("TP_FUNDO").count()])
+            .sort("TP_FUNDO", Default::default())
+            .collect()
     }
 
     fn create_and_write_csv<P: AsRef<Path>>(

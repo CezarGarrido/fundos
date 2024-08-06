@@ -7,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::message::Message;
 
-use super::fund::tab::FundTab;
+use super::fund::tab::{dashboard::DashboardTab, FundTab};
 
 pub trait Tab {
     fn title(&self) -> WidgetText;
@@ -19,6 +19,7 @@ pub trait Tab {
 pub enum TabType {
     Fund(FundTab),
     Home(HomeTab),
+    Dashboard(DashboardTab),
 }
 
 impl Tab for TabType {
@@ -26,6 +27,7 @@ impl Tab for TabType {
         match self {
             TabType::Fund(tab) => tab.title(),
             TabType::Home(tab) => tab.title(),
+            TabType::Dashboard(tab) => tab.title(),
             // Adicione outros tipos de tabs aqui
         }
     }
@@ -35,6 +37,7 @@ impl Tab for TabType {
             match self {
                 TabType::Fund(tab) => tab.ui(ui),
                 TabType::Home(tab) => tab.ui(ui),
+                TabType::Dashboard(tab) => tab.ui(ui),
                 // Adicione outros tipos de tabs aqui
             }
         });
@@ -44,6 +47,7 @@ impl Tab for TabType {
         match self {
             TabType::Fund(tab) => tab.closeable(),
             TabType::Home(tab) => tab.closeable(),
+            TabType::Dashboard(tab) => tab.closeable(),
             // Adicione outros tipos de tabs aqui
         }
     }
@@ -76,5 +80,9 @@ impl egui_dock::TabViewer for TabViewer {
 
     fn scroll_bars(&self, _tab: &Self::Tab) -> [bool; 2] {
         [false, false]
+    }
+
+    fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
+        false
     }
 }

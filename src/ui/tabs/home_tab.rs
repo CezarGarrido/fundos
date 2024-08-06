@@ -35,31 +35,76 @@ impl Tab for HomeTab {
     fn ui(&mut self, ui: &mut Ui) {
         CentralPanel::default().show_inside(ui, |ui| {
             Frame::none().inner_margin(45.0).show(ui, |ui| {
-                ui.heading("Começar");
-                ui.add_space(5.0);
-                ui.vertical(|ui| {
-                    if ui.small_button("Pesquisar...").clicked() {
-                        let _ = self.sender.send(Message::OpenSearchWindow(true));
-                    }
-                    let _ = ui.small_button("Abrir Configuração..");
-                    let _ = ui.small_button("Mudar Tema");
-                });
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.set_max_width(ui.available_width() / 2.0);
 
-                ui.add_space(50.0);
-                ui.label("Recentes");
-                ui.vertical(|ui| {
-                    for cnpj in self.history.get_most_accesseds() {
-                        if ui.link(cnpj.clone()).clicked() {
-                            let _ = self.sender.send(Message::NewTab(cnpj.clone()));
-                        }
-                    }
-                });
+                        ui.heading("Começar");
+                        ui.add_space(5.0);
+                        ui.vertical(|ui| {
+                            if ui
+                                .small_button(format!(
+                                    "{} Pesquisar...",
+                                    egui_phosphor::regular::MAGNIFYING_GLASS
+                                ))
+                                .clicked()
+                            {
+                                let _ = self.sender.send(Message::OpenSearchWindow(true));
+                            }
+                            if ui
+                                .small_button(format!(
+                                    "{} Abrir Configuração...",
+                                    egui_phosphor::regular::GEAR_SIX
+                                ))
+                                .clicked()
+                            {
+                                let _ = self.sender.send(Message::OpenConfigWindow(true));
+                            }
+                        });
 
-                ui.add_space(50.0);
-                ui.group(|ui| {
-                    ui.heading(format!("{} Downloads", egui_phosphor::regular::DOWNLOAD));
-                    ui.separator();
-                    self.download_manager.ui(ui);
+                        ui.add_space(50.0);
+
+                        ui.vertical(|ui| {
+                            ui.set_max_width(500.0);
+                            ui.heading("Estatisticas".to_string());
+                            ui.add_space(5.0);
+                            if ui.link("Estatisticas de Fundos").clicked() {
+                                let _ = self.sender.send(Message::OpenDashboardTab);
+                            }
+                            ui.add_space(5.0);
+                        });
+
+                        ui.add_space(50.0);
+                        ui.label("Recentes");
+                        ui.vertical(|ui| {
+                            for cnpj in self.history.get_most_accesseds() {
+                                if ui
+                                    .link(format!(
+                                        "{} {}",
+                                        cnpj.clone(),
+                                        egui_phosphor::regular::ARROW_SQUARE_UP_RIGHT,
+                                    ))
+                                    .clicked()
+                                {
+                                    let _ = self.sender.send(Message::NewTab(cnpj.clone()));
+                                }
+                            }
+                        });
+
+                        ui.add_space(50.0);
+
+                        ui.vertical(|ui| {
+                            ui.set_max_width(500.0);
+                            ui.heading("Downloads".to_string());
+                            ui.add_space(10.0);
+                            //ui.separator();
+                            //   Frame::none().inner_margin(10.0).show(ui, |ui| {
+                            //     ui.group(|ui| {
+                            self.download_manager.ui(ui);
+                            //   });
+                            //   });
+                        });
+                    });
                 });
             });
         });

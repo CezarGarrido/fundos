@@ -93,18 +93,21 @@ impl ProfitUI {
                 });
                 ui.add_space(8.0);
             });
+            let red = Color32::from_rgb(255, 0, 0); // Vermelho
+            let green = Color32::from_rgb(0, 255, 0); // Verde
+                                                      //let blue = Color32::from_rgb(0, 0, 255); // Azul
             Frame::none().inner_margin(10.0).show(ui, |ui| {
                 charts::profit::chart(
                     &self.profit,
                     vec![
                         Indice {
                             name: "CDI".to_string(),
-                            color: Color32::BLUE,
+                            color: red,
                             dataframe: self.cdi.clone(),
                         },
                         Indice {
                             name: "IBOV".to_string(),
-                            color: Color32::YELLOW,
+                            color: green,
                             dataframe: self.ibov.clone(),
                         },
                     ],

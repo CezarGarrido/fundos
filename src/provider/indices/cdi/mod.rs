@@ -60,6 +60,7 @@ pub fn dataframe(start_date: NaiveDate, end_date: NaiveDate) -> Result<DataFrame
 
 pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send + FnMut(Download)) {
     let options = load().unwrap();
+    println!("url {}", options.url);
     let request = ehttp::Request::get(options.url);
     on_progress(Download::InProgress("Baixando (0/1)...".to_string()));
     ehttp::fetch(request, move |on_done: Result<ehttp::Response, String>| {
@@ -75,7 +76,9 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
                         on_progress(Download::Cancel);
                         return;
                     }
-                    if create_and_write_json(&options.path, &res.bytes).is_err() {
+
+                    let text = res.text().unwrap_or_default();
+                    if create_and_write_json(&options.path, text).is_err() {
                         on_progress(Download::Cancel); // Or another appropriate error handling
                         return;
                     }
@@ -93,17 +96,18 @@ pub fn download(token: CancellationToken, mut on_progress: impl 'static + Send +
     });
 }
 
-fn create_and_write_json<P: AsRef<Path>, T: serde::Serialize>(
+fn create_and_write_json<P: AsRef<Path>>(
     path: P,
-    data: &T,
+    data: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Create the directories if they do not exist
+    // Cria os diretórios se não existirem
     if let Some(parent) = path.as_ref().parent() {
         fs::create_dir_all(parent)?;
     }
-    // Create the file and write the JSON data
+    // Cria o arquivo e escreve o JSON
     let file = File::create(&path)?;
     let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, data)?;
+    let json_value: serde_json::Value = serde_json::from_str(data)?;
+    serde_json::to_writer_pretty(writer, &json_value)?;
     Ok(())
 }

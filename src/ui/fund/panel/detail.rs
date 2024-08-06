@@ -85,7 +85,7 @@ fn show_dataframe(grouped_columns: Vec<(&str, Vec<&str>)>, df: DataFrame, ui: &m
             })
             .unwrap_or_default();
 
-        ui.collapsing("ver mais", |ui| {
+        ui.collapsing("Ver mais", |ui| {
             Grid::new("all_data_grid")
                 .striped(true)
                 .max_col_width(ui.available_width() / 2.0)
