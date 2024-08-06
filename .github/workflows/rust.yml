@@ -177,9 +177,6 @@ jobs:
         run: |
           powershell -Command "Compress-Archive -Path eframe_template-${{ matrix.TARGET }} -DestinationPath eframe_template-${{ matrix.TARGET }}.zip"
 
-      - name: List files
-        run: ls -al
-
       - uses: actions/upload-artifact@master
         with:
           name: eframe_template-${{ matrix.TARGET }}
