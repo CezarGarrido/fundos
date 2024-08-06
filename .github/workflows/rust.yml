@@ -167,13 +167,15 @@ jobs:
       - name: Copy config.yaml
         run: cp config.yaml eframe_template-${{ matrix.TARGET }}/config.yaml
 
-      - name: Create ZIP file
+      - name: Create ZIP file for mac and linux
+        if: ${{ !contains(matrix.TARGET, 'windows') }}
         run: |
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            powershell -Command "Compress-Archive -Path eframe_template-${{ matrix.TARGET }} -DestinationPath eframe_template-${{ matrix.TARGET }}.zip"
-          else
-            zip -r eframe_template-${{ matrix.TARGET }}.zip eframe_template-${{ matrix.TARGET }}
-          fi
+          zip -r eframe_template-${{ matrix.TARGET }}.zip eframe_template-${{ matrix.TARGET }}
+
+      - name: Create ZIP file for windows
+        if: ${{ contains(matrix.TARGET, 'windows') }}
+        run: |
+          powershell -Command "Compress-Archive -Path eframe_template-${{ matrix.TARGET }} -DestinationPath eframe_template-${{ matrix.TARGET }}.zip"
 
       - name: List files
         run: ls -al
