@@ -175,7 +175,7 @@ jobs:
       - name: Create ZIP file for windows
         if: ${{ contains(matrix.TARGET, 'windows') }}
         run: |
-          powershell -Command "Compress-Archive -Path eframe_template-${{ matrix.TARGET }} -DestinationPath eframe_template-${{ matrix.TARGET }}.zip"
+          powershell -Command "Compress-Archive -Path eframe_template-${{ matrix.TARGET }}\* -DestinationPath eframe_template-${{ matrix.TARGET }}.zip"
 
       - uses: actions/upload-artifact@master
         with:
