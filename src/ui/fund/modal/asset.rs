@@ -43,10 +43,11 @@ fn show_dataframe(df: DataFrame, ui: &mut Ui) {
                     for col in cols {
                         let field_name = col.name();
                         let value = col.get(row).unwrap();
+                        //value.to_string();
                         let value_str = if let Some(value_str) = value.get_str() {
                             value_str.to_string()
                         } else {
-                            format!("{:#?}", value)
+                            format!("{:#?}", value.to_string())
                         };
 
                         ui.label(field_name);

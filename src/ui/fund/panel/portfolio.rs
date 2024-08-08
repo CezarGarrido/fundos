@@ -12,10 +12,11 @@ use std::collections::HashSet;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub struct PortfolioUI {
-    pub assets_filter_date: String,
-    pub assets_filter_year: String,
-    pub assets_filter_month: String,
-    pub assets_filter_tp_aplic_selection: std::collections::HashSet<usize>,
+    pub filter_date: String,
+    pub filter_year: String,
+    pub filter_month: String,
+    pub tp_aplic_selected: std::collections::HashSet<usize>,
+
     pub pl: DataFrame,
     pub assets: DataFrame,
     pub top_assets: DataFrame,
@@ -38,7 +39,7 @@ impl Default for PortfolioUI {
             month = v[1].to_string();
         }
 
-        let assets_filter_date = format!("{}/{}", year, month);
+        let filter_date = format!("{}/{}", year, month);
 
         PortfolioUI {
             cnpj: String::from(""),
@@ -46,11 +47,11 @@ impl Default for PortfolioUI {
             assets: DataFrame::empty(),
             pl: DataFrame::empty(),
             top_assets: DataFrame::empty(),
-            assets_filter_year: year,
-            assets_filter_month: month,
-            assets_filter_tp_aplic_selection: Default::default(),
+            filter_year: year,
+            filter_month: month,
+            tp_aplic_selected: Default::default(),
             available_dates,
-            assets_filter_date,
+            filter_date,
         }
     }
 }
@@ -82,7 +83,7 @@ impl PortfolioUI {
 
     fn create_date_combobox(&mut self, ui: &mut egui::Ui) {
         ComboBox::from_label("Selecione a data")
-            .selected_text(self.assets_filter_date.to_string())
+            .selected_text(self.filter_date.to_string())
             .show_ui(ui, |ui| {
                 for date in self.available_dates.clone() {
                     let v: Vec<&str> = date.split('/').collect();
@@ -90,17 +91,17 @@ impl PortfolioUI {
                     let month = v[1].to_string();
                     let date = format!("{}/{:02}", year, month);
                     if ui
-                        .selectable_value(&mut self.assets_filter_date, date.clone(), date)
+                        .selectable_value(&mut self.filter_date, date.clone(), date)
                         .clicked()
                     {
                         let m = format!("{:02}", month);
-                        self.assets_filter_year = year.to_string();
-                        self.assets_filter_month = m;
+                        self.filter_year = year.to_string();
+                        self.filter_month = m;
 
                         let _ = self.sender.clone().unwrap().send(message::Message::Assets(
                             self.cnpj.to_string(),
-                            self.assets_filter_year.clone(),
-                            self.assets_filter_month.clone(),
+                            self.filter_year.clone(),
+                            self.filter_month.clone(),
                         ));
                     }
                 }
@@ -108,7 +109,7 @@ impl PortfolioUI {
     }
 
     pub fn show_assets_panel(&mut self, ui: &mut Ui) {
-        egui::SidePanel::left("left_panel")
+        egui::SidePanel::left(ui.id().with("left_assets_panel"))
             .resizable(true)
             .default_width(400.0)
             .width_range(200.0..=450.0)
@@ -140,9 +141,7 @@ impl PortfolioUI {
                             .body(|body| {
                                 body.rows(20.0, nr_rows, |mut row| {
                                     let row_index = row.index();
-                                    row.set_selected(
-                                        self.assets_filter_tp_aplic_selection.contains(&row_index),
-                                    );
+                                    row.set_selected(self.tp_aplic_selected.contains(&row_index));
                                     for col in &cols {
                                         row.col(|ui| {
                                             if let Ok(column) = self.top_assets.column(col) {
@@ -169,7 +168,7 @@ impl PortfolioUI {
                                         });
                                     }
                                     toggle_row_selection(
-                                        &mut self.assets_filter_tp_aplic_selection,
+                                        &mut self.tp_aplic_selected,
                                         row_index,
                                         &row.response(),
                                     );
@@ -177,21 +176,24 @@ impl PortfolioUI {
                             });
                     });
 
-                    TopBottomPanel::bottom("vl_pl").show_inside(ui, |ui: &mut Ui| {
-                        ui.add_space(8.0);
-                        ui.vertical(|ui| {
-                            ui.weak("Patrimonio Líquido");
-                            self.pl
-                                .column("VL_PATRIM_LIQ")
-                                .ok()
-                                .and_then(|col| col.get(0).ok())
-                                .and_then(|val| val.get_str().map(|s| s.to_string()))
-                                .and_then(|value_str| value_str.parse::<f64>().ok())
-                                .and_then(|parsed_value| util::to_real(parsed_value).ok())
-                                .map(|v| ui.heading(v.format()))
-                                .unwrap_or_else(|| ui.label("-"));
-                        });
-                    });
+                    TopBottomPanel::bottom(ui.id().with("bottom_pl_panel")).show_inside(
+                        ui,
+                        |ui: &mut Ui| {
+                            ui.add_space(8.0);
+                            ui.vertical(|ui| {
+                                ui.weak("Patrimonio Líquido");
+                                self.pl
+                                    .column("VL_PATRIM_LIQ")
+                                    .ok()
+                                    .and_then(|col| col.get(0).ok())
+                                    .and_then(|val| val.get_str().map(|s| s.to_string()))
+                                    .and_then(|value_str| value_str.parse::<f64>().ok())
+                                    .and_then(|parsed_value| util::to_real(parsed_value).ok())
+                                    .map(|v| ui.heading(v.format()))
+                                    .unwrap_or_else(|| ui.label("-"));
+                            });
+                        },
+                    );
                     //});
                 });
             });
@@ -199,7 +201,7 @@ impl PortfolioUI {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.push_id("filter_assets", |ui| {
                 let mut filters = Vec::new();
-                for r in self.assets_filter_tp_aplic_selection.iter() {
+                for r in self.tp_aplic_selected.iter() {
                     if let Ok(column) = self.top_assets.column("TP_APLIC") {
                         if let Ok(value) = column.get(*r) {
                             let v = value.get_str().unwrap();

@@ -1,12 +1,9 @@
 use crate::{message, ui::tabs::Tab};
 pub mod dashboard;
-
+use super::panel::{self, portfolio::PortfolioUI, profit::ProfitUI};
 use egui::{Frame, Ui, WidgetText};
-
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
-
-use super::panel::{self, portfolio::PortfolioUI, profit::ProfitUI};
 
 #[derive(PartialEq, Eq, Clone)]
 pub enum Panel {
@@ -111,25 +108,18 @@ impl Tab for FundTab {
 
     fn ui(&mut self, ui: &mut Ui) {
         let sender = self.sender().clone();
-        egui::TopBottomPanel::top(format!("{}_bottom_panel", ui.id().value())).show_inside(
-            ui,
-            |ui| {
-                if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
-                    ui.heading(s.get(0).unwrap().get_str().unwrap());
-                }
-                ui.horizontal(|ui| {
-                    display_column_value(ui, "CNPJ:", "CNPJ_FUNDO", &self.fund);
-                    ui.separator();
-                    // display_column_value(ui, "Gestor:", "GESTOR", &self.fund);
-                    //ui.separator();
-                    display_column_value(ui, "Administrador:", "ADMIN", &self.fund);
-                });
-            },
-        );
+        egui::TopBottomPanel::top(ui.id().with("fund_tab_bottom_panel")).show_inside(ui, |ui| {
+            if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
+                ui.heading(s.get(0).unwrap().get_str().unwrap());
+            }
+            ui.horizontal(|ui| {
+                display_column_value(ui, "CNPJ:", "CNPJ_FUNDO", &self.fund);
+                ui.separator();
+                display_column_value(ui, "Administrador:", "ADMIN", &self.fund);
+            });
+        });
         ui.add_space(5.0);
 
-        // Frame::none().inner_margin(10.0).show(ui, |ui| {
-        //   ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.open_panel, Panel::Details, "Detalhes");
 
@@ -152,13 +142,20 @@ impl Tab for FundTab {
             {
                 let _ = sender.send(message::Message::Assets(
                     self.title().text().to_string(),
-                    self.portfolio_ui.assets_filter_year.clone(),
-                    self.portfolio_ui.assets_filter_month.clone(),
+                    self.portfolio_ui.filter_year.clone(),
+                    self.portfolio_ui.filter_month.clone(),
                 ));
             }
         });
 
-        ui.separator();
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(
+                ui.cursor().min + egui::vec2(0.0, -ui.spacing().item_spacing.y),
+                egui::vec2(ui.available_width(), 2.0),
+            ),
+            0.0,
+            ui.visuals().selection.bg_fill,
+        );
 
         Frame::none().inner_margin(30.0).show(ui, |ui| {
             ui.set_min_height(ui.available_height());
@@ -174,8 +171,6 @@ impl Tab for FundTab {
                 }
             };
         });
-        //    });
-        //   });
     }
 }
 

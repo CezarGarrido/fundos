@@ -74,7 +74,7 @@ impl ProfitUI {
                 });
             });
             ui.separator();
-            egui::TopBottomPanel::top("vl_pl").show_inside(ui, |ui| {
+            egui::TopBottomPanel::top(ui.id().with("profit_value")).show_inside(ui, |ui| {
                 ui.add_space(8.0);
                 ui.vertical(|ui| {
                     ui.weak("Rentabilidade");

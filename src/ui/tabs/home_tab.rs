@@ -51,15 +51,6 @@ impl Tab for HomeTab {
                             {
                                 let _ = self.sender.send(Message::OpenSearchWindow(true));
                             }
-                            if ui
-                                .small_button(format!(
-                                    "{} Abrir Configuração...",
-                                    egui_phosphor::regular::GEAR_SIX
-                                ))
-                                .clicked()
-                            {
-                                let _ = self.sender.send(Message::OpenConfigWindow(true));
-                            }
                         });
 
                         ui.add_space(50.0);

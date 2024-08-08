@@ -396,9 +396,6 @@ impl TemplateApp {
                         }
                     }
                 }
-                Message::OpenConfigWindow(_) => {
-                    //self.config_modal.open = true;
-                }
             }
         }
     }
@@ -424,10 +421,6 @@ impl eframe::App for TemplateApp {
                             let _ = self.channel.0.send(Message::OpenSearchWindow(true));
                         }
                     });
-
-                    if ui.button("Configuração").clicked() {
-                        let _ = self.channel.0.send(Message::OpenConfigWindow(true));
-                    }
 
                     if ui.button("Sobre").clicked() {
                         // ctx.send_viewport_cmd(egui::ViewportCommand::Close);

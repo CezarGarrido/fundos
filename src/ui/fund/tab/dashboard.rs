@@ -7,7 +7,7 @@ pub struct DashboardTab {
     pub title: String,
     pub by_year: DataFrame,
     pub by_situation: DataFrame,
-    pub by_class: DataFrame, //Por classe
+    pub by_class: DataFrame,
 }
 
 impl DashboardTab {

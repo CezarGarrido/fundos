@@ -21,5 +21,4 @@ pub enum Message {
     ShowAssetDetail(DataFrame),
     OpenDashboardTab,
     DashboardTabResult(DataFrame, DataFrame, DataFrame),
-    OpenConfigWindow(bool),
 }
