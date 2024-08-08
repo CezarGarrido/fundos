@@ -107,15 +107,22 @@ fn show_columns(_group_id: &str, columns: &[&str], cols: &[Series], n_rows: usiz
             ui.label(header_title(field_name));
             let value = col.get(row).unwrap();
 
-            if let Some(value_str) = value.get_str() {
-                ui.label(value_str.to_string());
+            let value_str = if value.is_nested_null() {
+                "N/A".to_string() // Substitua "N/A" pela string que preferir para representar valores nulos
             } else {
-                ui.label(format!("{:#}", value));
-            }
+                let value_str = if let Some(value_str) = value.get_str() {
+                    value_str.to_string()
+                } else {
+                    value.to_string()
+                };
+                value_str
+            };
+            ui.label(value_str);
             ui.end_row();
         }
     }
 }
+
 fn header_title(header: &str) -> String {
     let mut headers_map = HashMap::new();
     headers_map.insert("TP_FUNDO", "Tipo de Fundo");

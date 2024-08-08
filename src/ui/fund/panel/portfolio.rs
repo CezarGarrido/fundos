@@ -161,6 +161,7 @@ impl PortfolioUI {
                                                         ui.label(r.format());
                                                     } else if let Some(value_str) = value.get_str()
                                                     {
+                                                        circle(ui);
                                                         ui.label(value_str);
                                                     }
                                                 }
@@ -310,7 +311,6 @@ impl PortfolioUI {
                                                             row_df.clone(),
                                                         ),
                                                     );
-                                                    println!("row_df {:?}", row_df);
                                                 }
                                             } else if let Ok(column) = filtered_df.column(col_name)
                                             {
@@ -373,4 +373,12 @@ fn get_value_from_column(
         }
     }
     None
+}
+
+fn circle(ui: &mut Ui) {
+    let r = 5.0;
+    let size = egui::Vec2::splat(2.0 * r + 5.0);
+    let (rect, _response) = ui.allocate_at_least(size, Sense::hover());
+    ui.painter()
+        .circle_filled(rect.center(), r, ui.visuals().text_color());
 }

@@ -43,11 +43,15 @@ fn show_dataframe(df: DataFrame, ui: &mut Ui) {
                     for col in cols {
                         let field_name = col.name();
                         let value = col.get(row).unwrap();
-                        //value.to_string();
-                        let value_str = if let Some(value_str) = value.get_str() {
-                            value_str.to_string()
+                        let value_str = if value.is_nested_null() {
+                            "N/A".to_string() // Substitua "N/A" pela string que preferir para representar valores nulos
                         } else {
-                            format!("{:#?}", value.to_string())
+                            let value_str = if let Some(value_str) = value.get_str() {
+                                value_str.to_string()
+                            } else {
+                                value.to_string()
+                            };
+                            value_str
                         };
 
                         ui.label(field_name);
