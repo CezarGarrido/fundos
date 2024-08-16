@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::get;
 
-const ROOT: &str = "app.cvm.fundo.cad";
+const ROOT: &str = "cvm.fundo.cadastro";
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Options {

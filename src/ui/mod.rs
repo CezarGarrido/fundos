@@ -1,4 +1,4 @@
 pub mod charts;
-pub mod download;
 pub mod fund;
+pub mod modal;
 pub mod tabs;

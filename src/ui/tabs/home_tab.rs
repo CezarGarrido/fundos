@@ -1,5 +1,5 @@
 use super::Tab;
-use crate::{history::History, message::Message, ui::download::DownloadManager};
+use crate::{history::History, message::Message};
 use egui::{CentralPanel, Frame, Ui, WidgetText};
 use tokio::sync::mpsc;
 
@@ -7,18 +7,14 @@ pub struct HomeTab {
     pub title: String,
     pub history: History,
     pub sender: mpsc::UnboundedSender<Message>,
-    pub download_manager: DownloadManager,
 }
 
 impl HomeTab {
     pub fn new(title: String, sender: mpsc::UnboundedSender<Message>, history: History) -> Self {
-        let dm = DownloadManager::new(sender.clone());
-
         HomeTab {
             title,
             sender,
             history,
-            download_manager: dm,
         }
     }
 }
@@ -65,7 +61,7 @@ impl Tab for HomeTab {
                             ui.add_space(5.0);
                         });
 
-                        ui.add_space(50.0);
+                        ui.add_space(40.0);
                         ui.label("Recentes");
                         ui.vertical(|ui| {
                             for cnpj in self.history.get_most_accesseds() {
@@ -83,18 +79,6 @@ impl Tab for HomeTab {
                         });
 
                         ui.add_space(50.0);
-
-                        ui.vertical(|ui| {
-                            ui.set_max_width(500.0);
-                            ui.heading("Downloads".to_string());
-                            ui.add_space(10.0);
-                            //ui.separator();
-                            //   Frame::none().inner_margin(10.0).show(ui, |ui| {
-                            //     ui.group(|ui| {
-                            self.download_manager.ui(ui);
-                            //   });
-                            //   });
-                        });
                     });
                 });
             });

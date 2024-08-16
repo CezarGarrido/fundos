@@ -1,17 +1,16 @@
-use crate::logger::LOG_MESSAGES;
-
 use super::app::TemplateApp;
+use crate::logger::LOG_MESSAGES;
 use eframe::egui::{Context, TopBottomPanel};
 use eframe::Frame;
-use egui::{global_dark_light_mode_buttons, ScrollArea, Window};
+use egui::{ScrollArea, Window};
 
 impl TemplateApp {
     pub fn show_statusbar(&mut self, ctx: &Context, _frame: &mut Frame) {
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
-                ui.horizontal(|ui| {
-                    let log_messages = LOG_MESSAGES.lock().unwrap();
+                let log_messages = LOG_MESSAGES.lock().unwrap();
 
+                ui.horizontal(|ui| {
                     if ui
                         .small_button(format!(
                             "{} {}",
@@ -23,10 +22,15 @@ impl TemplateApp {
                         self.open_logs = !self.open_logs;
                     }
                 });
+
+                ui.add_space(5.0);
+                ui.horizontal(|ui| {
+                    ui.label(self.status.to_string());
+                });
+
                 ui.add_space(5.0);
                 egui::warn_if_debug_build(ui);
-                ui.add_space(5.0);
-                global_dark_light_mode_buttons(ui);
+                // global_dark_light_mode_buttons(ui);
             });
         });
         self.show_messages(ctx);

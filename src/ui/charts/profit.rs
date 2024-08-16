@@ -13,8 +13,7 @@ pub struct Indice {
 
 ///TODO: refatorar para unificar as datas
 pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
-    let color = ui.visuals().selection.bg_fill;
-
+    let green = Color32::from_rgb(0, 255, 0); // Verde
     let chart = match (dataframe.column("DT_COMPTC"), dataframe.column("RENT_ACUM")) {
         (Ok(dates), Ok(rentabilidade)) => {
             let mut line_data = Vec::new();
@@ -33,13 +32,13 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 }
             }
 
-            Line::new(line_data).color(color).name("Fundo")
+            Line::new(line_data).color(green).name("Fundo")
         }
-        _ => Line::new(Vec::new()).color(color).name("Fundo"),
+        _ => Line::new(Vec::new()).color(green).name("Fundo"),
     };
 
     let mut charts = Vec::new();
-    for (index, indice) in indices.iter().enumerate() {
+    for indice in indices.iter() {
         let chart = match (
             indice.dataframe.column("date"),
             indice.dataframe.column("value"),
@@ -65,7 +64,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                     .color(indice.color)
                     .name(indice.name.to_string())
             }
-            _ => Line::new(Vec::new()).color(generate_color(index)),
+            _ => Line::new(Vec::new()),
         };
 
         charts.push(chart);
@@ -116,16 +115,4 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 plot_ui.line(chart)
             }
         });
-}
-
-fn generate_color(index: usize) -> Color32 {
-    match index % 3 {
-        0 => Color32::from_rgb(255, 0, 0), // Vermelho
-        1 => Color32::from_rgb(0, 255, 0), // Verde
-        _ => Color32::from_rgb(0, 0, 255), // Azul
-    };
-    let r = (index * 30 % 256) as u8;
-    let g = (index * 60 % 256) as u8;
-    let b = (index * 90 % 256) as u8;
-    Color32::from_rgb(r, g, b)
 }

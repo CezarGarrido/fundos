@@ -1,23 +1,11 @@
-use std::{
-    fs::File,
-    io::{self, Cursor, Write},
-    path::{Path, PathBuf},
-};
-
-use encoding_rs::WINDOWS_1252;
-use fund::Register;
 use glob::glob;
-use informe::Informe;
+
 use polars::{
     error::PolarsError,
     lazy::dsl::{col, lit, Expr},
     prelude::{DataType, LazyCsvReader, LazyFileListReader, LazyFrame, NULL},
 };
-use portfolio::Portfolio;
 use regex::Regex;
-use zip::ZipArchive;
-
-use crate::ui::download::Download;
 
 pub mod fund;
 pub mod informe;
@@ -105,54 +93,4 @@ pub fn portfolio_available_dates() -> Vec<String> {
     year_month_list.dedup();
     year_month_list.reverse();
     year_month_list
-}
-
-fn unzip_and_save(zip_bytes: &[u8], destination_dir: PathBuf) -> io::Result<()> {
-    let reader = Cursor::new(zip_bytes);
-    let mut archive = ZipArchive::new(reader)?;
-
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i)?;
-        let file_name = file.name().to_string();
-
-        if file_name.ends_with(".csv") {
-            let out_path = Path::new(&destination_dir).join(file_name);
-
-            if let Some(parent) = out_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-
-            let mut bytes = Vec::new();
-            io::copy(&mut file, &mut bytes)?;
-
-            let (decoded_str, _, had_errors) = WINDOWS_1252.decode(&bytes);
-            if had_errors {
-                eprintln!("Erro ao decodificar CSV: {:?}", out_path);
-                continue;
-            }
-
-            let mut out_file = File::create(out_path)?;
-            out_file.write_all(decoded_str.as_bytes())?;
-        }
-    }
-
-    Ok(())
-}
-
-pub fn download(
-    token: tokio_util::sync::CancellationToken,
-    name: String,
-    on_progress: impl 'static + Send + FnMut(Download),
-) {
-    if name == "cad" {
-        return Register::new().download(token, on_progress);
-    }
-
-    if name == "informe" {
-        return Informe::new().download(token, on_progress);
-    }
-
-    if name == "carteira" {
-        Portfolio::new().download(token, on_progress)
-    }
 }

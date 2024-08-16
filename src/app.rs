@@ -6,10 +6,17 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    config::watch,
     history::History,
     message::Message,
     provider::{
-        cvm::{self, fund::Register, informe::Informe, portfolio::Portfolio},
+        cvm::{
+            self,
+            fund::{self, Register},
+            informe::{self, Informe},
+            portfolio::{self, Portfolio},
+        },
+        downloader::{self, DownloadStatus},
         indices::{self},
     },
     ui::{
@@ -17,8 +24,10 @@ use crate::{
             modal::{asset::AssetDetail, search::Search},
             tab::{dashboard::DashboardTab, FundTab},
         },
+        modal::{self, about::About},
         tabs::{home_tab::HomeTab, Tab, TabType, TabViewer},
     },
+    util,
 };
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -30,7 +39,7 @@ pub struct TemplateApp {
     #[serde(skip)]
     tree: DockState<TabType>,
     #[serde(skip)]
-    channel: (
+    pub channel: (
         mpsc::UnboundedSender<Message>,
         mpsc::UnboundedReceiver<Message>,
     ),
@@ -50,6 +59,21 @@ pub struct TemplateApp {
     #[serde(skip)]
     asset_detail_modal: AssetDetail,
     open_list_tab: bool,
+
+    #[serde(skip)]
+    about_modal: About,
+
+    #[serde(skip)]
+    config_modal: modal::config::Config,
+
+    #[serde(skip)]
+    started_watch: bool,
+
+    #[serde(skip)]
+    pub status: String,
+
+    #[serde(skip)]
+    is_running_download: bool,
 }
 
 impl Default for TemplateApp {
@@ -84,7 +108,7 @@ impl Default for TemplateApp {
             .unwrap_or(DataFrame::empty());
 
         let s = channel.0.clone();
-        let mut search = Search::new(false, s);
+        let mut search = Search::new(false, s.clone());
 
         search.set_result(initial_funds);
 
@@ -104,6 +128,11 @@ impl Default for TemplateApp {
                 open_window: false,
             },
             open_list_tab: false,
+            about_modal: About::new(),
+            config_modal: modal::config::Config::new(s.clone()),
+            started_watch: false,
+            status: String::from(""),
+            is_running_download: false,
         }
     }
 }
@@ -113,10 +142,26 @@ impl TemplateApp {
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
+
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
+
         Default::default()
+    }
+
+    fn start_watch(&mut self, ctx: &egui::Context) {
+        if self.started_watch {
+            return;
+        }
+
+        let ctx = ctx.clone();
+        let sender = self.channel.0.clone();
+        tokio::spawn(async move {
+            watch(&ctx, sender);
+        });
+
+        self.started_watch = true;
     }
 
     fn start_download(&mut self, key: String) -> CancellationToken {
@@ -191,8 +236,7 @@ impl TemplateApp {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
                         if let TabType::Home(stb) = tb {
-                            stb.download_manager
-                                .update_download(group.as_str(), index, dl);
+                            //downloader.update_download(group.as_str(), index, dl);
                             ctx.request_repaint(); // Solicita um redesenho da interface
                             break;
                         }
@@ -201,42 +245,7 @@ impl TemplateApp {
                 Message::CancelDownload(key) => {
                     self.cancel_download(key);
                 }
-                Message::StartDownload(group, index, download_item) => {
-                    let id = download_item.id.clone();
-                    let token = self.start_download(format!("{}_{}", group, index));
-                    let group_clone = group.clone();
-                    let handle_download = move || match group.as_str() {
-                        "Indices" => {
-                            tokio::spawn(async move {
-                                indices::download(token.clone(), id.clone(), move |dl| {
-                                    let _ = sender.send(Message::ProgressDownload(
-                                        group_clone.clone(),
-                                        index,
-                                        dl,
-                                    ));
-                                    ctxc.request_repaint();
-                                })
-                            });
-                        }
-                        "Fundos" => {
-                            tokio::spawn(async move {
-                                cvm::download(token.clone(), id, move |dl| {
-                                    let _ = sender.send(Message::ProgressDownload(
-                                        group_clone.clone(),
-                                        index,
-                                        dl,
-                                    ));
-                                    ctxc.request_repaint();
-                                })
-                            });
-                        }
-                        _ => {
-                            log::error!("Grupo desconhecido: {}", group);
-                        }
-                    };
-                    handle_download();
-                }
-
+                Message::StartDownload(group, index, download_item) => {}
                 Message::OpenSearchWindow(value) => {
                     self.asset_detail_modal.open_window = false;
                     self.search.open(value)
@@ -396,9 +405,64 @@ impl TemplateApp {
                         }
                     }
                 }
+                Message::RefreshConfig => {
+                    if !self.is_running_download {
+                        tokio::spawn(async move {
+                            downloader::download_all(
+                                CancellationToken::new(),
+                                move |dl| {
+                                    match dl {
+                                        DownloadStatus::InProgress(pg) => {
+                                            let _ = sender.send(Message::UpdateStatus(pg));
+                                        }
+                                        _ => {}
+                                    }
+                                    ctxc.request_repaint();
+                                },
+                                25,
+                            );
+                        });
+                        self.is_running_download = true;
+                    }
+                }
+                Message::UpdateStatus(msg) => {
+                    self.status = msg;
+                }
             }
         }
     }
+
+    fn get_missing_files(&self) -> Vec<String> {
+        let mut missing_files = Vec::new();
+
+        // Carrega as opções de cada módulo
+        let fund_opts = fund::options::load().unwrap();
+        let portfolio_opts = portfolio::options::load().unwrap();
+        let informe_opts = informe::options::load().unwrap();
+        let cdi_opts = indices::cdi::options::load().unwrap();
+        let ibov_opts = indices::ibovespa::options::load().unwrap();
+
+        // Verifica se os caminhos existem e adiciona os arquivos faltantes à lista
+        if !fund_opts.path.exists() {
+            missing_files.push(fund_opts.path.to_str().unwrap().to_string());
+        }
+        if !portfolio_opts.path.exists() {
+            missing_files.push(portfolio_opts.path.to_str().unwrap().to_string());
+        }
+        if !informe_opts.path.exists() {
+            missing_files.push(informe_opts.path.to_str().unwrap().to_string());
+        }
+        if !cdi_opts.path.exists() {
+            missing_files.push(cdi_opts.path.to_str().unwrap().to_string());
+        }
+        if !ibov_opts.path.exists() {
+            missing_files.push(ibov_opts.path.to_str().unwrap().to_string());
+        }
+
+        missing_files
+    }
+
+    fn start_indexing() {}
 }
 
 impl eframe::App for TemplateApp {
@@ -407,8 +471,23 @@ impl eframe::App for TemplateApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.start_watch(ctx);
+
         self.handle_messages(ctx, frame);
+
+        let missing_files = self.get_missing_files();
+        util::toaster::toaster().show(ctx);
+        if !missing_files.is_empty() {
+            self.config_modal.initial = true;
+            //self.config_modal.open(true);
+        } else {
+            self.config_modal.open(false);
+        }
+
+        //  self.config_modal.show(ctx);
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.set_enabled(!self.config_modal.show);
             egui::menu::bar(ui, |ui| {
                 let font_id = FontId::proportional(16.0);
 
@@ -423,6 +502,7 @@ impl eframe::App for TemplateApp {
                     });
 
                     if ui.button("Sobre").clicked() {
+                        self.about_modal.open(true);
                         // ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
 
@@ -438,19 +518,23 @@ impl eframe::App for TemplateApp {
         self.show_statusbar(ctx, frame);
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            ui.set_enabled(!self.config_modal.show);
             self.search.show(ui);
             self.asset_detail_modal.show(ui);
+            self.about_modal.show(ui);
 
             egui::Frame::none().inner_margin(5.0).show(ui, |ui| {
-                DockArea::new(&mut self.tree)
-                    .style({
-                        let mut style = Style::from_egui(ctx.style().as_ref());
-                        // style.tab_bar.fill_tab_bar = true;
-                        style.buttons.add_tab_align = TabAddAlign::Left;
-                        style
-                    })
-                    .show_add_buttons(true)
-                    .show_inside(ui, &mut self.tab_viewer);
+                if !self.config_modal.show {
+                    DockArea::new(&mut self.tree)
+                        .style({
+                            let mut style = Style::from_egui(ctx.style().as_ref());
+                            // style.tab_bar.fill_tab_bar = true;
+                            style.buttons.add_tab_align = TabAddAlign::Left;
+                            style
+                        })
+                        .show_add_buttons(true)
+                        .show_inside(ui, &mut self.tab_viewer);
+                }
             });
         });
     }

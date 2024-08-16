@@ -1,10 +1,4 @@
-use std::sync::{Arc, Mutex};
-
-use chrono::{Datelike, NaiveDate};
-use ehttp::Request;
-
 use glob::glob;
-use options::Options;
 use polars::{
     datatypes::DataType,
     error::PolarsError,
@@ -15,17 +9,12 @@ use polars::{
     },
     prelude::{IntoLazy, UnionArgs},
 };
-use tokio_util::sync::CancellationToken;
-
 pub mod options;
 
-use crate::ui::download::Download;
-
-use super::{align_and_convert_columns_to_string, get_all_columns, read_csv_lazy, unzip_and_save};
+use super::{align_and_convert_columns_to_string, get_all_columns, read_csv_lazy};
 
 #[derive(Clone)]
 pub struct Portfolio {
-    options: Options,
     path: String,
 }
 
@@ -37,7 +26,7 @@ impl Portfolio {
             options.path.to_string_lossy(),
             "cda*{year}{month}.csv"
         );
-        Self { path, options }
+        Self { path }
     }
 
     fn read_assets(&self, year: String, month: String) -> Result<LazyFrame, PolarsError> {
@@ -206,90 +195,5 @@ impl Portfolio {
 
         println!("{:?}", top_assets);
         Ok(top_assets)
-    }
-
-    fn generate_patterns(
-        &self,
-        start_date: NaiveDate,
-        end_date: NaiveDate,
-        path_template: &str,
-    ) -> Vec<String> {
-        let mut patterns = Vec::new();
-
-        let mut current_date = start_date;
-        while current_date <= end_date {
-            // Formata o ano e o mês no formato desejado
-            let year = current_date.year();
-            let month = current_date.month();
-
-            // Substitua os placeholders no template do caminho com o ano e o mês atuais
-            let mut pattern = path_template.to_string();
-            pattern = pattern.replace("{year}", &year.to_string());
-            pattern = pattern.replace("{month}", &format!("{:02}", month));
-
-            // Adiciona o padrão à lista
-            patterns.push(pattern);
-
-            // Avança para o próximo mês
-            current_date = current_date
-                .with_month(month + 1)
-                .unwrap_or(NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap());
-        }
-        patterns.dedup();
-
-        patterns
-    }
-
-    pub fn download(
-        &self,
-        token: CancellationToken,
-        on_progress: impl 'static + Send + FnMut(Download),
-    ) {
-        let options = self.options.clone();
-        let urls = self.generate_patterns(options.start_date(), options.end_date(), &options.url);
-        let total = urls.len();
-        let on_progress = Arc::new(Mutex::new(on_progress));
-        let completed_count = Arc::new(Mutex::new(0));
-        let f: String = format!("Baixando (0/{})...", total);
-        let mut on_progress1 = on_progress.lock().unwrap();
-        on_progress1(Download::InProgress(f));
-
-        for url in urls.iter() {
-            let request = Request::get(url.to_string());
-            let on_progress_clone = Arc::clone(&on_progress);
-            let completed_count_clone = Arc::clone(&completed_count);
-            let path = options.path.clone();
-            let tk = token.clone();
-            ehttp::fetch(request, move |on_done| {
-                if tk.is_cancelled() {
-                    let mut on_progress = on_progress_clone.lock().unwrap();
-                    on_progress(Download::Cancel);
-                    return;
-                }
-                let mut completed = completed_count_clone.lock().unwrap();
-                match on_done {
-                    Ok(response) if response.ok => {
-                        if let Err(e) = unzip_and_save(&response.bytes, path.clone()) {
-                            log::error!(
-                                "Erro ao extrair arquivos CSV: {} {}",
-                                e,
-                                path.to_string_lossy()
-                            );
-                        }
-                    }
-                    Ok(response) => log::error!("Falha na requisição {:?}", response.status),
-                    Err(err) => log::error!("Erro: {}", err),
-                }
-
-                *completed += 1;
-                let progress_message = format!("Baixando ({}/{})", *completed, total);
-                let mut on_progress = on_progress_clone.lock().unwrap();
-                on_progress(Download::InProgress(progress_message));
-
-                if *completed == total {
-                    on_progress(Download::Done);
-                }
-            });
-        }
     }
 }

@@ -1,12 +1,7 @@
-use std::sync::{Arc, Mutex};
-
 use chrono::{Datelike, NaiveDate};
-use ehttp::Request;
-
 use glob::glob;
 pub mod options;
-
-use options::{load, Options};
+use options::load;
 use polars::{
     datatypes::DataType,
     error::PolarsError,
@@ -19,15 +14,10 @@ use polars::{
     series::Series,
 };
 
-use tokio_util::sync::CancellationToken;
-
-use crate::ui::download::Download;
-
-use super::{align_columns, get_all_columns, read_csv_lazy, unzip_and_save};
+use super::{align_columns, get_all_columns, read_csv_lazy};
 
 #[derive(Clone)]
 pub struct Informe {
-    options: Options,
     path: String,
 }
 
@@ -39,7 +29,7 @@ impl Informe {
             options.path.to_string_lossy(),
             "inf_diario_fi_{year}{month}.csv"
         );
-        Self { path, options }
+        Self { path }
     }
 
     pub fn profitability(
@@ -186,58 +176,5 @@ impl Informe {
         let concatenated_lf = concat(&aligned_lfs, UnionArgs::default())?;
         let concatenated_lf = concatenated_lf.cache();
         Ok(concatenated_lf)
-    }
-
-    pub fn download(
-        &self,
-        token: CancellationToken,
-        on_progress: impl 'static + Send + FnMut(Download),
-    ) {
-        let options = self.options.clone();
-        let urls = self.generate_patterns(options.start_date(), options.end_date(), &options.url);
-        let total = urls.len();
-        let on_progress = Arc::new(Mutex::new(on_progress));
-        let completed_count = Arc::new(Mutex::new(0));
-        let f: String = format!("Baixando (0/{})...", total);
-        let mut on_progress1 = on_progress.lock().unwrap();
-        on_progress1(Download::InProgress(f));
-
-        for url in urls.iter() {
-            let request = Request::get(url.to_string());
-            let on_progress_clone = Arc::clone(&on_progress);
-            let completed_count_clone = Arc::clone(&completed_count);
-            let path = options.path.clone();
-            let tk = token.clone();
-            ehttp::fetch(request, move |on_done| {
-                let mut completed = completed_count_clone.lock().unwrap();
-                match on_done {
-                    Ok(response) if response.ok => {
-                        if tk.is_cancelled() {
-                            let mut on_progress = on_progress_clone.lock().unwrap();
-                            on_progress(Download::Cancel);
-                            return;
-                        }
-                        if let Err(e) = unzip_and_save(&response.bytes, path.clone()) {
-                            log::error!(
-                                "Erro ao extrair arquivos CSV: {} {}",
-                                e,
-                                path.to_string_lossy()
-                            );
-                        }
-                    }
-                    Ok(response) => log::error!("Falha na requisição {:?}", response.status),
-                    Err(err) => log::error!("Erro: {}", err),
-                }
-
-                *completed += 1;
-                let progress_message = format!("Baixando ({}/{})", *completed, total);
-                let mut on_progress = on_progress_clone.lock().unwrap();
-                on_progress(Download::InProgress(progress_message));
-
-                if *completed == total {
-                    on_progress(Download::Done);
-                }
-            });
-        }
     }
 }

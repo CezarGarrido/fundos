@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::get;
 
-const ROOT: &str = "app.indices.ibovespa";
+const ROOT: &str = "indices.ibovespa";
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Options {
     pub description: String,
     pub start_date: String,

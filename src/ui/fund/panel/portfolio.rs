@@ -1,6 +1,6 @@
 use crate::{message, provider::cvm, util};
 use chrono::Datelike;
-use egui::{ComboBox, Layout, Sense, TopBottomPanel, Ui};
+use egui::{epaint::Hsva, ComboBox, Layout, Sense, TopBottomPanel, Ui};
 use egui_extras::{Column, TableBuilder};
 use polars::{
     frame::DataFrame,
@@ -117,7 +117,34 @@ impl PortfolioUI {
                 ui.add_space(10.0);
                 let nr_rows = self.top_assets.height();
                 let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
+                let colors = generate_colors(self.top_assets.height());
+
                 ui.push_id("top_assets", |ui| {
+                    TopBottomPanel::top(ui.id().with("bottom_pl_panel")).show_inside(
+                        ui,
+                        |ui: &mut Ui| {
+                            ui.horizontal(|ui| {
+                                ui.weak("Patrimonio Líquido");
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        self.pl
+                                            .column("VL_PATRIM_LIQ")
+                                            .ok()
+                                            .and_then(|col| col.get(0).ok())
+                                            .and_then(|val| val.get_str().map(|s| s.to_string()))
+                                            .and_then(|value_str| value_str.parse::<f64>().ok())
+                                            .and_then(|parsed_value| {
+                                                util::to_real(parsed_value).ok()
+                                            })
+                                            .map(|v| ui.heading(v.format()))
+                                            .unwrap_or_else(|| ui.label("-"));
+                                    },
+                                );
+                            });
+                            ui.add_space(5.0);
+                        },
+                    );
                     egui::ScrollArea::horizontal().show(ui, |ui| {
                         TableBuilder::new(ui)
                             .column(Column::auto().at_least(100.0).resizable(true).clip(true))
@@ -161,7 +188,11 @@ impl PortfolioUI {
                                                         ui.label(r.format());
                                                     } else if let Some(value_str) = value.get_str()
                                                     {
-                                                        circle(ui);
+                                                        circle(
+                                                            value_str.to_string(),
+                                                            colors[row_index],
+                                                            ui,
+                                                        );
                                                         ui.label(value_str);
                                                     }
                                                 }
@@ -177,24 +208,6 @@ impl PortfolioUI {
                             });
                     });
 
-                    TopBottomPanel::bottom(ui.id().with("bottom_pl_panel")).show_inside(
-                        ui,
-                        |ui: &mut Ui| {
-                            ui.add_space(8.0);
-                            ui.vertical(|ui| {
-                                ui.weak("Patrimonio Líquido");
-                                self.pl
-                                    .column("VL_PATRIM_LIQ")
-                                    .ok()
-                                    .and_then(|col| col.get(0).ok())
-                                    .and_then(|val| val.get_str().map(|s| s.to_string()))
-                                    .and_then(|value_str| value_str.parse::<f64>().ok())
-                                    .and_then(|parsed_value| util::to_real(parsed_value).ok())
-                                    .map(|v| ui.heading(v.format()))
-                                    .unwrap_or_else(|| ui.label("-"));
-                            });
-                        },
-                    );
                     //});
                 });
             });
@@ -360,6 +373,7 @@ fn toggle_row_selection(
         }
     }
 }
+
 fn get_value_from_column(
     column_name: &str,
     filtered_df: &DataFrame,
@@ -375,10 +389,20 @@ fn get_value_from_column(
     None
 }
 
-fn circle(ui: &mut Ui) {
+fn circle(_name: String, color: egui::Color32, ui: &mut Ui) {
     let r = 5.0;
     let size = egui::Vec2::splat(2.0 * r + 5.0);
     let (rect, _response) = ui.allocate_at_least(size, Sense::hover());
-    ui.painter()
-        .circle_filled(rect.center(), r, ui.visuals().text_color());
+    ui.painter().circle_filled(rect.center(), r, color);
+}
+
+fn generate_colors(n: usize) -> Vec<egui::Color32> {
+    let golden_ratio = (5.0_f32.sqrt() - 1.0) / 2.0; // 0.61803398875
+
+    (0..n)
+        .map(|i| {
+            let h = i as f32 * golden_ratio;
+            egui::Color32::from(Hsva::new(h.fract(), 0.85, 0.5, 1.0))
+        })
+        .collect()
 }

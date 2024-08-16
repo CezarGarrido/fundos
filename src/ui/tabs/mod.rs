@@ -15,7 +15,6 @@ pub trait Tab {
     fn closeable(&self) -> bool;
 }
 
-// Adicione outro tipo de tab
 pub enum TabType {
     Fund(FundTab),
     Home(HomeTab),

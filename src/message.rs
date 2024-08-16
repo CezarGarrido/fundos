@@ -1,12 +1,13 @@
 use chrono::NaiveDate;
 use polars::frame::DataFrame;
 
-use crate::{
-    provider,
-    ui::download::{Download, DownloadItem},
+use crate::provider::{
+    self,
+    downloader::{DownloadItem, DownloadStatus},
 };
 
 pub enum Message {
+    RefreshConfig,
     SearchFunds(String, Option<provider::cvm::fund::Class>),
     ResultFunds(DataFrame),
     NewTab(String),
@@ -17,8 +18,9 @@ pub enum Message {
     OpenSearchWindow(bool),
     StartDownload(String, usize, DownloadItem),
     CancelDownload(String),
-    ProgressDownload(String, usize, Download),
+    ProgressDownload(String, usize, DownloadStatus),
     ShowAssetDetail(DataFrame),
     OpenDashboardTab,
     DashboardTabResult(DataFrame, DataFrame, DataFrame),
+    UpdateStatus(String),
 }
