@@ -5,12 +5,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> eframe::Result<()> {
-    // use std::env;
-    // env::set_var("RUST_LOG", "info");
-
-    use eframe_template::logger;
-    //env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-    logger::init();
+    use std::env;
+    env::set_var("RUST_LOG", "info");
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     let native_options = eframe::NativeOptions {
         default_theme: eframe::Theme::Light,

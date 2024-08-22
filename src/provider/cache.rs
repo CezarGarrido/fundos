@@ -8,13 +8,13 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct HeadersStore {
+struct CacheIndex {
     headers: HashMap<String, HashMap<String, String>>,
 }
 
-impl HeadersStore {
+impl CacheIndex {
     fn new() -> Self {
-        HeadersStore {
+        CacheIndex {
             headers: HashMap::new(),
         }
     }
@@ -24,7 +24,7 @@ impl HeadersStore {
         let mut data = String::new();
         file.read_to_string(&mut data)?;
         let headers: HashMap<String, HashMap<String, String>> = serde_json::from_str(&data)?;
-        Ok(HeadersStore { headers })
+        Ok(CacheIndex { headers })
     }
 
     fn save(&self) -> io::Result<()> {
@@ -42,8 +42,8 @@ impl HeadersStore {
     }
 }
 
-static HEADERS_STORE: Lazy<RwLock<HeadersStore>> =
-    Lazy::new(|| RwLock::new(HeadersStore::load().unwrap_or_else(|_| HeadersStore::new())));
+static HEADERS_STORE: Lazy<RwLock<CacheIndex>> =
+    Lazy::new(|| RwLock::new(CacheIndex::load().unwrap_or_else(|_| CacheIndex::new())));
 
 // Funções auxiliares para manipulação do cache de cabeçalhos
 fn get_last_modified(url: &str) -> Option<String> {
@@ -78,7 +78,18 @@ pub fn get_cached_headers(url: &str) -> ehttp::Headers {
         headers.insert("If-None-Match", etag);
     }
 
+    println!("Headers {:?}", headers);
     headers
+}
+
+// Função que sanitiza o valor de um header removendo espaços em branco e aspas extras
+fn sanitize_header_value(value: &str) -> String {
+    let sanitized = value.trim();
+    if sanitized.starts_with('\"') && sanitized.ends_with('\"') {
+        sanitized[1..sanitized.len() - 1].to_string() // Remove as aspas
+    } else {
+        sanitized.to_string()
+    }
 }
 
 // Função que atualiza o cache com novos cabeçalhos (Last-Modified, ETag)
@@ -86,10 +97,14 @@ pub fn update_cache(url: &str, path: PathBuf, response_headers: Headers) -> io::
     let mut headers: HashMap<String, String> = HashMap::new();
 
     if let Some(last_modified) = response_headers.get("Last-Modified") {
-        headers.insert("Last-Modified".to_string(), last_modified.to_string());
+        headers.insert(
+            "Last-Modified".to_string(),
+            sanitize_header_value(last_modified),
+        );
     }
+
     if let Some(etag) = response_headers.get("ETag") {
-        headers.insert("ETag".to_string(), etag.to_string());
+        headers.insert("ETag".to_string(), sanitize_header_value(etag));
     }
 
     headers.insert("Path".to_string(), path.display().to_string());

@@ -1,0 +1,40 @@
+# Dados de Cadastro dos Fundos
+[cvm.fundo.cadastro]
+path = "./dataset/cad/cad_fi.csv"                              # Caminho local para o arquivo CSV de cadastro dos fundos
+url = "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv" # URL para download do arquivo CSV de cadastro dos fundos
+description = "Informação Cadastral"                           # Descrição do conjunto de dados
+
+# Composição de Diversificação da Carteira
+[cvm.fundo.carteira]
+path = "./dataset/carteira"                                                               # Caminho local para o diretório onde os arquivos de composição da carteira serão armazenados
+start_date = "24/08/2023"                                                                 # Data inicial para o download dos arquivos de composição da carteira
+end_date = "13/08/2024"                                                                   # Data final para o download dos arquivos de composição da carteira
+description = "Composição e Diversificação das Aplicações"                                # Descrição do conjunto de dados
+url = "https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS/cda_fi_{year}{month}.zip"          # URL para download dos arquivos zip de composição da carteira
+historical = false                                                                        # Define se o conjunto de dados é histórico ou não
+historical_url = "https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS/HIST/cda_fi_{year}.zip" # URL para download dos arquivos zip de informes diários
+
+# Informes diários utilizados para calcular a rentabilidade
+[cvm.fundo.informe]
+url = "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_{year}{month}.zip"          # URL para download dos arquivos zip de informes diários
+historical_url = "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/HIST/inf_diario_fi_{year}.zip" # URL para download dos arquivos zip de informes diários
+end_date = "13/08/2024"                                                                                 # Data final para o download dos informes diários
+start_date = "24/07/2021"                                                                               # Data inicial para o download dos informes diários
+historical = false                                                                                      # Define se o conjunto de dados é histórico ou não
+path = "./dataset/infdiario"                                                                            # Caminho local para o diretório onde os arquivos de informes diários serão armazenados
+description = "Informes Diários"                                                                        # Descrição do conjunto de dados
+
+# Índice CDI
+[indices.cdi]
+description = "CDI"                                                                                                       # Descrição do índice CDI
+end_date = "13/08/2023"                                                                                                   # Data final para o download dos dados do índice CDI
+path = "./dataset/cdi/bcdata_cdi.json"                                                                                    # Caminho local para o arquivo JSON do índice CDI
+url = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial={start_date}&dataFinal={end_date}" # URL para download dos dados do índice CDI
+start_date = "24/06/2022"                                                                                                 # Data inicial para o download dos dados do índice CDI
+
+# Índice Ibovespa
+[indices.ibovespa]
+description = "Ibovespa"              # Descrição do índice Ibovespa
+start_date = "24/07/2022"             # Data inicial para o download dos dados do índice Ibovespa
+end_date = "31/08/2023"               # Data final para o download dos dados do índice Ibovespa
+path = "./dataset/ibov/ibovespa.json" # Caminho local para o arquivo JSON do índice Ibovespa

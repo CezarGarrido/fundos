@@ -164,8 +164,12 @@ jobs:
       - name: Copy binary
         run: cp target/${{ matrix.TARGET }}/release/eframe_template${{ matrix.EXTENSION }} eframe_template-${{ matrix.TARGET }}/eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
-      - name: Copy config.yaml
-        run: cp config.yaml eframe_template-${{ matrix.TARGET }}/config.yaml
+      - name: Copy Config
+        run: |
+          mkdir -p eframe_template-${{ matrix.TARGET }}/config
+          cp ./config/schema.yaml eframe_template-${{ matrix.TARGET }}/config/schema.yaml
+          cp ./config/default.yaml eframe_template-${{ matrix.TARGET }}/config/default.yaml
+          cp ./config/config.yaml eframe_template-${{ matrix.TARGET }}/config/config.yaml
 
       - name: Create ZIP file for mac and linux
         if: ${{ !contains(matrix.TARGET, 'windows') }}

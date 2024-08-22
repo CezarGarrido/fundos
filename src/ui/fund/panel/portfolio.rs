@@ -1,5 +1,5 @@
 use crate::{message, provider::cvm, util};
-use chrono::Datelike;
+use chrono::{Datelike, Duration, NaiveDate};
 use egui::{epaint::Hsva, ComboBox, Layout, Sense, TopBottomPanel, Ui};
 use egui_extras::{Column, TableBuilder};
 use polars::{
@@ -8,7 +8,7 @@ use polars::{
     prelude::{IntoLazy, NamedFrom},
     series::Series,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, str::FromStr};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub struct PortfolioUI {
@@ -17,29 +17,17 @@ pub struct PortfolioUI {
     pub filter_month: String,
     pub tp_aplic_selected: std::collections::HashSet<usize>,
 
+    pub start_date: String,
     pub pl: DataFrame,
     pub assets: DataFrame,
     pub top_assets: DataFrame,
     pub cnpj: String,
     pub sender: Option<UnboundedSender<message::Message>>,
-    pub available_dates: Vec<String>,
 }
 
 impl Default for PortfolioUI {
     fn default() -> Self {
         let now = chrono::offset::Utc::now().date_naive();
-        let available_dates = cvm::portfolio_available_dates();
-        let mut year = now.year().to_string();
-        let mut month = now.month().to_string();
-
-        if !available_dates.is_empty() {
-            let date = available_dates[0].clone();
-            let v: Vec<&str> = date.split('/').collect();
-            year = v[0].to_string();
-            month = v[1].to_string();
-        }
-
-        let filter_date = format!("{}/{}", year, month);
 
         PortfolioUI {
             cnpj: String::from(""),
@@ -47,11 +35,11 @@ impl Default for PortfolioUI {
             assets: DataFrame::empty(),
             pl: DataFrame::empty(),
             top_assets: DataFrame::empty(),
-            filter_year: year,
-            filter_month: month,
+            filter_year: "".to_string(),
+            filter_month: "".to_string(),
             tp_aplic_selected: Default::default(),
-            available_dates,
-            filter_date,
+            start_date: "".to_string(),
+            filter_date: "".to_string(),
         }
     }
 }
@@ -81,20 +69,75 @@ impl PortfolioUI {
         });
     }
 
+    fn month_name_to_i32(&self, month_name: &str) -> i32 {
+        match month_name {
+            "Janeiro" => 1,
+            "Fevereiro" => 2,
+            "Março" => 3,
+            "Abril" => 4,
+            "Maio" => 5,
+            "Junho" => 6,
+            "Julho" => 7,
+            "Agosto" => 8,
+            "Setembro" => 9,
+            "Outubro" => 10,
+            "Novembro" => 11,
+            "Dezembro" => 12,
+            _ => unreachable!(),
+        }
+    }
+
+    fn generate_available_dates(&self, end_date: NaiveDate) -> Vec<String> {
+        let mut dates = Vec::new();
+        let mut current_date = chrono::Local::now().naive_local().date(); // data atual
+
+        while current_date >= end_date {
+            let month_name = match current_date.month() {
+                1 => "Janeiro",
+                2 => "Fevereiro",
+                3 => "Março",
+                4 => "Abril",
+                5 => "Maio",
+                6 => "Junho",
+                7 => "Julho",
+                8 => "Agosto",
+                9 => "Setembro",
+                10 => "Outubro",
+                11 => "Novembro",
+                12 => "Dezembro",
+                _ => unreachable!(),
+            };
+            dates.push(format!("{}/{}", month_name, current_date.year()));
+
+            // Subtrai um mês
+            current_date = current_date - Duration::days(current_date.day() as i64);
+        }
+
+        dates
+    }
+
     fn create_date_combobox(&mut self, ui: &mut egui::Ui) {
+        //2022-09-21
+        let end_date = NaiveDate::parse_from_str(&self.start_date, "%Y-%m-%d").unwrap();
+        let available_dates = self.generate_available_dates(end_date);
+
         ComboBox::from_label("Selecione a data")
             .selected_text(self.filter_date.to_string())
             .show_ui(ui, |ui| {
-                for date in self.available_dates.clone() {
+                let mut last_year = "".to_string();
+                for date in available_dates.clone() {
                     let v: Vec<&str> = date.split('/').collect();
-                    let year = v[0].to_string();
-                    let month = v[1].to_string();
-                    let date = format!("{}/{:02}", year, month);
+                    let month = v[0].to_string();
+                    let year = v[1].to_string();
+                    if !last_year.is_empty() && last_year != year {
+                        ui.separator();
+                    }
+
                     if ui
-                        .selectable_value(&mut self.filter_date, date.clone(), date)
+                        .selectable_value(&mut self.filter_date, date.clone(), date.clone())
                         .clicked()
                     {
-                        let m = format!("{:02}", month);
+                        let m = format!("{:02}", self.month_name_to_i32(month.as_str()));
                         self.filter_year = year.to_string();
                         self.filter_month = m;
 
@@ -104,6 +147,8 @@ impl PortfolioUI {
                             self.filter_month.clone(),
                         ));
                     }
+
+                    last_year = year;
                 }
             });
     }

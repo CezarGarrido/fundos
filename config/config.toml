@@ -1,0 +1,19 @@
+# Composição de Diversificação da Carteira
+[cvm.fundo.carteira]
+start_date = "24/08/2022" # Data inicial para o download dos arquivos de composição da carteira
+end_date = "13/08/2024"   # Data final para o download dos arquivos de composição da carteira
+
+# Informes diários utilizados para calcular a rentabilidade
+[cvm.fundo.informe]
+end_date = "13/08/2024"   # Data final para o download dos informes diários
+start_date = "24/07/2021" # Data inicial para o download dos informes diários
+
+# Índice CDI
+[indices.cdi]
+end_date = "13/08/2024"   # Data final para o download dos dados do índice CDI
+start_date = "24/06/2022" # Data inicial para o download dos dados do índice CDI
+
+# Índice Ibovespa
+[indices.ibovespa]
+start_date = "24/07/2022" # Data inicial para o download dos dados do índice Ibovespa
+end_date = "31/08/2024"   # Data final para o download dos dados do índice Ibovespa

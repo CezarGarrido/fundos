@@ -1,31 +1,20 @@
-use config::{Config, File};
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use config::{Config, File as ConfigFile};
 use once_cell::sync::Lazy;
-use std::sync::mpsc::channel;
-use std::{path::Path, sync::RwLock, time::Duration};
-use tokio::sync::mpsc::{self};
-
-use crate::message::Message;
+use std::io::{Read, Write};
+use std::path::Path;
+use std::{fs::File, sync::RwLock};
 
 pub static CONFIG: Lazy<RwLock<Config>> = Lazy::new(|| {
     let mut settings = Config::default();
     settings
-        .merge(File::with_name("./config/default.yaml"))
+        .merge(ConfigFile::with_name("./config/default.toml"))
         .unwrap();
 
     settings
-        .merge(File::with_name("./config/config.yaml"))
+        .merge(ConfigFile::with_name("./config/config.toml"))
         .unwrap();
 
     RwLock::new(settings)
-});
-
-pub static SCHEMA: Lazy<RwLock<Config>> = Lazy::new(|| {
-    let cfg = Config::builder()
-        .add_source(config::File::with_name("./config/schema.yaml"))
-        .build()
-        .unwrap();
-    RwLock::new(cfg)
 });
 
 /// Get a configuration value from the static configuration object
@@ -41,92 +30,35 @@ pub fn set(key: &str, value: &str) -> Result<(), config::ConfigError> {
     Ok(())
 }
 
-/// Save the configuration to a YAML file
-pub fn save_config() -> Result<(), std::io::Error> {
-    let config = CONFIG.read().unwrap(); // Acquiring read lock
-    let updated_yaml = serde_yaml::to_string(
-        &config
-            .clone()
-            .try_deserialize::<serde_yaml::Value>()
-            .unwrap(),
-    )
-    .unwrap();
-    std::fs::write("./config/config.yaml", updated_yaml)
+/// Get the entire configuration as a TOML string
+pub fn get_string() -> Result<String, toml::ser::Error> {
+    let config = CONFIG.read().unwrap();
+    let config_value = config.clone().try_deserialize::<toml::Value>().unwrap();
+
+    toml::to_string(&config_value) // Convert to a TOML string
 }
 
-/// Convert the entire configuration to a YAML string
-pub fn config_to_string() -> Result<String, serde_yaml::Error> {
-    let config = CONFIG.read().unwrap(); // Acquiring read lock
-    let yaml_string = serde_yaml::to_string(
-        &config
-            .clone()
-            .try_deserialize::<serde_yaml::Value>()
-            .unwrap(),
-    )?;
-    Ok(yaml_string)
+pub fn has_changes() -> bool {
+    // let old_cfg = config_to_value().unwrap();
+    //let new_cfg = load_config().unwrap();
+    //new_cfg != old_cfg
+    true
 }
 
-pub fn config_to_value() -> Result<serde_yaml::Value, serde_yaml::Error> {
-    let config = CONFIG.read().unwrap(); // Acquiring read lock
-    let yaml_string = serde_yaml::to_value(
-        &config
-            .clone()
-            .try_deserialize::<serde_yaml::Value>()
-            .unwrap(),
-    )?;
-    Ok(yaml_string)
-}
-
-pub fn schema_to_value() -> Result<serde_yaml::Value, serde_yaml::Error> {
-    let config = SCHEMA.read().unwrap(); // Acquiring read lock
-    let yaml_string = serde_yaml::to_value(
-        &config
-            .clone()
-            .try_deserialize::<serde_yaml::Value>()
-            .unwrap(),
-    )?;
-    Ok(yaml_string)
-}
-
-pub fn watch(ctx: &egui::Context, sender: mpsc::UnboundedSender<Message>) {
-    // Create a channel to receive the events.
-    let (tx, rx) = channel();
-
-    // Automatically select the best implementation for your platform.
-    // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = Watcher::new(
-        tx,
-        notify::Config::default().with_poll_interval(Duration::from_secs(3)),
-    )
-    .unwrap();
-
-    // Add a path to be watched. All files and directories at that path and
-    // below will be monitored for changes.
-    watcher
-        .watch(
-            Path::new("./config/config.yaml"),
-            RecursiveMode::NonRecursive,
-        )
+pub fn load_as_string() -> String {
+    let mut buffer = String::new();
+    File::open("./config/config.toml")
+        .unwrap()
+        .read_to_string(&mut buffer)
         .unwrap();
 
-    // This is a simple loop, but you may want to use more complex logic here,
-    // for example to handle I/O.
-    loop {
-        match rx.recv() {
-            Ok(Ok(Event {
-                kind: notify::event::EventKind::Modify(_),
-                ..
-            })) => {
-                println!("refreshing configuration ...");
-                CONFIG.write().unwrap().refresh().unwrap();
-                let _ = sender.send(Message::RefreshConfig);
-                ctx.request_repaint();
-            }
+    buffer
+}
 
-            Err(e) => println!("watch error: {:?}", e),
-            _ => {
-                // Ignore event
-            }
-        }
-    }
+// Adiciona um método para salvar o código no arquivo
+pub fn save_code(code: String) -> std::io::Result<()> {
+    let path = Path::new("./config/config.toml");
+    let mut file = File::create(path)?;
+    file.write_all(code.as_bytes())?;
+    Ok(())
 }

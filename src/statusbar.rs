@@ -7,12 +7,12 @@ use egui::{ScrollArea, Window};
 impl TemplateApp {
     pub fn show_statusbar(&mut self, ctx: &Context, _frame: &mut Frame) {
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui.horizontal_centered(|ui| {
+            egui::menu::bar(ui, |ui| {
                 let log_messages = LOG_MESSAGES.lock().unwrap();
 
                 ui.horizontal(|ui| {
                     if ui
-                        .small_button(format!(
+                        .button(format!(
                             "{} {}",
                             egui_phosphor::regular::WARNING,
                             log_messages.len(),
@@ -22,15 +22,15 @@ impl TemplateApp {
                         self.open_logs = !self.open_logs;
                     }
                 });
-
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
                     ui.label(self.status.to_string());
                 });
 
                 ui.add_space(5.0);
-                egui::warn_if_debug_build(ui);
-                // global_dark_light_mode_buttons(ui);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.button(format!("{}", egui_phosphor::regular::BELL));
+                });
             });
         });
         self.show_messages(ctx);
@@ -39,6 +39,7 @@ impl TemplateApp {
     fn show_messages(&mut self, ctx: &Context) {
         Window::new("Avisos")
             .open(&mut self.open_logs)
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::Vec2::new(-10.0, -150.0))
             .show(ctx, |ui| {
                 ScrollArea::vertical().show(ui, |ui| {
                     let log_messages = LOG_MESSAGES.lock().unwrap();

@@ -10,12 +10,21 @@ use polars::{
     series::IntoSeries,
 };
 use regex::Regex;
+use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Error getting async path: {0}")]
+    CachedPathError(#[from] cached_path::Error),
+
+    #[error("Error loading CSV: {0}")]
+    PolarsError(#[from] polars::prelude::PolarsError),
+}
 
 #[derive(Clone)]
 pub struct Register {
     options: Options,
-    funds: LazyFrame,
 }
 
 pub enum Situation {
@@ -53,36 +62,25 @@ impl Register {
     pub fn new() -> Self {
         let options = load().unwrap();
 
-        Self {
-            options,
-            funds: LazyFrame::default(),
-        }
+        Self { options }
     }
 
-    pub fn load(&mut self) -> Result<(), PolarsError> {
-        match LazyCsvReader::new(&self.options.path)
-            .has_header(true)
-            .with_infer_schema_length(None)
-            .with_delimiter(b';')
-            .with_cache(true)
-            .finish()
-        {
-            Ok(lf) => {
-                self.funds = lf;
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn find(
+    pub async fn async_find(
         &self,
         keyword: Option<String>,
         class: Option<Class>,
         situation: Option<Situation>,
         limit: Option<u32>,
-    ) -> Result<DataFrame, PolarsError> {
-        let mut filtered = self.funds.clone();
+    ) -> Result<DataFrame, Error> {
+        let path = self.options.async_path().await?;
+        let lf = LazyCsvReader::new(&path)
+            .has_header(true)
+            .with_infer_schema_length(None)
+            .with_delimiter(b';')
+           // .with_cache(true)
+            .finish()?;
+
+        let mut filtered = lf.clone();
 
         if let Some(keyword) = keyword {
             filtered = filtered.filter(self.contains_normalized(keyword));
@@ -99,20 +97,27 @@ impl Register {
             filtered = filtered.limit(limit);
         }
 
-        filtered
+        let res = filtered
             .sort("DENOM_SOCIAL", SortOptions::default())
-            .collect()
+            .collect()?;
+        Ok(res)
     }
 
-    pub fn find_by_cnpj(&self, cnpj: String) -> Result<DataFrame, PolarsError> {
-        let filtered = self.funds.clone();
-        if cnpj.is_empty() {
-            return Err(PolarsError::NoData("CNPJ is empty".into()));
-        }
-        filtered
+    pub async fn async_find_by_cnpj(&self, cnpj: String) -> Result<DataFrame, Error> {
+        let path = self.options.async_path_offline().await?;
+        let lf = LazyCsvReader::new(&path)
+            .has_header(true)
+            .with_infer_schema_length(None)
+            .with_delimiter(b';')
+            .with_cache(true)
+            .finish()?;
+
+        let res = lf
             .filter(col("CNPJ_FUNDO").eq(lit(cnpj)))
             .sort("DT_REG", SortOptions::default())
-            .collect()
+            .collect()?;
+
+        Ok(res)
     }
 
     // Função para normalizar texto removendo acentos
@@ -149,12 +154,18 @@ impl Register {
             .or(col("CNPJ_FUNDO").str().contains(lit(q), false))
     }
 
-    pub fn stats(&self) -> Result<(DataFrame, DataFrame, DataFrame), PolarsError> {
-        let filtered = self.funds.clone();
+    pub async fn async_stats(&self) -> Result<(DataFrame, DataFrame, DataFrame), Error> {
+        let path = self.options.async_path().await?;
+        let lf = LazyCsvReader::new(&path)
+            .has_header(true)
+            .with_infer_schema_length(None)
+            .with_delimiter(b';')
+            .with_cache(true)
+            .finish()?;
         // Chama as funções para obter os DataFrames desejados
-        let by_year = self.count_funds_by_year(filtered.clone())?;
-        let by_status = self.count_funds_by_status(filtered.clone())?;
-        let by_class = self.count_funds_by_class(filtered.clone())?;
+        let by_year = self.count_funds_by_year(lf.clone())?;
+        let by_status = self.count_funds_by_status(lf.clone())?;
+        let by_class = self.count_funds_by_class(lf.clone())?;
 
         Ok((by_year, by_status, by_class))
     }

@@ -1,6 +1,8 @@
 use egui::{Ui, WidgetText};
+pub mod config_tab;
 pub mod home_tab;
 
+use config_tab::ConfigTab;
 use egui_dock::{NodeIndex, SurfaceIndex};
 use home_tab::HomeTab;
 use tokio::sync::mpsc::UnboundedSender;
@@ -16,6 +18,7 @@ pub trait Tab {
 }
 
 pub enum TabType {
+    Config(ConfigTab),
     Fund(FundTab),
     Home(HomeTab),
     Dashboard(DashboardTab),
@@ -27,6 +30,7 @@ impl Tab for TabType {
             TabType::Fund(tab) => tab.title(),
             TabType::Home(tab) => tab.title(),
             TabType::Dashboard(tab) => tab.title(),
+            TabType::Config(tab) => tab.title(),
             // Adicione outros tipos de tabs aqui
         }
     }
@@ -37,6 +41,7 @@ impl Tab for TabType {
                 TabType::Fund(tab) => tab.ui(ui),
                 TabType::Home(tab) => tab.ui(ui),
                 TabType::Dashboard(tab) => tab.ui(ui),
+                TabType::Config(tab) => tab.ui(ui),
                 // Adicione outros tipos de tabs aqui
             }
         });
@@ -47,6 +52,7 @@ impl Tab for TabType {
             TabType::Fund(tab) => tab.closeable(),
             TabType::Home(tab) => tab.closeable(),
             TabType::Dashboard(tab) => tab.closeable(),
+            TabType::Config(tab) => tab.closeable(),
             // Adicione outros tipos de tabs aqui
         }
     }

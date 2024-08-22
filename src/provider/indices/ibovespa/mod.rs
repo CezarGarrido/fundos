@@ -25,11 +25,15 @@ use serde::{Deserialize, Serialize};
 
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::downloader::DownloadStatus;
-
-pub fn dataframe(start_date: NaiveDate, end_date: NaiveDate) -> Result<DataFrame, PolarsError> {
+pub async fn async_dataframe(
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+) -> Result<DataFrame, PolarsError> {
     let opts = load().unwrap();
-    let mut file = File::open(opts.path)?;
+
+    let path = opts.async_path(start_date, end_date).await.unwrap();
+
+    let mut file = File::open(path)?;
     let df = JsonReader::new(&mut file).finish()?;
     // Adicionar coluna de datas formatadas e filtrar por data
     let mut df = df
@@ -84,10 +88,7 @@ pub fn dataframe(start_date: NaiveDate, end_date: NaiveDate) -> Result<DataFrame
     Ok(df)
 }
 
-pub fn download(
-    token: CancellationToken,
-    mut on_progress: impl 'static + Send + FnMut(DownloadStatus) + Clone,
-) {
+pub fn download(token: CancellationToken) {
     let options = load().unwrap();
     let provider = YahooConnector::new().unwrap();
 
@@ -111,7 +112,6 @@ pub fn download(
     let path = options.path.clone();
     let h = async move {
         if token.is_cancelled() {
-            on_progress(DownloadStatus::Cancelled);
             return;
         }
 
@@ -121,19 +121,12 @@ pub fn download(
             .unwrap();
 
         let quotes: Vec<yahoo_finance_api::Quote> = resp.quotes().unwrap();
-        let total_quotes = quotes.len() as f64;
         let mut ibovs = Vec::new();
-
-        on_progress(DownloadStatus::InProgress(format!(
-            "Baixando (0/{})",
-            total_quotes
-        )));
 
         for (i, q) in quotes.into_iter().enumerate() {
             // Adiciona um delay para simular carga de trabalho e permitir o cancelamento
             sleep(tokio::time::Duration::from_millis(50)).await;
             if token.is_cancelled() {
-                on_progress(DownloadStatus::Cancelled);
                 return;
             }
             let ibov = Ibov {
@@ -154,22 +147,14 @@ pub fn download(
             let progress = i as f64 + 1.0;
 
             if token.is_cancelled() {
-                on_progress(DownloadStatus::Cancelled);
                 return;
             }
-
-            on_progress(DownloadStatus::InProgress(format!(
-                "Baixando ({}/{})",
-                progress, total_quotes
-            )));
         }
         if token.is_cancelled() {
-            on_progress(DownloadStatus::Cancelled);
             return;
         }
 
         create_and_write_json(&path, &ibovs).unwrap();
-        on_progress(DownloadStatus::Done);
     };
     tokio::spawn(h);
 }

@@ -48,11 +48,24 @@ impl FundTab {
             ..Default::default()
         };
 
-        let portfolio_ui = PortfolioUI {
+        let mut portfolio_ui = PortfolioUI {
             sender: Some(sender.clone()),
             cnpj: title.clone(),
             ..Default::default()
         };
+
+        fund.clone()
+            .column("DT_INI_SIT")
+            .ok()
+            .and_then(|col| col.get(0).ok())
+            .and_then(|val| val.get_str().map(|s| s.to_string()))
+            .map(|v| {
+                println!("start_date {}", v);
+                portfolio_ui.start_date = v;
+            })
+            .unwrap_or_else(|| {
+                portfolio_ui.start_date = "".to_string();
+            });
 
         FundTab {
             title,
@@ -94,6 +107,10 @@ impl FundTab {
 
     pub fn set_profit_loading(&mut self, value: bool) {
         self.profit_ui.loading = value;
+    }
+
+    pub fn set_fund_dataframe(&mut self, df: DataFrame) {
+        self.fund = df;
     }
 }
 

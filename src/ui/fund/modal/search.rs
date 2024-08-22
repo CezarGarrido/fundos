@@ -7,10 +7,10 @@ use crate::{message::Message, provider::cvm::fund::Class};
 
 pub struct Search {
     sender: UnboundedSender<Message>,
-    open_window: bool,
-    query: String,
-    class: Option<Class>,
-    result: DataFrame,
+    pub open_window: bool,
+    pub query: String,
+    pub class: Option<Class>,
+    pub result: DataFrame,
 }
 
 enum Msg {
@@ -133,6 +133,11 @@ impl Search {
                 });
             });
 
+        if !open{
+            self.query = "".to_string();
+            self.class = None;
+        }
+        
         self.open_window = open;
     }
     fn handle_selectable_value(&mut self, ui: &mut egui::Ui, class: Option<Class>, label: &str) {

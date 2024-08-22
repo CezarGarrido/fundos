@@ -47,22 +47,20 @@ impl Tab for HomeTab {
                             {
                                 let _ = self.sender.send(Message::OpenSearchWindow(true));
                             }
+                            if ui
+                                .small_button(format!(
+                                    "{} Visão Geral...",
+                                    egui_phosphor::regular::LIST_DASHES
+                                ))
+                                .clicked()
+                            {
+                                let _ = self.sender.send(Message::OpenDashboardTab);
+                            }
                         });
 
                         ui.add_space(50.0);
 
-                        ui.vertical(|ui| {
-                            ui.set_max_width(500.0);
-                            ui.heading("Estatisticas".to_string());
-                            ui.add_space(5.0);
-                            if ui.link("Estatisticas de Fundos").clicked() {
-                                let _ = self.sender.send(Message::OpenDashboardTab);
-                            }
-                            ui.add_space(5.0);
-                        });
-
-                        ui.add_space(40.0);
-                        ui.label("Recentes");
+                        ui.label("Visto Recentemente");
                         ui.vertical(|ui| {
                             for cnpj in self.history.get_most_accesseds() {
                                 if ui
@@ -79,6 +77,10 @@ impl Tab for HomeTab {
                         });
 
                         ui.add_space(50.0);
+
+                        ui.collapsing("Logs", |ui| {
+                            ui.label("opaa")
+                        });
                     });
                 });
             });
