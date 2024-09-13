@@ -3,18 +3,33 @@ pub mod options;
 
 use options::load;
 use polars::{
-    error::PolarsError,
     frame::DataFrame,
     io::SerReader,
     lazy::dsl::{col, lit, StrptimeOptions},
     prelude::{DataType, IntoLazy, JsonReader, SortOptions},
 };
+use thiserror::Error;
 
-pub fn dataframe(start_date: NaiveDate, end_date: NaiveDate) -> Result<DataFrame, PolarsError> {
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Error getting async path: {0}")]
+    CachedPath(#[from] cached_path::Error),
+
+    #[error("Error loading JsonReader: {0}")]
+    Polars(#[from] polars::prelude::PolarsError),
+
+    #[error("Error loading JSON file: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+pub async fn async_dataframe(
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+) -> Result<DataFrame, Error> {
     let options = load().unwrap();
-    let mut file = std::fs::File::open(options.path)?;
+    let path = options.async_path(start_date, end_date).await?;
+    let mut file = std::fs::File::open(path)?;
     let res = JsonReader::new(&mut file).finish()?;
-
     // Calcular a rentabilidade diária acumulada
     let mut rent_acc = (col("cdi_decimal") + lit(1.0)).cumprod(false) - lit(1.0);
     rent_acc = (rent_acc * lit(100.0)).alias("value");

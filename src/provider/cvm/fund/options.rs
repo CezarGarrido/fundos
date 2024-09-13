@@ -17,23 +17,38 @@ const ROOT: &str = "cvm.fundo.cadastro";
 pub struct Options {
     pub description: String,
     pub url: String,
-    pub path: PathBuf,
+    pub path: String,
 }
 
 impl Options {
     pub async fn async_path(&self) -> Result<PathBuf, cached_path::Error> {
         let url = self.url.clone();
+        let subdir = self.path.clone();
         // Baixa o arquivo usando `cached_path`
         let path = spawn_blocking(move || {
-            cached_path_with_options(
+            let res = cached_path_with_options(
                 url.as_str(),
-                &cached_path::Options::default().subdir("cadastro"),
-            )
+                &cached_path::Options::default().subdir(&subdir),
+            );
+
+            match res {
+                Ok(path) => Ok(path),
+                Err(_err) => {
+                    let cache = Cache::builder()
+                        .progress_bar(Some(cached_path::ProgressBar::Full))
+                        .offline(true)
+                        .build()?;
+                    cache.cached_path_with_options(
+                        url.as_str(),
+                        &cached_path::Options::default().subdir(&subdir),
+                    )
+                }
+            }
         })
         .await
         .unwrap()?;
         // Cria uma cópia do caminho para usar na verificação e na conversão
-        let utf8_path = PathBuf::from(format!("{}.utf8", path.display().to_string()));
+        let utf8_path = PathBuf::from(format!("{}.utf8", path.display()));
         // Verifica se o arquivo já foi convertido para UTF-8
         if utf8_path.exists() {
             return Ok(utf8_path);
@@ -50,7 +65,7 @@ impl Options {
             let (cow, _, had_errors) = WINDOWS_1252.decode(&contents);
             if had_errors {
                 // Tratar erros de conversão, se necessário
-                eprintln!("Erro ao converter arquivo para UTF-8.");
+                log::error!("Erro ao converter arquivo para UTF-8.");
             }
             // Salva o arquivo convertido
             let mut output_file = File::create(&utf8_path_clone)?;
@@ -65,17 +80,18 @@ impl Options {
 
     pub async fn async_path_offline(&self) -> Result<PathBuf, cached_path::Error> {
         let url = self.url.clone();
+        let subdir = self.path.clone();
         // Baixa o arquivo usando `cached_path`
         let path = spawn_blocking(move || {
             let c = Cache::builder().offline(true).build()?;
             c.cached_path_with_options(
                 url.as_str(),
-                &cached_path::Options::default().subdir("cadastro"),
+                &cached_path::Options::default().subdir(&subdir),
             )
         })
         .await
         .unwrap()?;
-        let utf8_path = PathBuf::from(format!("{}.utf8", path.display().to_string()));
+        let utf8_path = PathBuf::from(format!("{}.utf8", path.display()));
         Ok(utf8_path)
     }
 }

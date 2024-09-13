@@ -60,7 +60,6 @@ impl FundTab {
             .and_then(|col| col.get(0).ok())
             .and_then(|val| val.get_str().map(|s| s.to_string()))
             .map(|v| {
-                println!("start_date {}", v);
                 portfolio_ui.start_date = v;
             })
             .unwrap_or_else(|| {
@@ -109,8 +108,8 @@ impl FundTab {
         self.profit_ui.loading = value;
     }
 
-    pub fn set_fund_dataframe(&mut self, df: DataFrame) {
-        self.fund = df;
+    pub fn set_assets_loading(&mut self, value: bool) {
+        self.portfolio_ui.loading = value;
     }
 }
 
@@ -124,7 +123,7 @@ impl Tab for FundTab {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        let sender = self.sender().clone();
+        let _sender = self.sender().clone();
         egui::TopBottomPanel::top(ui.id().with("fund_tab_bottom_panel")).show_inside(ui, |ui| {
             if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
                 ui.heading(s.get(0).unwrap().get_str().unwrap());
@@ -138,30 +137,38 @@ impl Tab for FundTab {
         ui.add_space(5.0);
 
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.open_panel, Panel::Details, "Detalhes");
+            ui.selectable_value(
+                &mut self.open_panel,
+                Panel::Details,
+                format!("{} Detalhes", egui_phosphor::regular::NOTE),
+            );
 
             if ui
-                .selectable_value(&mut self.open_panel, Panel::Profit, "Rentabilidade")
+                .selectable_value(
+                    &mut self.open_panel,
+                    Panel::Profit,
+                    format!("{} Rentabilidade", egui_phosphor::regular::CHART_LINE_UP),
+                )
                 .clicked()
                 && self.profit_ui.profit.is_empty()
             {
-                let _ = sender.send(message::Message::Profit(
-                    self.title().text().to_string(),
+                self.profit_ui.send_profit_message(
+                    self.title().text().to_string().as_str(),
                     self.profit_ui.profit_filter_start_date,
                     self.profit_ui.profit_filter_end_date,
-                ));
+                )
             }
 
             if ui
-                .selectable_value(&mut self.open_panel, Panel::Assets, "Carteira")
+                .selectable_value(
+                    &mut self.open_panel,
+                    Panel::Assets,
+                    format!("{} Carteira", egui_phosphor::regular::WALLET),
+                )
                 .clicked()
                 && self.portfolio_ui.assets.is_empty()
             {
-                let _ = sender.send(message::Message::Assets(
-                    self.title().text().to_string(),
-                    self.portfolio_ui.filter_year.clone(),
-                    self.portfolio_ui.filter_month.clone(),
-                ));
+                self.portfolio_ui.send_assets_message();
             }
         });
 
@@ -175,7 +182,10 @@ impl Tab for FundTab {
         );
 
         Frame::none().inner_margin(30.0).show(ui, |ui| {
-            ui.set_min_height(ui.available_height());
+            let h = ui.available_height();
+          //  ui.set_min_height(h);
+            ui.set_max_height(h);
+
             match self.open_panel {
                 Panel::Details => {
                     panel::detail::show_ui(self.fund.clone(), ui);

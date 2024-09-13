@@ -1,6 +1,9 @@
 use crate::{
     message,
-    ui::charts::{self, profit::Indice},
+    ui::{
+        charts::{self, profit::Indice},
+        loading,
+    },
 };
 use chrono::NaiveDate;
 use egui::{Align2, Color32, Frame, Layout, Vec2, Widget};
@@ -58,10 +61,7 @@ impl ProfitUI {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.horizontal_centered(|ui| {
-                            ui.heading(format!(
-                                "{} Gráfico de Rentabilidade",
-                                egui_phosphor::regular::CHART_LINE
-                            ));
+                            ui.heading(egui::RichText::new("Gráfico de Rentabilidade").size(16.0));
                         });
                     });
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -74,8 +74,11 @@ impl ProfitUI {
                 });
             });
             ui.separator();
-            egui::TopBottomPanel::top(ui.id().with("profit_value")).show_inside(ui, |ui| {
-                ui.add_space(8.0);
+            ui.add_space(5.0);
+
+            if self.loading {
+                loading::show(ui);
+            } else {
                 ui.vertical(|ui| {
                     ui.weak("Rentabilidade");
                     if self.profit.height() > 0 {
@@ -91,28 +94,31 @@ impl ProfitUI {
                         ui.label("-");
                     }
                 });
-                ui.add_space(8.0);
-            });
-            let red = Color32::from_rgb(255, 0, 0); // Vermelho
-                                                    //let blue = Color32::from_rgb(0, 0, 255); // Azul
-            Frame::none().inner_margin(10.0).show(ui, |ui| {
-                charts::profit::chart(
-                    &self.profit,
-                    vec![
-                        Indice {
-                            name: "CDI".to_string(),
-                            color: red,
-                            dataframe: self.cdi.clone(),
-                        },
-                        Indice {
-                            name: "IBOV".to_string(),
-                            color: Color32::YELLOW,
-                            dataframe: self.ibov.clone(),
-                        },
-                    ],
-                    ui,
-                );
-            });
+                ui.separator();
+
+                ui.add_space(5.0);
+
+                let red = Color32::from_rgb(255, 0, 0); // Vermelho
+
+                Frame::none().inner_margin(5.0).show(ui, |ui| {
+                    charts::profit::chart(
+                        &self.profit,
+                        vec![
+                            Indice {
+                                name: "CDI".to_string(),
+                                color: red,
+                                dataframe: self.cdi.clone(),
+                            },
+                            Indice {
+                                name: "IBOV".to_string(),
+                                color: Color32::YELLOW,
+                                dataframe: self.ibov.clone(),
+                            },
+                        ],
+                        ui,
+                    );
+                });
+            }
         });
     }
 
@@ -175,7 +181,7 @@ impl ProfitUI {
         });
     }
 
-    fn send_profit_message(
+    pub fn send_profit_message(
         &mut self,
         cnpj: &str,
         start_date: chrono::NaiveDate,

@@ -9,6 +9,7 @@ use polars::{
     prelude::{DataType, LazyCsvReader, LazyFileListReader, LazyFrame, SortOptions},
     series::IntoSeries,
 };
+
 use regex::Regex;
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
@@ -77,7 +78,7 @@ impl Register {
             .has_header(true)
             .with_infer_schema_length(None)
             .with_delimiter(b';')
-           // .with_cache(true)
+            // .with_cache(true)
             .finish()?;
 
         let mut filtered = lf.clone();
@@ -103,8 +104,17 @@ impl Register {
         Ok(res)
     }
 
-    pub async fn async_find_by_cnpj(&self, cnpj: String) -> Result<DataFrame, Error> {
-        let path = self.options.async_path_offline().await?;
+    pub async fn async_find_by_cnpj(
+        &self,
+        cnpj: String,
+        offline: bool,
+    ) -> Result<DataFrame, Error> {
+        let path = if offline {
+            self.options.async_path_offline().await?
+        } else {
+            self.options.async_path().await?
+        };
+
         let lf = LazyCsvReader::new(&path)
             .has_header(true)
             .with_infer_schema_length(None)

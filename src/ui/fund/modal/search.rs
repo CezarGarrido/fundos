@@ -3,7 +3,7 @@ use egui_extras::{Column, TableBuilder};
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{message::Message, provider::cvm::fund::Class};
+use crate::{message::Message, provider::cvm::fund::Class, ui::loading};
 
 pub struct Search {
     sender: UnboundedSender<Message>,
@@ -11,6 +11,7 @@ pub struct Search {
     pub query: String,
     pub class: Option<Class>,
     pub result: DataFrame,
+    pub loading: bool,
 }
 
 enum Msg {
@@ -26,17 +27,20 @@ impl Search {
             query: "".to_string(),
             class: None,
             result: DataFrame::empty(),
+            loading: false,
         }
     }
 
     fn update(&mut self, msg: Msg) {
         match msg {
             Msg::Search => {
+                self.set_loading(true);
                 self.search_send();
             }
             Msg::SelectClass(selected_class) => {
                 self.class = selected_class;
                 self.search_send();
+                self.set_loading(true);
             }
         }
     }
@@ -49,15 +53,19 @@ impl Search {
         self.result = value;
     }
 
+    pub fn set_loading(&mut self, value: bool) {
+        self.loading = value;
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let mut open = self.open_window;
         egui::Window::new("Fundos")
             .resizable(false)
             .collapsible(false)
-            .default_width(550.0)
-            .max_width(550.0)
-            .max_height(500.0)
-            .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 120.0))
+            .default_width(400.0)
+            .max_width(400.0)
+            .max_height(400.0)
+            .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 50.0))
             .open(&mut open)
             .show(ui.ctx(), |ui| {
                 let search_bar = egui::TextEdit::singleline(&mut self.query)
@@ -85,47 +93,55 @@ impl Search {
                 let cols: Vec<&str> = vec!["CNPJ_FUNDO", "DENOM_SOCIAL"];
 
                 egui::ScrollArea::horizontal().show(ui, |ui| {
-                    TableBuilder::new(ui)
-                        //.column(Column::auto().at_most(20.0))
-                        .column(Column::auto().at_least(40.0).resizable(false))
-                        .column(Column::remainder().at_most(40.0))
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .striped(true)
-                        .resizable(false)
-                        .header(20.0, |mut header| {
-                            header.col(|ui| {
-                                ui.label("cnpj");
-                            });
-                            header.col(|ui| {
-                                ui.label("nome");
-                            });
-                        })
-                        .body(|body| {
-                            body.rows(20.0, nr_rows, |mut row| {
-                                let row_index = row.index();
+                    if self.loading {
+                        ui.vertical_centered(|ui| {
+                            loading::show(ui);
+                        });
+                    } else {
+                        TableBuilder::new(ui)
+                            //.column(Column::auto().at_most(20.0))
+                            .column(Column::auto().at_least(40.0).resizable(false))
+                            .column(Column::remainder().at_most(40.0))
+                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                            .striped(true)
+                            .resizable(false)
+                            .header(20.0, |mut header| {
+                                header.col(|ui| {
+                                    ui.label("cnpj");
+                                });
+                                header.col(|ui| {
+                                    ui.label("nome");
+                                });
+                            })
+                            .body(|body| {
+                                body.rows(20.0, nr_rows, |mut row| {
+                                    let row_index = row.index();
 
-                                for col in &cols {
-                                    row.col(|ui| {
-                                        if let Ok(column) = self.result.column(col) {
-                                            if let Ok(value) = column.get(row_index) {
-                                                if let Some(value_str) = value.get_str() {
-                                                    if col.contains("CNPJ_FUNDO") {
-                                                        if ui.link(value_str).clicked() {
-                                                            let strcnpj = value_str.to_string();
-                                                            let _ = self.sender.send(
-                                                                Message::NewTab(strcnpj.clone()),
-                                                            );
+                                    for col in &cols {
+                                        row.col(|ui| {
+                                            if let Ok(column) = self.result.column(col) {
+                                                if let Ok(value) = column.get(row_index) {
+                                                    if let Some(value_str) = value.get_str() {
+                                                        if col.contains("CNPJ_FUNDO") {
+                                                            if ui.link(value_str).clicked() {
+                                                                let strcnpj = value_str.to_string();
+                                                                let _ = self.sender.send(
+                                                                    Message::NewTab(
+                                                                        strcnpj.clone(),
+                                                                    ),
+                                                                );
+                                                            }
+                                                        } else {
+                                                            ui.label(value_str);
                                                         }
-                                                    } else {
-                                                        ui.label(value_str);
                                                     }
                                                 }
                                             }
-                                        }
-                                    });
-                                }
+                                        });
+                                    }
+                                });
                             });
-                        });
+                    }
                 });
 
                 TopBottomPanel::bottom("top_bottom_window").show_inside(ui, |ui| {
@@ -133,11 +149,11 @@ impl Search {
                 });
             });
 
-        if !open{
+        if !open {
             self.query = "".to_string();
             self.class = None;
         }
-        
+
         self.open_window = open;
     }
     fn handle_selectable_value(&mut self, ui: &mut egui::Ui, class: Option<Class>, label: &str) {

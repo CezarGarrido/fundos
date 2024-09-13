@@ -6,14 +6,20 @@
 #[tokio::main]
 async fn main() -> eframe::Result<()> {
     use std::env;
-    env::set_var("RUST_LOG", "info");
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+
+    env::set_var("RUST_LOG", "debug");
+    //env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    egui_logger::init().expect("Error initializing logger");
 
     let native_options = eframe::NativeOptions {
         default_theme: eframe::Theme::Light,
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 300.0])
-            .with_min_inner_size([300.0, 220.0])
+            .with_decorations(true)
+            .with_maximized(true)
+            .with_inner_size([800.0, 600.0])
+            .with_min_inner_size([200.0, 100.0])
+            .with_resizable(true)
+            .with_taskbar(true)
             .with_icon(
                 // NOTE: Adding an icon is optional
                 eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon-256.png")[..])

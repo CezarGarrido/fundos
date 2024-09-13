@@ -3,35 +3,21 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use crate::config::get;
-use cached_path::Cache;
+
 use chrono::{DateTime, Datelike, NaiveDate};
-use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::task::spawn_blocking;
-use tokio::time::sleep;
-use yahoo_finance_api::{
-    time::{Date, Month, OffsetDateTime, Time},
-    YahooConnector,
-};
+
+use yahoo_finance_api::{time::OffsetDateTime, YahooConnector};
 
 const ROOT: &str = "indices.ibovespa";
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Options {
     pub description: String,
-    pub start_date: String,
-    pub end_date: String,
     pub path: PathBuf,
 }
 
 impl Options {
-    pub fn start_date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.start_date, "%d/%m/%Y").unwrap()
-    }
-    pub fn end_date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.end_date, "%d/%m/%Y").unwrap()
-    }
-
     pub async fn async_path(
         &self,
         start_date: NaiveDate,
@@ -39,14 +25,20 @@ impl Options {
     ) -> Result<PathBuf, yahoo_finance_api::YahooError> {
         let provider = YahooConnector::new()?; // Removido o unwrap aqui
         let start = OffsetDateTime::from_unix_timestamp(
-            NaiveDate::from_ymd(start_date.year(), start_date.month(), start_date.day())
-                .and_hms(0, 0, 0)
+            NaiveDate::from_ymd_opt(start_date.year(), start_date.month(), start_date.day())
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
                 .timestamp(),
         )
         .unwrap();
         let end = OffsetDateTime::from_unix_timestamp(
-            NaiveDate::from_ymd(end_date.year(), end_date.month(), end_date.day())
-                .and_hms(23, 59, 59)
+            NaiveDate::from_ymd_opt(end_date.year(), end_date.month(), end_date.day())
+                .unwrap()
+                .and_hms_opt(23, 59, 59)
+                .unwrap()
+                .and_utc()
                 .timestamp(),
         )
         .unwrap();
@@ -57,15 +49,13 @@ impl Options {
             let quotes: Vec<yahoo_finance_api::Quote> = resp.quotes()?;
             let mut ibovs = Vec::new();
             for q in quotes.into_iter() {
+                let dt = DateTime::from_timestamp(q.timestamp as i64, 0).unwrap();
+                let date_str = dt.naive_utc().format("%d/%m/%Y").to_string();
+
                 let ibov = Ibov {
                     timestamp: q.timestamp,
                     adjclose: q.adjclose,
-                    date: DateTime::<Utc>::from_utc(
-                        chrono::NaiveDateTime::from_timestamp(q.timestamp as i64, 0),
-                        Utc,
-                    )
-                    .format("%d/%m/%Y")
-                    .to_string(),
+                    date: date_str,
                     open: q.open,
                     high: q.high,
                     low: q.low,

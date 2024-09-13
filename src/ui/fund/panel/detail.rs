@@ -1,15 +1,14 @@
-use egui::{Frame, Grid, Ui};
+use egui::{Grid, Ui};
 use polars::prelude::*;
 use std::collections::HashMap;
 
 pub fn show_ui(df: DataFrame, ui: &mut Ui) {
     ui.group(|ui| {
-        ui.heading(format!("{} Detalhes", egui_phosphor::regular::NOTE));
+        ui.heading(egui::RichText::new("Detalhes").size(16.0));
         ui.separator();
-        Frame::none().inner_margin(0.0).show(ui, |ui| {
-            let grouped_columns = get_grouped_columns(&df);
-            show_dataframe(grouped_columns, df.clone(), ui);
-        });
+
+        let grouped_columns = get_grouped_columns(&df);
+        show_dataframe(grouped_columns, df.clone(), ui);
     });
 }
 
@@ -64,8 +63,8 @@ fn show_dataframe(grouped_columns: Vec<(&str, Vec<&str>)>, df: DataFrame, ui: &m
     egui::ScrollArea::vertical().show(ui, |ui| {
         Grid::new("data_grid")
             .striped(true)
-            .min_col_width(ui.available_width() / 2.0)
-            .max_col_width(ui.available_width() / 2.0)
+            .min_col_width((ui.available_width() - 10.0) / 2.0)
+            .max_col_width((ui.available_width() - 10.0) / 2.0)
             .show(ui, |ui| {
                 for (group_id, columns) in &grouped_columns {
                     if group_id != &"all_id" {
@@ -85,6 +84,7 @@ fn show_dataframe(grouped_columns: Vec<(&str, Vec<&str>)>, df: DataFrame, ui: &m
             })
             .unwrap_or_default();
 
+        ui.separator();
         ui.collapsing("Ver mais", |ui| {
             Grid::new("all_data_grid")
                 .striped(true)

@@ -13,6 +13,8 @@ pub struct Indice {
 
 ///TODO: refatorar para unificar as datas
 pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
+    let color = ui.visuals().selection.bg_fill;
+
     let green = Color32::from_rgb(0, 255, 0); // Verde
     let chart = match (dataframe.column("DT_COMPTC"), dataframe.column("RENT_ACUM")) {
         (Ok(dates), Ok(rentabilidade)) => {
@@ -32,9 +34,12 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 }
             }
 
-            Line::new(line_data).color(green).name("Fundo")
+            Line::new(line_data)
+                .color(green)
+                .name("Fundo")
+                .highlight(true)
         }
-        _ => Line::new(Vec::new()).color(green).name("Fundo"),
+        _ => Line::new(Vec::new()).color(color).name("Fundo"),
     };
 
     let mut charts = Vec::new();
@@ -108,7 +113,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 "".to_owned()
             }
         })
-        .height(400.0)
+        //.height(400.0)
         .show(ui, |plot_ui| {
             plot_ui.line(chart);
             for chart in charts {

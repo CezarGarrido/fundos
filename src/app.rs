@@ -1,13 +1,11 @@
-use crate::{
-    provider::cvm::{fund, informe},
-    util,
-};
+use crate::{provider::cvm::fund, util};
+
 use egui::FontId;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabAddAlign};
 use egui_toast::{Toast, ToastOptions};
-use polars::{error::PolarsError, frame::DataFrame};
+use polars::frame::DataFrame;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -23,7 +21,7 @@ use crate::{
             tab::{dashboard::DashboardTab, FundTab},
         },
         modal::about::About,
-        tabs::{config_tab::ConfigTab, home_tab::HomeTab, Tab, TabType, TabViewer},
+        tabs::{home_tab::HomeTab, Tab, TabType, TabViewer},
     },
 };
 
@@ -122,12 +120,10 @@ impl Default for TemplateApp {
 impl TemplateApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-        cc.egui_ctx.set_fonts(fonts);
 
-        if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-        }
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        
+        cc.egui_ctx.set_fonts(fonts);
 
         Default::default()
     }
@@ -148,12 +144,17 @@ impl TemplateApp {
         } else {
             let main_surface = self.tree.main_surface_mut();
             main_surface.set_focused_node(egui_dock::NodeIndex(2));
-            let new_fund_tab = FundTab::new(cnpj.clone(), df, self.channel.0.clone());
+            let new_fund_tab = FundTab::new(cnpj.clone(), df.clone(), self.channel.0.clone());
             main_surface.push_to_focused_leaf(TabType::Fund(new_fund_tab));
         }
-        self.history.add(cnpj.clone());
-        let _ = self.history.save();
-        let _ = self.history.load();
+
+        if let Ok(s) = df.column("DENOM_SOCIAL") {
+            let value = s.get(0).unwrap();
+            let name = value.get_str().unwrap();
+            self.history.add(cnpj.clone(), name.to_string());
+            let _ = self.history.save();
+            let _ = self.history.load();
+        }
     }
 
     pub fn add_dashboard_tab(&mut self) {
@@ -182,27 +183,6 @@ impl TemplateApp {
         }
     }
 
-    pub fn add_config_tab(&mut self) {
-        let tabs: Vec<_> = self
-            .tree
-            .iter_all_tabs()
-            .map(|(_, tab)| tab.to_owned())
-            .collect();
-
-        if let Some(index) = tabs
-            .iter()
-            .position(|tb| tb.title().text().contains("Configuração"))
-        {
-            let main_surface = self.tree.main_surface_mut();
-            main_surface.set_active_tab(NodeIndex(0), egui_dock::TabIndex(index));
-        } else {
-            let main_surface = self.tree.main_surface_mut();
-            main_surface.set_focused_node(egui_dock::NodeIndex(2));
-            let tab = ConfigTab::new("Configuração".to_string());
-            main_surface.push_to_focused_leaf(TabType::Config(tab));
-        }
-    }
-
     fn handle_update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let ctxc = ctx.clone();
         let sender = self.channel.0.clone();
@@ -210,6 +190,7 @@ impl TemplateApp {
         if let Ok(message) = self.channel.1.try_recv() {
             match message {
                 Message::OpenSearchWindow(value) => {
+                    self.search.set_loading(true);
                     let _ = sender.send(Message::SearchFunds("".to_string(), None));
                     self.asset_detail_modal.open_window = false;
                     self.search.open(value)
@@ -222,37 +203,54 @@ impl TemplateApp {
                 Message::NewTab(cnpj) => {
                     let r = self.register.clone();
                     tokio::spawn(async move {
-                        let res: Result<DataFrame, fund::Error> =
-                            r.async_find_by_cnpj(cnpj.clone()).await;
-                        match res {
-                            Ok(fund_dataframe) => {
-                                let _ = sender.send(Message::OpenTab(cnpj, fund_dataframe));
-                                ctxc.request_repaint();
-                            }
-                            Err(err) => {
-                                log::error!("Erro ao carregar fundo {}", err);
+                        if let Err(err) =
+                            handle_fund_data(cnpj.clone(), true, r.clone(), &sender, &ctxc).await
+                        {
+                            log::error!("Erro ao obter dados do fundo {}", err);
+                            util::toaster().add(Toast {
+                                kind: egui_toast::ToastKind::Error,
+                                text: "Erro ao obter dados do fundo".into(),
+                                options: ToastOptions::default().duration_in_seconds(1.5),
+                            });
+
+                            ctxc.request_repaint();
+
+                            util::toaster().add(Toast {
+                                kind: egui_toast::ToastKind::Info,
+                                text: "Obtendo dados...".into(),
+                                options: ToastOptions::default().duration_in_seconds(10.0),
+                            });
+
+                            if let Err(err) =
+                                handle_fund_data(cnpj.clone(), false, r.clone(), &sender, &ctxc)
+                                    .await
+                            {
+                                log::error!("Erro ao obter dados do fundo {}", err);
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Error,
                                     text: "Erro ao obter dados do fundo".into(),
-                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                    options: ToastOptions::default().duration_in_seconds(1.5),
                                 });
                             }
                         }
                     });
                 }
+
                 Message::Profit(cnpj, start_date, end_date) => {
                     let informe = self.informe.clone();
                     tokio::spawn(async move {
-                        let cdi_future = async { indices::cdi::dataframe(start_date, end_date) };
+                        let cdi_future = indices::cdi::async_dataframe(start_date, end_date);
                         let ibov_future = indices::ibovespa::async_dataframe(start_date, end_date);
+
                         let profitability_future =
                             informe.async_profit(cnpj.clone(), start_date, end_date);
+
                         let (profitability_result, cdi_result, ibov_result) =
                             tokio::join!(profitability_future, cdi_future, ibov_future);
-                        let cdi_dataframe = handle_profit_result("cdi", cdi_result);
-                        let profitability_dataframe =
-                            handle_profit_result("fundo", profitability_result);
-                        let ibov_dataframe = handle_profit_result("ibov", ibov_result);
+
+                        let cdi_dataframe = handle_result("cdi", cdi_result);
+                        let profitability_dataframe = handle_result("fundo", profitability_result);
+                        let ibov_dataframe = handle_result("ibov", ibov_result);
                         let _ = sender.send(Message::ProfitResult(
                             cnpj.clone(),
                             profitability_dataframe,
@@ -284,10 +282,39 @@ impl TemplateApp {
                             .async_assets(cnpj.clone(), year.clone(), month.clone(), true)
                             .await
                         {
-                            Ok(dfs) => dfs,
+                            Ok(dfs) => {
+                                let (pl, assets, top_assets) = dfs.clone();
+                                if pl.is_empty() {
+                                    util::toaster().add(Toast {
+                                        kind: egui_toast::ToastKind::Warning,
+                                        text: "Nenhum Patrimônio Liquido encontrado.".into(),
+                                        options: ToastOptions::default().duration_in_seconds(3.0),
+                                    });
+                                }
+                                if assets.is_empty() {
+                                    util::toaster().add(Toast {
+                                        kind: egui_toast::ToastKind::Warning,
+                                        text: "Nenhum ativo encontrado".into(),
+                                        options: ToastOptions::default().duration_in_seconds(3.0),
+                                    });
+                                }
+                                if top_assets.is_empty() {
+                                    util::toaster().add(Toast {
+                                        kind: egui_toast::ToastKind::Warning,
+                                        text: "Não foi possivel grupar por aplicação".into(),
+                                        options: ToastOptions::default().duration_in_seconds(3.0),
+                                    });
+                                }
+                                dfs
+                            }
                             Err(e) => {
                                 log::error!("Erro ao obter ativos: {:?}", e);
-                                return; // Não envie a mensagem se ocorrer erro
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Error,
+                                    text: "Erro ao obter ativos da carteira".into(),
+                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                });
+                                (DataFrame::empty(), DataFrame::empty(), DataFrame::empty())
                             }
                         };
                         let _ = sender.send(Message::AssetsResult(
@@ -307,6 +334,7 @@ impl TemplateApp {
                                 tab.set_assets_dataframe(assets.clone());
                                 tab.set_top_assets_dataframe(top_assets.clone());
                                 tab.set_pl_dataframe(patrimonio_liquido.clone());
+                                tab.set_assets_loading(false);
                                 ctxc.request_repaint();
                                 break;
                             }
@@ -314,6 +342,7 @@ impl TemplateApp {
                     }
                 }
                 Message::ResultFunds(df) => {
+                    self.search.set_loading(false);
                     self.search.set_result(df);
                 }
                 Message::SearchFunds(keyword, class) => {
@@ -327,7 +356,14 @@ impl TemplateApp {
                                 ctxc.request_repaint();
                             }
                             Err(err) => {
+                                let _ = sender.send(Message::ResultFunds(DataFrame::empty()));
+                                ctxc.request_repaint();
                                 log::error!("Erro ao buscar fundos {:?}", err);
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Error,
+                                    text: "Erro ao buscar fundos".into(),
+                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                });
                             }
                         }
                     });
@@ -338,7 +374,6 @@ impl TemplateApp {
                 }
                 Message::OpenDashboardTab => {
                     self.add_dashboard_tab();
-
                     let sender = sender.clone();
                     let r = self.register.clone();
                     tokio::spawn(async move {
@@ -374,8 +409,6 @@ impl TemplateApp {
         }
     }
 
-    fn check_dependencies(&mut self, ctx: &egui::Context) {}
-
     // Função para configurar o painel superior
     fn setup_top_panel(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -390,9 +423,6 @@ impl TemplateApp {
             let icon = egui::RichText::new(egui_phosphor::regular::LIST.to_string()).font(font_id);
             ui.menu_button(icon, |ui| {
                 self.setup_fund_menu(ui);
-                if ui.button("Configuração").clicked() {
-                    self.add_config_tab();
-                }
                 if ui.button("Sobre").clicked() {
                     self.about_modal.open(true);
                 }
@@ -442,12 +472,7 @@ impl TemplateApp {
 }
 
 impl eframe::App for TemplateApp {
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, self);
-    }
-
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        self.check_dependencies(ctx);
         self.handle_update(ctx, frame);
         self.setup_top_panel(ctx);
         self.show_statusbar(ctx, frame);
@@ -456,11 +481,13 @@ impl eframe::App for TemplateApp {
     }
 }
 
-// Função auxiliar para transformar Result em DataFrame
-fn handle_profit_result(name: &str, result: Result<DataFrame, PolarsError>) -> DataFrame {
-    let msg = format!("Erro ao obter rentabilidade: {}", name);
+fn handle_result<T, E: std::fmt::Display>(name: &str, result: Result<T, E>) -> T
+where
+    T: Default,
+{
+    let msg = format!("Erro ao processar dados: {}", name);
     match result {
-        Ok(df) => df,
+        Ok(data) => data,
         Err(e) => {
             util::toaster().add(Toast {
                 kind: egui_toast::ToastKind::Error,
@@ -468,8 +495,26 @@ fn handle_profit_result(name: &str, result: Result<DataFrame, PolarsError>) -> D
                 options: ToastOptions::default().duration_in_seconds(3.0),
             });
 
-            log::error!("Falha ao carregar dados: {}", e);
-            DataFrame::empty()
+            log::error!("Falha ao processar dados: {}", e);
+            T::default()
         }
+    }
+}
+
+async fn handle_fund_data(
+    cnpj: String,
+    use_cache: bool,
+    r: Register,
+    sender: &UnboundedSender<Message>,
+    ctxc: &egui::Context,
+) -> Result<(), fund::Error> {
+    let res = r.async_find_by_cnpj(cnpj.clone(), use_cache).await;
+    match res {
+        Ok(fund_dataframe) => {
+            let _ = sender.send(Message::OpenTab(cnpj, fund_dataframe));
+            ctxc.request_repaint();
+            Ok(())
+        }
+        Err(err) => Err(err),
     }
 }

@@ -3,7 +3,6 @@
 mod app;
 pub mod config;
 mod history;
-pub mod logger;
 mod message;
 mod provider;
 mod statusbar;

@@ -1,20 +1,20 @@
 use std::{
     fs::{self, remove_file, File},
-    io::{self, Read, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use cached_path::Cache;
 use encoding_rs::WINDOWS_1252;
-use glob::glob;
+
 
 use polars::{
     error::PolarsError,
     lazy::dsl::{col, lit, Expr},
     prelude::{DataType, LazyCsvReader, LazyFileListReader, LazyFrame, NULL},
 };
-use regex::Regex;
+
 use tokio::sync::Semaphore;
 
 pub mod fund;
@@ -80,31 +80,6 @@ fn align_and_convert_columns_to_string(lf: LazyFrame, all_columns: &[String]) ->
     aligned_lf
 }
 
-pub fn portfolio_available_dates() -> Vec<String> {
-    // Define a expressão regular para extrair ano e mês
-    let re = Regex::new(r"_(\d{6})\.csv$").unwrap();
-    let mut year_month_list = Vec::new();
-    // Busca os arquivos usando o padrão
-    for path in glob("./dataset/carteira/*.csv")
-        .expect("Failed to read glob pattern")
-        .flatten()
-    {
-        if let Some(path_str) = path.to_str() {
-            if let Some(caps) = re.captures(path_str) {
-                // Extrai o ano e mês do capture
-                let year_month = &caps[1];
-                let formatted = format!("{}/{}", &year_month[..4], &year_month[4..6]);
-                year_month_list.push(formatted);
-            }
-        }
-    }
-    // Remove duplicatas e reverte a lista
-    year_month_list.sort();
-    year_month_list.dedup();
-    year_month_list.reverse();
-    year_month_list
-}
-
 pub async fn try_download(
     url: String,
     subdir: String,
@@ -112,19 +87,33 @@ pub async fn try_download(
 ) -> Result<PathBuf, cached_path::Error> {
     let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-    let result = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         let cache = Cache::builder()
             .progress_bar(Some(cached_path::ProgressBar::Full))
             .build()?;
 
-        let result = cache.cached_path_with_options(
+        let res = cache.cached_path_with_options(
             url.as_str(),
             &cached_path::Options::default().extract().subdir(&subdir),
-        )?;
+        );
+
+        let result = match res {
+            Ok(path) => Ok(path),
+            Err(_err) => {
+                let cache = Cache::builder()
+                    .progress_bar(Some(cached_path::ProgressBar::Full))
+                    .offline(true)
+                    .build()?;
+                cache.cached_path_with_options(
+                    url.as_str(),
+                    &cached_path::Options::default().extract().subdir(&subdir),
+                )
+            }
+        }?;
 
         // Verifica se `result` é um arquivo ou diretório
         if result.is_file() {
-            let utf8_path = PathBuf::from(format!("{}.utf8", result.display().to_string()));
+            let utf8_path = PathBuf::from(format!("{}.utf8", result.display()));
             // Verifica se o arquivo já foi convertido para UTF-8
             if utf8_path.exists() {
                 drop(permit); // Libera a permissão ao terminar a tarefa
@@ -136,7 +125,7 @@ pub async fn try_download(
             drop(permit); // Libera a permissão ao terminar a tarefa
             return Ok(utf8_path);
         } else if result.is_dir() {
-            let utf8_path = PathBuf::from(format!("{}-utf8", result.display().to_string()));
+            let utf8_path = PathBuf::from(format!("{}-utf8", result.display()));
             // Verifica se o arquivo já foi convertido para UTF-8
             if utf8_path.exists() {
                 drop(permit); // Libera a permissão ao terminar a tarefa
@@ -149,15 +138,9 @@ pub async fn try_download(
 
                 if file_path.is_file() {
                     if let Some(name) = file_path.file_name().to_owned() {
-                        let utf8_file_path = format!(
-                            "{}/{}",
-                            utf8_path.display().to_string(),
-                            name.to_string_lossy()
-                        );
-                        println!("utf8_file_path {:?}", utf8_file_path);
-
+                        let utf8_file_path =
+                            format!("{}/{}", utf8_path.display(), name.to_string_lossy());
                         let path = PathBuf::from(utf8_file_path.to_string());
-                        //let utf8_file_path = file_path.with_extension("utf8");
                         // Converte o arquivo para UTF-8
                         convert_file_to_utf8(&file_path, &path)?;
                     }
@@ -171,14 +154,11 @@ pub async fn try_download(
         Ok(result)
     })
     .await
-    .unwrap();
-
-    result
+    .unwrap()
 }
 
 // Função que converte um único arquivo para UTF-8 e trunca o arquivo original
 fn convert_file_to_utf8(file_path: &Path, utf8_file_path: &Path) -> Result<(), std::io::Error> {
-    // Verifica se o arquivo já foi convertido para UTF-8
     if utf8_file_path.exists() {
         return Ok(());
     }
@@ -192,12 +172,11 @@ fn convert_file_to_utf8(file_path: &Path, utf8_file_path: &Path) -> Result<(), s
     let mut file = File::open(file_path)?;
     let mut bytes = Vec::new();
     io::copy(&mut file, &mut bytes)?;
-
     let (decoded_str, _, had_errors) = WINDOWS_1252.decode(&bytes);
     if had_errors {
         log::error!("Erro ao decodificar CSV: {:?}", utf8_file_path);
     }
-    let mut outfile = File::create(&utf8_file_path)?;
+    let mut outfile = File::create(utf8_file_path)?;
     outfile.write_all(decoded_str.as_bytes())?;
 
     remove_file(file_path)?;

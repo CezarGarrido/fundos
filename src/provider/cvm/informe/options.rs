@@ -1,4 +1,3 @@
-use cached_path::Cache;
 use chrono::{Datelike, NaiveDate};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Semaphore;
@@ -14,32 +13,21 @@ pub struct Options {
     pub description: String,
     pub url: String,
     pub historical_url: String,
-    pub path: PathBuf,
-    pub start_date: String,
-    pub end_date: String,
+    pub path: String,
 }
 
 impl Options {
-    pub fn start_date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.start_date, "%d/%m/%Y").unwrap()
-    }
-    pub fn end_date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.end_date, "%d/%m/%Y").unwrap()
-    }
-
-    pub fn urls(&self) -> Vec<String> {
-        // self.generate_patterns(self.start_date(), self.end_date(), &self.url)
-        vec![]
-    }
-
     pub fn urls_with_dates(
         &self,
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
     ) -> Vec<(String, String)> {
-        let start_date = start_date.unwrap_or(self.start_date());
-        let end_date = end_date.unwrap_or(self.end_date());
-        self.generate_patterns(start_date, end_date, &self.url, &self.historical_url)
+        self.generate_patterns(
+            start_date.unwrap(),
+            end_date.unwrap(),
+            &self.url,
+            &self.historical_url,
+        )
     }
 
     pub async fn async_path(
@@ -55,14 +43,14 @@ impl Options {
                                                      // Para cada URL, cria uma tarefa assíncrona separada
         for (url, historical_url) in urls {
             let semaphore_clone = semaphore.clone();
+            let subdir = self.path.clone();
+
             let handle = tokio::spawn(async move {
-                match try_download(url.clone(), "informes".to_string(), semaphore_clone.clone())
-                    .await
-                {
+                match try_download(url.clone(), subdir.clone(), semaphore_clone.clone()).await {
                     Ok(path) => Ok(path),
                     Err(_) => {
                         // Tenta baixar dos dados históricos se falhar
-                        try_download(historical_url, "informes".to_string(), semaphore_clone).await
+                        try_download(historical_url, subdir, semaphore_clone).await
                     }
                 }
             });

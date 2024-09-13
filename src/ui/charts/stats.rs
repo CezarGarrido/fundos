@@ -48,8 +48,13 @@ pub fn by_year_bar(dataframe: &DataFrame, ui: &mut Ui) {
 
     Plot::new("plot::funds:year")
         .legend(Legend::default())
+        .legend(Legend::default())
+       // .set_margin_fraction(egui::Vec2::new(0.0, 0.15))
+        //.y_axis_position(egui_plot::HPlacement::Left)
+        .y_axis_width(0)
         .custom_x_axes(x_axes)
         .custom_y_axes(y_axes)
+        .include_y(0.0)
         .show(ui, |plot_ui| plot_ui.bar_chart(chart));
 }
 

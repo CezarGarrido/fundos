@@ -1,4 +1,4 @@
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 pub mod options;
 
 use options::load;
@@ -10,20 +10,9 @@ use polars::{
     prelude::{DataType, IntoLazy, JsonReader, NamedFrom, SortOptions, TakeRandom},
     series::Series,
 };
-use std::{
-    fs::{self, File},
-    io::BufWriter,
-    path::Path,
-};
-use tokio::time::sleep;
-use yahoo_finance_api::{
-    time::{Date, Month, OffsetDateTime, Time},
-    YahooConnector,
-};
+use std::fs::File;
 
 use serde::{Deserialize, Serialize};
-
-use tokio_util::sync::CancellationToken;
 
 pub async fn async_dataframe(
     start_date: NaiveDate,
@@ -60,7 +49,6 @@ pub async fn async_dataframe(
         .sort("AS_DATE", SortOptions::default())
         .collect()?;
 
-    println!("DataFrame após a filtragem e ordenação: {:?}", df);
     // Adicionando coluna de rentabilidade percentual
     let close_series = df.column("adjclose")?.f64()?;
     let mut rentabilidade_percentual = Vec::new();
@@ -86,93 +74,6 @@ pub async fn async_dataframe(
     let acumulada_series = Series::new("value", &rentabilidade_acumulada);
     df.with_column(acumulada_series)?;
     Ok(df)
-}
-
-pub fn download(token: CancellationToken) {
-    let options = load().unwrap();
-    let provider = YahooConnector::new().unwrap();
-
-    let start_date = options.start_date();
-    let end_date = options.end_date();
-
-    let start = OffsetDateTime::new_utc(
-        Date::from_calendar_date(
-            start_date.year(),
-            Month::try_from(start_date.month() as u8).unwrap(),
-            start_date.day() as u8,
-        )
-        .unwrap(),
-        Time::from_hms_nano(0, 0, 0, 0).unwrap(),
-    );
-    let end = OffsetDateTime::new_utc(
-        Date::from_calendar_date(end_date.year(), Month::December, end_date.day() as u8).unwrap(),
-        Time::from_hms_nano(0, 0, 0, 0).unwrap(),
-    );
-
-    let path = options.path.clone();
-    let h = async move {
-        if token.is_cancelled() {
-            return;
-        }
-
-        let resp = provider
-            .get_quote_history("^BVSP", start, end)
-            .await
-            .unwrap();
-
-        let quotes: Vec<yahoo_finance_api::Quote> = resp.quotes().unwrap();
-        let mut ibovs = Vec::new();
-
-        for (i, q) in quotes.into_iter().enumerate() {
-            // Adiciona um delay para simular carga de trabalho e permitir o cancelamento
-            sleep(tokio::time::Duration::from_millis(50)).await;
-            if token.is_cancelled() {
-                return;
-            }
-            let ibov = Ibov {
-                timestamp: q.timestamp,
-                adjclose: q.adjclose,
-                date: chrono::DateTime::from_timestamp(q.timestamp as i64, 0)
-                    .unwrap()
-                    .format("%d/%m/%Y")
-                    .to_string(),
-                open: q.open,
-                high: q.high,
-                low: q.low,
-                volume: q.volume,
-                close: q.close,
-            };
-            ibovs.push(ibov);
-
-            let progress = i as f64 + 1.0;
-
-            if token.is_cancelled() {
-                return;
-            }
-        }
-        if token.is_cancelled() {
-            return;
-        }
-
-        create_and_write_json(&path, &ibovs).unwrap();
-    };
-    tokio::spawn(h);
-}
-
-fn create_and_write_json<P: AsRef<Path>, T: serde::Serialize>(
-    path: P,
-    data: &T,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Create the directories if they do not exist
-    if let Some(parent) = path.as_ref().parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    // Create the file and write the JSON data
-    let file = File::create(&path)?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, data)?;
-    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]

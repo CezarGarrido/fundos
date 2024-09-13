@@ -1,7 +1,6 @@
+use crate::provider::{self};
 use chrono::NaiveDate;
 use polars::frame::DataFrame;
-
-use crate::provider::{self};
 
 pub enum Message {
     StartDownload,

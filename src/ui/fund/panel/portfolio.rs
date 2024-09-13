@@ -1,6 +1,6 @@
-use crate::{message, provider::cvm, util};
+use crate::{message, ui::loading, util};
 use chrono::{Datelike, Duration, NaiveDate};
-use egui::{epaint::Hsva, ComboBox, Layout, Sense, TopBottomPanel, Ui};
+use egui::{epaint::Hsva, Color32, ComboBox, Layout, Sense, TopBottomPanel, Ui};
 use egui_extras::{Column, TableBuilder};
 use polars::{
     frame::DataFrame,
@@ -8,7 +8,7 @@ use polars::{
     prelude::{IntoLazy, NamedFrom},
     series::Series,
 };
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub struct PortfolioUI {
@@ -23,11 +23,13 @@ pub struct PortfolioUI {
     pub top_assets: DataFrame,
     pub cnpj: String,
     pub sender: Option<UnboundedSender<message::Message>>,
+    pub loading: bool,
 }
 
 impl Default for PortfolioUI {
     fn default() -> Self {
         let now = chrono::offset::Utc::now().date_naive();
+        let now_str = format!("{}/{}", month_name(now.month() as i32), now.year());
 
         PortfolioUI {
             cnpj: String::from(""),
@@ -35,11 +37,12 @@ impl Default for PortfolioUI {
             assets: DataFrame::empty(),
             pl: DataFrame::empty(),
             top_assets: DataFrame::empty(),
-            filter_year: "".to_string(),
-            filter_month: "".to_string(),
+            filter_year: now.year().to_string(),
+            filter_month: format!("{:02}", now.month()),
             tp_aplic_selected: Default::default(),
             start_date: "".to_string(),
-            filter_date: "".to_string(),
+            filter_date: now_str,
+            loading: false,
         }
     }
 }
@@ -51,10 +54,10 @@ impl PortfolioUI {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.horizontal_centered(|ui| {
-                            ui.heading(format!(
-                                "{} Composição da Carteira",
-                                egui_phosphor::regular::WALLET
-                            ));
+                            ui.heading(
+                                egui::RichText::new("Composição da Carteira")
+                                    .size(16.0)
+                            );
                         });
                     });
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -64,27 +67,16 @@ impl PortfolioUI {
                     });
                 });
                 ui.separator();
-                self.show_assets_panel(ui);
+
+                if self.loading {
+                    ui.vertical_centered(|ui| {
+                        loading::show(ui);
+                    });
+                } else {
+                    self.show_assets_panel(ui);
+                }
             });
         });
-    }
-
-    fn month_name_to_i32(&self, month_name: &str) -> i32 {
-        match month_name {
-            "Janeiro" => 1,
-            "Fevereiro" => 2,
-            "Março" => 3,
-            "Abril" => 4,
-            "Maio" => 5,
-            "Junho" => 6,
-            "Julho" => 7,
-            "Agosto" => 8,
-            "Setembro" => 9,
-            "Outubro" => 10,
-            "Novembro" => 11,
-            "Dezembro" => 12,
-            _ => unreachable!(),
-        }
     }
 
     fn generate_available_dates(&self, end_date: NaiveDate) -> Vec<String> {
@@ -137,20 +129,24 @@ impl PortfolioUI {
                         .selectable_value(&mut self.filter_date, date.clone(), date.clone())
                         .clicked()
                     {
-                        let m = format!("{:02}", self.month_name_to_i32(month.as_str()));
+                        let m = format!("{:02}", month_name_to_i32(month.as_str()));
                         self.filter_year = year.to_string();
                         self.filter_month = m;
-
-                        let _ = self.sender.clone().unwrap().send(message::Message::Assets(
-                            self.cnpj.to_string(),
-                            self.filter_year.clone(),
-                            self.filter_month.clone(),
-                        ));
+                        self.send_assets_message();
                     }
 
                     last_year = year;
                 }
             });
+    }
+
+    pub fn send_assets_message(&mut self) {
+        let _ = self.sender.clone().unwrap().send(message::Message::Assets(
+            self.cnpj.to_string(),
+            self.filter_year.clone(),
+            self.filter_month.clone(),
+        ));
+        self.loading = true;
     }
 
     pub fn show_assets_panel(&mut self, ui: &mut Ui) {
@@ -223,7 +219,17 @@ impl PortfolioUI {
                                                             .to_string()
                                                             .parse::<f64>()
                                                             .unwrap();
-                                                        ui.label(format!("{}%", a));
+                                                        if a > 0.0 {
+                                                            ui.colored_label(
+                                                                Color32::DARK_GREEN,
+                                                                format!("{}%", a),
+                                                            );
+                                                        } else {
+                                                            ui.colored_label(
+                                                                Color32::RED,
+                                                                format!("{}%", a),
+                                                            );
+                                                        }
                                                     } else if col.contains("VL_MERC_POS_FINAL") {
                                                         let a = value
                                                             .to_string()
@@ -378,7 +384,17 @@ impl PortfolioUI {
                                                             .to_string()
                                                             .parse::<f64>()
                                                             .unwrap();
-                                                        ui.label(format!("{}%", a));
+                                                        if a > 0.0 {
+                                                            ui.colored_label(
+                                                                Color32::DARK_GREEN,
+                                                                format!("{}%", a),
+                                                            );
+                                                        } else {
+                                                            ui.colored_label(
+                                                                Color32::RED,
+                                                                format!("{}%", a),
+                                                            );
+                                                        }
                                                     } else if let Some(value_str) = value.get_str()
                                                     {
                                                         if col_name.contains("VL_MERC_POS_FINAL") {
@@ -450,4 +466,40 @@ fn generate_colors(n: usize) -> Vec<egui::Color32> {
             egui::Color32::from(Hsva::new(h.fract(), 0.85, 0.5, 1.0))
         })
         .collect()
+}
+
+fn month_name_to_i32(month_name: &str) -> i32 {
+    match month_name {
+        "Janeiro" => 1,
+        "Fevereiro" => 2,
+        "Março" => 3,
+        "Abril" => 4,
+        "Maio" => 5,
+        "Junho" => 6,
+        "Julho" => 7,
+        "Agosto" => 8,
+        "Setembro" => 9,
+        "Outubro" => 10,
+        "Novembro" => 11,
+        "Dezembro" => 12,
+        _ => unreachable!(),
+    }
+}
+
+fn month_name(month: i32) -> String {
+    match month {
+        1 => "Janeiro".to_string(),
+        2 => "Fevereiro".to_string(),
+        3 => "Março".to_string(),
+        4 => "Abril".to_string(),
+        5 => "Maio".to_string(),
+        6 => "Junho".to_string(),
+        7 => "Julho".to_string(),
+        8 => "Agosto".to_string(),
+        9 => "Setembro".to_string(),
+        10 => "Outubro".to_string(),
+        11 => "Novembro".to_string(),
+        12 => "Dezembro".to_string(),
+        _ => unreachable!(),
+    }
 }

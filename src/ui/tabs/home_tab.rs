@@ -62,24 +62,21 @@ impl Tab for HomeTab {
 
                         ui.label("Visto Recentemente");
                         ui.vertical(|ui| {
-                            for cnpj in self.history.get_most_accesseds() {
-                                if ui
+                            for (cnpj, name) in self.history.get_most_accesseds() {
+                                let link_btn = ui
                                     .link(format!(
                                         "{} {}",
                                         cnpj.clone(),
                                         egui_phosphor::regular::ARROW_SQUARE_UP_RIGHT,
                                     ))
-                                    .clicked()
-                                {
+                                    .on_hover_ui(|ui| {
+                                        ui.label(name.clone());
+                                    });
+
+                                if link_btn.clicked() {
                                     let _ = self.sender.send(Message::NewTab(cnpj.clone()));
                                 }
                             }
-                        });
-
-                        ui.add_space(50.0);
-
-                        ui.collapsing("Logs", |ui| {
-                            ui.label("opaa")
                         });
                     });
                 });
