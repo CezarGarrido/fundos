@@ -144,6 +144,10 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross --rev 1b8cf50d20180c1a394099e608141480f934b7f7
 
+      - name: Install dev dependencies
+        if: contains(matrix.TARGET, 'linux')
+        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+
       - name: Install cross for mac and windows
         if: ${{ !contains(matrix.TARGET, 'linux') }}
         run: |
@@ -167,8 +171,6 @@ jobs:
       - name: Copy Config
         run: |
           mkdir -p eframe_template-${{ matrix.TARGET }}/config
-          cp ./config/schema.yaml eframe_template-${{ matrix.TARGET }}/config/schema.yaml
-          cp ./config/default.yaml eframe_template-${{ matrix.TARGET }}/config/default.yaml
           cp ./config/config.yaml eframe_template-${{ matrix.TARGET }}/config/config.yaml
 
       - name: Create ZIP file for mac and linux
