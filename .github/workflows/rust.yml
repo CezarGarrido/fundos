@@ -171,7 +171,7 @@ jobs:
       - name: Copy Config
         run: |
           mkdir -p eframe_template-${{ matrix.TARGET }}/config
-          cp ./config/config.yaml eframe_template-${{ matrix.TARGET }}/config/config.yaml
+          cp ./config/config.toml eframe_template-${{ matrix.TARGET }}/config/config.toml
 
       - name: Create ZIP file for mac and linux
         if: ${{ !contains(matrix.TARGET, 'windows') }}
