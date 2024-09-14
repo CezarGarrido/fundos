@@ -163,38 +163,38 @@ jobs:
           cross build --verbose --release --target=${{ matrix.TARGET }}
 
       - name: Create output directory
-        run: mkdir -p eframe_template-${{ matrix.TARGET }}
+        run: mkdir -p fundos-${{ matrix.TARGET }}
 
       - name: Copy binary
-        run: cp target/${{ matrix.TARGET }}/release/eframe_template${{ matrix.EXTENSION }} eframe_template-${{ matrix.TARGET }}/eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+        run: cp target/${{ matrix.TARGET }}/release/fundos${{ matrix.EXTENSION }} fundos-${{ matrix.TARGET }}/fundos-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
       - name: Copy Config
         run: |
-          mkdir -p eframe_template-${{ matrix.TARGET }}/config
-          cp ./config/config.toml eframe_template-${{ matrix.TARGET }}/config/config.toml
+          mkdir -p fundos-${{ matrix.TARGET }}/config
+          cp ./config/config.toml fundos-${{ matrix.TARGET }}/config/config.toml
 
       - name: Create ZIP file for mac and linux
         if: ${{ !contains(matrix.TARGET, 'windows') }}
         run: |
-          zip -r eframe_template-${{ matrix.TARGET }}.zip eframe_template-${{ matrix.TARGET }}
+          zip -r fundos-${{ matrix.TARGET }}.zip fundos-${{ matrix.TARGET }}
 
       - name: Create ZIP file for windows
         if: ${{ contains(matrix.TARGET, 'windows') }}
         run: |
-          powershell -Command "Compress-Archive -Path eframe_template-${{ matrix.TARGET }}\* -DestinationPath eframe_template-${{ matrix.TARGET }}.zip"
+          powershell -Command "Compress-Archive -Path fundos-${{ matrix.TARGET }}\* -DestinationPath fundos-${{ matrix.TARGET }}.zip"
 
       - uses: actions/upload-artifact@master
         with:
-          name: eframe_template-${{ matrix.TARGET }}
-          path: eframe_template-${{ matrix.TARGET }}
+          name: fundos-${{ matrix.TARGET }}
+          path: fundos-${{ matrix.TARGET }}
 
       - uses: svenstaro/upload-release-action@v2
         name: Upload binaries to release
         if: ${{ github.event_name == 'push' }}
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: eframe_template-${{ matrix.TARGET }}.zip
-          asset_name: eframe_template-${{ matrix.TARGET }}.zip
+          file: fundos-${{ matrix.TARGET }}.zip
+          asset_name: fundos-${{ matrix.TARGET }}.zip
           tag: ${{ github.ref }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           overwrite: true

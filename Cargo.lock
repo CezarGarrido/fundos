@@ -1343,43 +1343,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eframe_template"
-version = "0.1.0"
-dependencies = [
- "cached-path",
- "chrono",
- "config",
- "currency_rs",
- "eframe",
- "egui",
- "egui-phosphor",
- "egui-toast",
- "egui_dock",
- "egui_extras",
- "egui_logger",
- "egui_plot",
- "encoding_rs",
- "encoding_rs_io",
- "env_logger",
- "glob",
- "log",
- "lru",
- "once_cell",
- "polars",
- "regex",
- "serde",
- "serde_derive",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
- "unicode-normalization",
- "wasm-bindgen-futures",
- "yahoo_finance_api",
- "zip 2.2.0",
-]
-
-[[package]]
 name = "egui"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1846,6 +1809,43 @@ checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "fundos"
+version = "0.1.0"
+dependencies = [
+ "cached-path",
+ "chrono",
+ "config",
+ "currency_rs",
+ "eframe",
+ "egui",
+ "egui-phosphor",
+ "egui-toast",
+ "egui_dock",
+ "egui_extras",
+ "egui_logger",
+ "egui_plot",
+ "encoding_rs",
+ "encoding_rs_io",
+ "env_logger",
+ "glob",
+ "log",
+ "lru",
+ "once_cell",
+ "polars",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "unicode-normalization",
+ "wasm-bindgen-futures",
+ "yahoo_finance_api",
+ "zip 2.2.0",
 ]
 
 [[package]]
