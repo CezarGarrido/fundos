@@ -8,7 +8,6 @@ use std::{
 use cached_path::Cache;
 use encoding_rs::WINDOWS_1252;
 
-
 use polars::{
     error::PolarsError,
     lazy::dsl::{col, lit, Expr},

@@ -54,10 +54,7 @@ impl PortfolioUI {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.horizontal_centered(|ui| {
-                            ui.heading(
-                                egui::RichText::new("Composição da Carteira")
-                                    .size(16.0)
-                            );
+                            ui.heading(egui::RichText::new("Composição da Carteira").size(16.0));
                         });
                     });
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {

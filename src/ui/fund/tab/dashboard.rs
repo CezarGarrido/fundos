@@ -44,7 +44,9 @@ impl Tab for DashboardTab {
                             .horizontal(|mut strip| {
                                 strip.cell(|ui| {
                                     ui.group(|ui| {
-                                        ui.heading(egui::RichText::new("Quantidade x Ano").size(11.0));
+                                        ui.heading(
+                                            egui::RichText::new("Quantidade x Ano").size(11.0),
+                                        );
                                         ui.separator();
                                         stats::by_year_bar(&self.by_year, ui);
                                     });
@@ -52,7 +54,9 @@ impl Tab for DashboardTab {
 
                                 strip.cell(|ui| {
                                     ui.group(|ui| {
-                                        ui.heading(egui::RichText::new("Quantidade x Situação").size(11.0));
+                                        ui.heading(
+                                            egui::RichText::new("Quantidade x Situação").size(11.0),
+                                        );
 
                                         ui.separator();
                                         stats::by_category_bar(

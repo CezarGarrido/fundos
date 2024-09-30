@@ -17,15 +17,19 @@ pub struct Options {
 }
 
 impl Options {
-
     pub fn urls_with_dates(
         &self,
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
     ) -> Vec<(String, String)> {
-      //  let start_date = start_date.unwrap_or(self.start_date());
-       // let end_date = end_date.unwrap_or(self.end_date());
-        self.generate_patterns(start_date.unwrap(), end_date.unwrap(), &self.url, &self.historical_url)
+        //  let start_date = start_date.unwrap_or(self.start_date());
+        // let end_date = end_date.unwrap_or(self.end_date());
+        self.generate_patterns(
+            start_date.unwrap(),
+            end_date.unwrap(),
+            &self.url,
+            &self.historical_url,
+        )
     }
 
     pub async fn async_path(

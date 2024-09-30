@@ -30,7 +30,6 @@ impl Options {
         let url = self.url_with_date(start_date, end_date).clone();
         let subdir = self.path.clone();
         // Baixa o arquivo usando `cached_path`
-        
 
         spawn_blocking(move || {
             let res = cached_path_with_options(

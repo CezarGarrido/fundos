@@ -183,7 +183,7 @@ impl Tab for FundTab {
 
         Frame::none().inner_margin(30.0).show(ui, |ui| {
             let h = ui.available_height();
-          //  ui.set_min_height(h);
+            //  ui.set_min_height(h);
             ui.set_max_height(h);
 
             match self.open_panel {

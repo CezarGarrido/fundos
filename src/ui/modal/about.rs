@@ -31,10 +31,7 @@ impl About {
                         egui::RichText::new("Fundos 1.0").font(egui::FontId::proportional(32.0)),
                     );
                     ui.label(
-                        egui::RichText::new(
-                            "Fundos - ",
-                        )
-                        .font(egui::FontId::proportional(20.0)),
+                        egui::RichText::new("Fundos - ").font(egui::FontId::proportional(20.0)),
                     );
                     ui.separator();
                     ui.hyperlink("https://egui.rs/");
