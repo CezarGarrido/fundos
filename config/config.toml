@@ -29,4 +29,4 @@ url = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataI
 # Índice Ibovespa
 [indices.ibovespa]
 description = "Ibovespa"              # Descrição do índice Ibovespa
-path = "./dataset/ibov/ibovespa.json" # Caminho local para o arquivo JSON do índice Ibovespa
+path = "ibov/ibovespa.json"           # Caminho local para o arquivo JSON do índice Ibovespa

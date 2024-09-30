@@ -51,10 +51,10 @@ pub enum Class {
 impl fmt::Display for Class {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Class::Acoes => write!(f, "Fundo de Ações"),
-            Class::RendaFixa => write!(f, "Fundo de Renda Fixa"),
-            Class::Cambial => write!(f, "Fundo Cambial"),
-            Class::MultiMarket => write!(f, "Fundo Multimercado"),
+            Class::Acoes => write!(f, "Ações"),
+            Class::RendaFixa => write!(f, "Renda Fixa"),
+            Class::Cambial => write!(f, "Cambial"),
+            Class::MultiMarket => write!(f, "Multimercado"),
         }
     }
 }
@@ -101,6 +101,7 @@ impl Register {
         let res = filtered
             .sort("DENOM_SOCIAL", SortOptions::default())
             .collect()?;
+
         Ok(res)
     }
 

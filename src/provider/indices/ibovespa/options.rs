@@ -1,3 +1,4 @@
+use std::env;
 use std::fs::{self, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -43,7 +44,9 @@ impl Options {
         )
         .unwrap();
 
-        let path = self.path.clone();
+        let base_path = env::temp_dir().join("cache/");
+        let path = base_path.join(self.path.clone());
+
         let h = tokio::spawn(async move {
             let resp = provider.get_quote_history("^BVSP", start, end).await?;
             let quotes: Vec<yahoo_finance_api::Quote> = resp.quotes()?;

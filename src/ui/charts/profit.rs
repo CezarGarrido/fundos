@@ -34,10 +34,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 }
             }
 
-            Line::new(line_data)
-                .color(green)
-                .name("Fundo")
-                .highlight(true)
+            Line::new(line_data).color(green).name("Fundo").fill(0.0)
         }
         _ => Line::new(Vec::new()).color(color).name("Fundo"),
     };

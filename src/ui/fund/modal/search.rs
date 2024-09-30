@@ -1,9 +1,8 @@
+use crate::{message::Message, provider::cvm::fund::Class, ui::loading};
 use egui::{Align2, TopBottomPanel, Vec2};
 use egui_extras::{Column, TableBuilder};
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
-
-use crate::{message::Message, provider::cvm::fund::Class, ui::loading};
 
 pub struct Search {
     sender: UnboundedSender<Message>,
