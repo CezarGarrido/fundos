@@ -6,6 +6,7 @@ use egui_toast::{Toast, ToastOptions};
 use polars::frame::DataFrame;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::time::{timeout, Duration};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -238,28 +239,76 @@ impl TemplateApp {
 
                 Message::Profit(cnpj, start_date, end_date) => {
                     let informe = self.informe.clone();
-                    tokio::spawn(async move {
-                        let cdi_future = indices::cdi::async_dataframe(start_date, end_date);
-                        let ibov_future = indices::ibovespa::async_dataframe(start_date, end_date);
+                    let sender_clone = sender.clone();
+                    let ctx_clone = ctxc.clone();
 
-                        let profitability_future =
-                            informe.async_profit(cnpj.clone(), start_date, end_date);
+                    tokio::spawn(async move {
+                        let cdi_future = timeout(
+                            Duration::from_secs(15),
+                            indices::cdi::async_dataframe(start_date, end_date),
+                        );
+                        let ibov_future = timeout(
+                            Duration::from_secs(15),
+                            indices::ibovespa::async_dataframe(start_date, end_date),
+                        );
+                        let profitability_future = timeout(
+                            Duration::from_secs(15),
+                            informe.async_profit(cnpj.clone(), start_date, end_date),
+                        );
 
                         let (profitability_result, cdi_result, ibov_result) =
                             tokio::join!(profitability_future, cdi_future, ibov_future);
 
-                        let cdi_dataframe = handle_result("cdi", cdi_result);
-                        let profitability_dataframe = handle_result("fundo", profitability_result);
-                        let ibov_dataframe = handle_result("ibov", ibov_result);
-                        let _ = sender.send(Message::ProfitResult(
+                        let cdi_dataframe = match cdi_result {
+                            Ok(res) => handle_result("cdi", res),
+                            Err(_) => {
+                                log::error!("Timeout ao obter dados do CDI");
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: "Tempo limite atingido ao obter dados do CDI.".into(),
+                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                });
+                                DataFrame::empty()
+                            }
+                        };
+
+                        let profitability_dataframe = match profitability_result {
+                            Ok(res) => handle_result("fundo", res),
+                            Err(_) => {
+                                log::error!("Timeout ao obter rentabilidade do fundo");
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: "Tempo limite atingido ao obter rentabilidade do fundo."
+                                        .into(),
+                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                });
+                                DataFrame::empty()
+                            }
+                        };
+
+                        let ibov_dataframe = match ibov_result {
+                            Ok(res) => handle_result("ibov", res),
+                            Err(_) => {
+                                log::error!("Timeout ao obter dados do IBOV");
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: "Tempo limite atingido ao obter dados do IBOV.".into(),
+                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                });
+                                DataFrame::empty()
+                            }
+                        };
+
+                        let _ = sender_clone.send(Message::ProfitResult(
                             cnpj.clone(),
                             profitability_dataframe,
                             cdi_dataframe,
                             ibov_dataframe,
                         ));
-                        ctxc.request_repaint();
+                        ctx_clone.request_repaint();
                     });
                 }
+
                 Message::ProfitResult(cnpj, df, cdi, ibov) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
@@ -277,17 +326,25 @@ impl TemplateApp {
                 }
                 Message::Assets(cnpj, year, month) => {
                     let portfolio = self.portfolio.clone();
+                    let sender_clone = sender.clone();
+                    let ctx_clone = ctxc.clone();
+
                     tokio::spawn(async move {
-                        let (pl, assets, top_assets) = match portfolio
-                            .async_assets(cnpj.clone(), year.clone(), month.clone(), true)
-                            .await
-                        {
-                            Ok(dfs) => {
+                        // Envelopa a chamada assíncrona com timeout de 15 segundos
+                        let result = timeout(
+                            Duration::from_secs(15),
+                            portfolio.async_assets(cnpj.clone(), year.clone(), month.clone(), true),
+                        )
+                        .await;
+
+                        let (pl, assets, top_assets) = match result {
+                            // Caso a chamada tenha sido concluída dentro do timeout
+                            Ok(Ok(dfs)) => {
                                 let (pl, assets, top_assets) = dfs.clone();
                                 if pl.is_empty() {
                                     util::toaster().add(Toast {
                                         kind: egui_toast::ToastKind::Warning,
-                                        text: "Nenhum Patrimônio Liquido encontrado.".into(),
+                                        text: "Nenhum Patrimônio Líquido encontrado.".into(),
                                         options: ToastOptions::default().duration_in_seconds(3.0),
                                     });
                                 }
@@ -301,31 +358,48 @@ impl TemplateApp {
                                 if top_assets.is_empty() {
                                     util::toaster().add(Toast {
                                         kind: egui_toast::ToastKind::Warning,
-                                        text: "Não foi possivel grupar por aplicação".into(),
+                                        text: "Não foi possível agrupar por aplicação.".into(),
                                         options: ToastOptions::default().duration_in_seconds(3.0),
                                     });
                                 }
                                 dfs
                             }
-                            Err(e) => {
+                            // Caso a chamada tenha retornado um erro dentro do timeout
+                            Ok(Err(e)) => {
                                 log::error!("Erro ao obter ativos: {:?}", e);
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Error,
-                                    text: "Erro ao obter ativos da carteira".into(),
+                                    text: "Erro ao obter ativos da carteira.".into(),
+                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                });
+                                (DataFrame::empty(), DataFrame::empty(), DataFrame::empty())
+                            }
+                            // Timeout atingido
+                            Err(_) => {
+                                log::error!(
+                                    "Timeout ao obter ativos da carteira para CNPJ: {}",
+                                    cnpj
+                                );
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: "Tempo limite atingido ao obter ativos da carteira."
+                                        .into(),
                                     options: ToastOptions::default().duration_in_seconds(3.0),
                                 });
                                 (DataFrame::empty(), DataFrame::empty(), DataFrame::empty())
                             }
                         };
-                        let _ = sender.send(Message::AssetsResult(
+
+                        let _ = sender_clone.send(Message::AssetsResult(
                             cnpj.clone(),
                             assets,
                             top_assets,
                             pl,
                         ));
-                        ctxc.request_repaint();
+                        ctx_clone.request_repaint();
                     });
                 }
+
                 Message::AssetsResult(cnpj, assets, top_assets, patrimonio_liquido) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {

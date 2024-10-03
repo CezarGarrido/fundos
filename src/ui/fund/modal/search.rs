@@ -98,9 +98,8 @@ impl Search {
                         });
                     } else {
                         TableBuilder::new(ui)
-                            //.column(Column::auto().at_most(20.0))
-                            .column(Column::auto().at_least(40.0).resizable(false))
-                            .column(Column::remainder().at_most(40.0))
+                            .column(Column::auto().at_least(100.0).resizable(false).clip(true))
+                            .column(Column::remainder())
                             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                             .striped(true)
                             .resizable(false)

@@ -166,7 +166,6 @@ impl Informe {
             .sort("AS_DATE", SortOptions::default()) // Ordena por data
             .collect()?;
 
-        log::info!("{:?}", df_with_rent_acc);
         Ok(df_with_rent_acc)
     }
 }
