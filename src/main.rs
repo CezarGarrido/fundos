@@ -9,10 +9,9 @@ async fn main() -> eframe::Result<()> {
 
     env::set_var("RUST_LOG", "debug");
     //env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-    egui_logger::init().expect("Error initializing logger");
+    egui_logger::builder().init().expect("Error initializing logger");
 
     let native_options = eframe::NativeOptions {
-        default_theme: eframe::Theme::Light,
         viewport: egui::ViewportBuilder::default()
             .with_decorations(true)
             .with_maximized(true)
@@ -30,7 +29,7 @@ async fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Fundos",
         native_options,
-        Box::new(|cc| Box::new(fundos::TemplateApp::new(cc))),
+        Box::new(|cc| Ok(Box::new(fundos::TemplateApp::new(cc)))),
     )
 }
 

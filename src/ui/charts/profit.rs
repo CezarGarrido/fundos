@@ -15,7 +15,7 @@ pub struct Indice {
 pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
     let color = ui.visuals().selection.bg_fill;
 
-    let green = Color32::from_rgb(0, 255, 0); // Verde
+    let green = Color32::from_rgb(46, 204, 113); // Lindo verde esmeralda/menta premium para o Fundo
     let chart = match (dataframe.column("DT_COMPTC"), dataframe.column("RENT_ACUM")) {
         (Ok(dates), Ok(rentabilidade)) => {
             let mut line_data = Vec::new();
@@ -34,9 +34,9 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 }
             }
 
-            Line::new(line_data).color(green).name("Fundo").fill(0.0)
+            Line::new("Fundo", line_data).color(green).width(2.5).fill(0.0)
         }
-        _ => Line::new(Vec::new()).color(color).name("Fundo"),
+        _ => Line::new("Fundo", Vec::new()).color(color).width(2.5),
     };
 
     let mut charts = Vec::new();
@@ -62,17 +62,17 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                         }
                     }
                 }
-                Line::new(line_data)
+                Line::new(indice.name.to_string(), line_data)
                     .color(indice.color)
-                    .name(indice.name.to_string())
+                    .width(1.2)
             }
-            _ => Line::new(Vec::new()),
+            _ => Line::new("", Vec::new()).width(1.2),
         };
 
         charts.push(chart);
     }
 
-    let x_formatter = |mark: GridMark, _digits, _range: &RangeInclusive<f64>| {
+    let x_formatter = |mark: GridMark, _range: &RangeInclusive<f64>| {
         let timestamp = mark.value as i64;
         if timestamp <= 0 {
             "".to_owned()
@@ -84,7 +84,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
     };
 
     let y_formatter =
-        |mark: GridMark, _digits, _range: &RangeInclusive<f64>| format!("{}%", mark.value);
+        |mark: GridMark, _range: &RangeInclusive<f64>| format!("{}%", mark.value);
 
     let x_axes = vec![AxisHints::new_x().label("").formatter(x_formatter)];
 
@@ -92,9 +92,10 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
 
     Plot::new("plot::funds::profit")
         .legend(Legend::default())
+        .show_background(false)
         .set_margin_fraction(egui::Vec2::new(0.0, 0.15))
         .y_axis_position(egui_plot::HPlacement::Left)
-        .y_axis_width(0)
+        .y_axis_min_width(0.0)
         .custom_x_axes(x_axes)
         .custom_y_axes(y_axes)
         .include_y(0.0)

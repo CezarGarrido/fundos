@@ -21,7 +21,7 @@ impl AssetDetail {
 }
 
 pub fn show_ui(df: DataFrame, ui: &mut Ui) {
-    Frame::none().inner_margin(5.0).show(ui, |ui| {
+    Frame::NONE.inner_margin(5.0).show(ui, |ui| {
         show_dataframe(df, ui);
     });
 }

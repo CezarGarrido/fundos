@@ -32,6 +32,7 @@ impl Portfolio {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<(LazyFrame, LazyFrame), PolarsError> {
+        crate::provider::cvm::fund::set_status("Baixando composição de carteiras da CVM...");
         let result = self
             .options
             .async_path(Some(start_date), Some(end_date))
@@ -44,9 +45,21 @@ impl Portfolio {
                     let pattern = format!("{}/*", path.display());
                     for path in glob(&pattern).unwrap().filter_map(Result::ok) {
                         let file = path.display().to_string();
+                        crate::provider::cvm::fund::set_status(&format!("Carregando arquivo de carteira: {}", path.file_name().unwrap().to_string_lossy()));
                         let res = read_csv_lazy(&file);
                         match res {
-                            Ok(lf) => {
+                            Ok(mut lf) => {
+                                let schema = match lf.schema() {
+                                    Ok(s) => s,
+                                    Err(err) => {
+                                        log::error!("Erro ao obter schema do portfólio: {}", err);
+                                        continue;
+                                    }
+                                };
+                                if schema.contains("CNPJ_FUNDO_CLASSE") {
+                                    lf = lf.with_column(col("CNPJ_FUNDO_CLASSE").alias("CNPJ_FUNDO"));
+                                }
+
                                 if file.contains("PL") {
                                     pls.push(lf)
                                 } else {

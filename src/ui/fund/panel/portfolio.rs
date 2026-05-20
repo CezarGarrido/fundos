@@ -1,6 +1,6 @@
 use crate::{message, ui::loading, util};
 use chrono::{Datelike, Duration, NaiveDate};
-use egui::{epaint::Hsva, Color32, ComboBox, Layout, Sense, TopBottomPanel, Ui};
+use egui::{epaint::Hsva, Color32, ComboBox, Layout, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 use polars::{
     frame::DataFrame,
@@ -106,8 +106,8 @@ impl PortfolioUI {
     }
 
     fn create_date_combobox(&mut self, ui: &mut egui::Ui) {
-        //2022-09-21
-        let end_date = NaiveDate::parse_from_str(&self.start_date, "%Y-%m-%d").unwrap();
+        let end_date = NaiveDate::parse_from_str(&self.start_date, "%Y-%m-%d")
+            .unwrap_or_else(|_| NaiveDate::from_ymd_opt(2022, 9, 21).unwrap());
         let available_dates = self.generate_available_dates(end_date);
 
         ComboBox::from_label("Selecione a data")
@@ -147,10 +147,49 @@ impl PortfolioUI {
     }
 
     pub fn show_assets_panel(&mut self, ui: &mut Ui) {
-        egui::SidePanel::left(ui.id().with("left_assets_panel"))
+        if self.top_assets.height() == 0 {
+            ui.vertical_centered(|ui| {
+                ui.add_space(40.0);
+                ui.label(
+                    egui::RichText::new(egui_phosphor::regular::WARNING.to_string())
+                        .color(egui::Color32::from_rgb(250, 185, 80))
+                        .size(48.0),
+                );
+                ui.add_space(15.0);
+                let heading_color = if ui.visuals().dark_mode {
+                    egui::Color32::from_rgb(220, 230, 245)
+                } else {
+                    egui::Color32::from_rgb(30, 40, 60)
+                };
+
+                let desc_color = if ui.visuals().dark_mode {
+                    egui::Color32::from_rgb(160, 175, 195)
+                } else {
+                    egui::Color32::from_rgb(75, 85, 100)
+                };
+
+                ui.heading(
+                    egui::RichText::new("Nenhuma Carteira Encontrada")
+                        .color(heading_color)
+                        .size(18.0)
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("Não há registros de composição de ativos para a data selecionada.")
+                        .color(desc_color)
+                        .size(13.0)
+                );
+                ui.add_space(10.0);
+                ui.weak("Certifique-se de que a CVM publicou os dados mensais para este período ou verifique sua conexão.");
+                ui.add_space(40.0);
+            });
+            return;
+        }
+
+        egui::Panel::left(ui.id().with("left_assets_panel"))
             .resizable(true)
-            .default_width(400.0)
-            .width_range(200.0..=450.0)
+            .default_size(400.0)
+            .size_range(200.0..=450.0)
             .show_inside(ui, |ui| {
                 ui.add_space(10.0);
                 let nr_rows = self.top_assets.height();
@@ -158,7 +197,7 @@ impl PortfolioUI {
                 let colors = generate_colors(self.top_assets.height());
 
                 ui.push_id("top_assets", |ui| {
-                    TopBottomPanel::top(ui.id().with("bottom_pl_panel")).show_inside(
+                    egui::Panel::top(ui.id().with("bottom_pl_panel")).show_inside(
                         ui,
                         |ui: &mut Ui| {
                             ui.horizontal(|ui| {
@@ -185,6 +224,7 @@ impl PortfolioUI {
                     );
                     egui::ScrollArea::horizontal().show(ui, |ui| {
                         TableBuilder::new(ui)
+                            .id_salt("portfolio_assets_table")
                             .column(Column::auto().at_least(100.0).resizable(true).clip(true))
                             .column(Column::auto().at_most(150.0))
                             .column(Column::remainder())
@@ -236,16 +276,15 @@ impl PortfolioUI {
                                                         ui.label(r.format());
                                                     } else if let Some(value_str) = value.get_str()
                                                     {
-                                                        circle(
-                                                            value_str.to_string(),
-                                                            colors[row_index],
-                                                            ui,
-                                                        );
+                                                        ui.label(egui::RichText::new("●").color(colors[row_index]).size(12.0));
                                                         ui.label(value_str);
                                                     }
                                                 }
                                             }
                                         });
+                                    }
+                                    if row.response().hovered() {
+                                        row.response().ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
                                     }
                                     toggle_row_selection(
                                         &mut self.tp_aplic_selected,
@@ -447,12 +486,6 @@ fn get_value_from_column(
     None
 }
 
-fn circle(_name: String, color: egui::Color32, ui: &mut Ui) {
-    let r = 5.0;
-    let size = egui::Vec2::splat(2.0 * r + 5.0);
-    let (rect, _response) = ui.allocate_at_least(size, Sense::hover());
-    ui.painter().circle_filled(rect.center(), r, color);
-}
 
 fn generate_colors(n: usize) -> Vec<egui::Color32> {
     let golden_ratio = (5.0_f32.sqrt() - 1.0) / 2.0; // 0.61803398875

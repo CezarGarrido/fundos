@@ -1,8 +1,9 @@
 # Dados de Cadastro dos Fundos
 [cvm.fundo.cadastro]
-path = "cadastro"                                              # Caminho local para o arquivo CSV de cadastro dos fundos
-url = "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv" # URL para download do arquivo CSV de cadastro dos fundos
-description = "Informação Cadastral"                           # Descrição do conjunto de dados
+path = "cadastro"                                              # Caminho local para o arquivo de cadastro
+url = "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/registro_fundo_classe.zip" # URL para download do zip CVM 175
+fallback_url = "https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv" # URL de contingência com dados não adaptados
+description = "Informação Cadastral (Classes e Subclasses CVM 175)"                           # Descrição do conjunto de dados
 
 # Composição de Diversificação da Carteira
 [cvm.fundo.carteira]

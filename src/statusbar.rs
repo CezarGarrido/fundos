@@ -1,12 +1,13 @@
 use super::app::TemplateApp;
-use eframe::egui::{Context, TopBottomPanel};
+use eframe::egui::Context;
 use eframe::Frame;
-use egui::{global_dark_light_mode_switch, Layout};
+use egui::Layout;
+
 impl TemplateApp {
-    pub fn show_statusbar(&mut self, ctx: &Context, _frame: &mut Frame) {
-        TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                global_dark_light_mode_switch(ui);
+    pub fn show_statusbar(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
+        egui::Panel::bottom("status_bar").show_inside(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                egui::global_theme_preference_switch(ui);
                 ui.add_space(5.0);
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     let btn = ui
@@ -21,7 +22,7 @@ impl TemplateApp {
                 });
             });
         });
-        self.show_logs(ctx);
+        self.show_logs(ui.ctx());
     }
 
     fn show_logs(&mut self, ctx: &Context) {
@@ -29,7 +30,7 @@ impl TemplateApp {
             .open(&mut self.open_logs)
             .show(ctx, |ui| {
                 // draws the actual logger ui
-                egui_logger::logger_ui(ui);
+                egui_logger::logger_ui().show(ui);
             });
     }
 }

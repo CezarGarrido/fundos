@@ -124,10 +124,13 @@ impl Tab for FundTab {
 
     fn ui(&mut self, ui: &mut Ui) {
         let _sender = self.sender().clone();
-        egui::TopBottomPanel::top(ui.id().with("fund_tab_bottom_panel")).show_inside(ui, |ui| {
-            if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
-                ui.heading(s.get(0).unwrap().get_str().unwrap());
-            }
+        egui::Panel::top(ui.id().with("fund_tab_bottom_panel")).show_inside(ui, |ui| {
+            let heading_text = if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
+                s.get(0).ok().and_then(|v| v.get_str().map(|s| s.to_string())).unwrap_or_else(|| self.title.clone())
+            } else {
+                self.title.clone()
+            };
+            ui.heading(heading_text);
             ui.horizontal(|ui| {
                 display_column_value(ui, "CNPJ:", "CNPJ_FUNDO", &self.fund);
                 ui.separator();
@@ -152,10 +155,20 @@ impl Tab for FundTab {
                 .clicked()
                 && self.profit_ui.profit.is_empty()
             {
+                let start_chrono = chrono::NaiveDate::from_ymd_opt(
+                    self.profit_ui.profit_filter_start_date.year() as i32,
+                    self.profit_ui.profit_filter_start_date.month() as u32,
+                    self.profit_ui.profit_filter_start_date.day() as u32,
+                ).unwrap();
+                let end_chrono = chrono::NaiveDate::from_ymd_opt(
+                    self.profit_ui.profit_filter_end_date.year() as i32,
+                    self.profit_ui.profit_filter_end_date.month() as u32,
+                    self.profit_ui.profit_filter_end_date.day() as u32,
+                ).unwrap();
                 self.profit_ui.send_profit_message(
                     self.title().text().to_string().as_str(),
-                    self.profit_ui.profit_filter_start_date,
-                    self.profit_ui.profit_filter_end_date,
+                    start_chrono,
+                    end_chrono,
                 )
             }
 
@@ -181,7 +194,7 @@ impl Tab for FundTab {
             ui.visuals().selection.bg_fill,
         );
 
-        Frame::none().inner_margin(30.0).show(ui, |ui| {
+        Frame::NONE.inner_margin(30.0).show(ui, |ui| {
             let h = ui.available_height();
             //  ui.set_min_height(h);
             ui.set_max_height(h);

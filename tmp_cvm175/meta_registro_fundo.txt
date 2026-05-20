@@ -1,0 +1,174 @@
+-----------------------
+Campo: CNPJ_Fundo
+-----------------------
+   Descrição : CNPJ do fundo
+   Domínio   : Alfanumérico
+   Tipo Dados: numeric
+   Precisão  : 15
+   Scale     : 0
+
+-----------------------
+Campo: Codigo_CVM
+-----------------------
+   Descrição : Código CVM
+   Domínio   : Numérico
+   Tipo Dados: numeric
+   Precisão  : 7
+   Scale     : 0
+
+-----------------------
+Campo: CPF_CNPJ_Gestor
+-----------------------
+   Descrição : Informa o código de identificação do gestor pessoa física ou jurídica
+   Domínio   : Alfanumérico
+   Tipo Dados: numeric
+   Precisão  : 15
+   Scale     : 0
+
+-----------------------
+Campo: Data_Constituicao
+-----------------------
+   Descrição : Data da constituição
+   Domínio   : AAAA-MM-DD
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Data_Fim_Exercicio_Social
+-----------------------
+   Descrição : Data fim do Exercício Social
+   Domínio   : AAAA-MM-DD
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Data_Inicio_Exercicio_Social
+-----------------------
+   Descrição : Data de início do Exercício Social
+   Domínio   : AAAA-MM-DD
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Diretor
+-----------------------
+   Descrição : Nome do Diretor Responsável
+   Domínio   : Alfanumérico
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: Gestor
+-----------------------
+   Descrição : Nome do Gestor
+   Domínio   : Alfanumérico
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: Data_Inicio_Situacao
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Tipo_Fundo
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: varchar
+   Tamanho   : 20
+
+-----------------------
+Campo: Denominacao_Social
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: Data_Cancelamento
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Data_Registro
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Patrimonio_Liquido
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: numeric
+   Precisão  : 24
+   Scale     : 2
+
+-----------------------
+Campo: Data_Adaptacao_RCVM175
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Administrador
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: CNPJ_Administrador
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: numeric
+   Precisão  : 15
+   Scale     : 0
+
+-----------------------
+Campo: Tipo_Pessoa_Gestor
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: char
+   Tamanho   : 2
+
+-----------------------
+Campo: Situacao
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: Data_Patrimonio_Liquido
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: ID_Registro_Fundo
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: bigint
+   Precisão  : 19
+   Scale     : 0
+

@@ -1,0 +1,114 @@
+-----------------------
+Campo: Codigo_CVM
+-----------------------
+   Descrição : Código CVM
+   Domínio   : Numérico
+   Tipo Dados: numeric
+   Precisão  : 7
+   Scale     : 0
+
+-----------------------
+Campo: Data_Constituicao
+-----------------------
+   Descrição : Data da constituição
+   Domínio   : AAAA-MM-DD
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Exclusivo_INR
+-----------------------
+   Descrição : Indica se é subclasse destinada exclusivamente a investidores não residentes
+   Domínio   : S/N
+   Tipo Dados: varchar
+   Tamanho   : 1
+
+-----------------------
+Campo: Exclusivo_Previdencia_Complementar
+-----------------------
+   Descrição : Indica se é subclasse vinculada exclusivamente a planos de previdência complementar ou a seguros de vida com cláusula de cobertura por sobrevivência
+   Domínio   : S/N
+   Tipo Dados: varchar
+   Tamanho   : 1
+
+-----------------------
+Campo: Forma_Condominio
+-----------------------
+   Descrição : Forma de Condomínio
+   Domínio   : Aberto/Fechado
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: ID_Registro_Classe
+-----------------------
+   Descrição : Identificador de Registro da Classe
+   Domínio   : Numérico
+   Tipo Dados: bigint
+   Precisão  : 19
+   Scale     : 0
+
+-----------------------
+Campo: ID_Subclasse
+-----------------------
+   Descrição : Identificador da subclasse
+   Domínio   : Alfanumérico
+   Tipo Dados: varchar
+   Tamanho   : 15
+
+-----------------------
+Campo: Previdenciario
+-----------------------
+   Descrição : Indica se é subclasse previdenciária
+   Domínio   : S/N
+   Tipo Dados: varchar
+   Tamanho   : 1
+
+-----------------------
+Campo: Publico_Alvo
+-----------------------
+   Descrição : Público-alvo
+   Domínio   : Alfanumérico
+   Tipo Dados: varchar
+   Tamanho   : 15
+
+-----------------------
+Campo: Data_Inicio_Situacao
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Denominacao_Social
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: Data_Inicio
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: date
+   Tamanho   : 10
+
+-----------------------
+Campo: Situacao
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: varchar
+   Tamanho   : 100
+
+-----------------------
+Campo: Exclusivo
+-----------------------
+   Descrição : 
+   Domínio   : 
+   Tipo Dados: varchar
+   Tamanho   : 1
+

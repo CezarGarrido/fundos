@@ -31,6 +31,7 @@ impl Informe {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<LazyFrame, PolarsError> {
+        crate::provider::cvm::fund::set_status("Baixando informes diários da CVM...");
         let result = self
             .options
             .async_path(Some(start_date), Some(end_date))
@@ -42,11 +43,24 @@ impl Informe {
                     let pattern = format!("{}/*", path.display());
                     for path in glob(&pattern).unwrap().filter_map(Result::ok) {
                         let file = path.display().to_string();
+                        crate::provider::cvm::fund::set_status(&format!("Carregando informe diário: {}", path.file_name().unwrap().to_string_lossy()));
                         let res = read_csv_lazy(&file);
                         match res {
                             Ok(mut lf) => {
+                                let schema = match lf.schema() {
+                                    Ok(s) => s,
+                                    Err(err) => {
+                                        log::error!("Erro ao obter schema: {}", err);
+                                        continue;
+                                    }
+                                };
+                                let cnpj_col = if schema.contains("CNPJ_FUNDO_CLASSE") {
+                                    col("CNPJ_FUNDO_CLASSE").alias("CNPJ_FUNDO")
+                                } else {
+                                    col("CNPJ_FUNDO")
+                                };
                                 lf = lf.select(&[
-                                    col("CNPJ_FUNDO"),
+                                    cnpj_col,
                                     col("DT_COMPTC"),
                                     col("VL_QUOTA"),
                                 ]);

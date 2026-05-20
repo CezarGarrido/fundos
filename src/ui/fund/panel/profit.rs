@@ -5,24 +5,27 @@ use crate::{
         loading,
     },
 };
-use chrono::NaiveDate;
+use chrono::Datelike;
 use egui::{Align2, Color32, Frame, Layout, Vec2, Widget};
 use egui_extras::DatePickerButton;
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
+use jiff::civil::{Date as JiffDate, date as jiff_date};
 
 #[derive(Debug, PartialEq)]
 pub enum FilterMonth {
+    OneMonth,
     SixMonth,
     TwelveMonth,
     TwentyFourMonth,
+    Ytd,
     Custom,
 }
 
 pub struct ProfitUI {
     pub profit_filter_date: FilterMonth,
-    pub profit_filter_start_date: NaiveDate,
-    pub profit_filter_end_date: NaiveDate,
+    pub profit_filter_start_date: JiffDate,
+    pub profit_filter_end_date: JiffDate,
     pub open_profit_filter: bool,
     pub profit: DataFrame,
     pub cdi: DataFrame,
@@ -45,8 +48,16 @@ impl Default for ProfitUI {
             profit: DataFrame::empty(),
             cdi: DataFrame::empty(),
             profit_filter_date: FilterMonth::SixMonth,
-            profit_filter_start_date: start_date,
-            profit_filter_end_date: now,
+            profit_filter_start_date: jiff_date(
+                start_date.year() as i16,
+                start_date.month() as i8,
+                start_date.day() as i8,
+            ),
+            profit_filter_end_date: jiff_date(
+                now.year() as i16,
+                now.month() as i8,
+                now.day() as i8,
+            ),
             open_profit_filter: false,
             loading: false,
             ibov: DataFrame::empty(),
@@ -98,20 +109,21 @@ impl ProfitUI {
 
                 ui.add_space(5.0);
 
-                let red = Color32::from_rgb(255, 0, 0); // Vermelho
+                let cdi_color = Color32::from_rgb(230, 126, 34); // Âmbar / Laranja terracota premium para o CDI
+                let ibov_color = Color32::from_rgb(52, 152, 219); // Azul Royal / Celeste premium para o IBOV
 
-                Frame::none().inner_margin(5.0).show(ui, |ui| {
+                Frame::NONE.inner_margin(5.0).show(ui, |ui| {
                     charts::profit::chart(
                         &self.profit,
                         vec![
                             Indice {
                                 name: "CDI".to_string(),
-                                color: red,
+                                color: cdi_color,
                                 dataframe: self.cdi.clone(),
                             },
                             Indice {
                                 name: "IBOV".to_string(),
-                                color: Color32::YELLOW,
+                                color: ibov_color,
                                 dataframe: self.ibov.clone(),
                             },
                         ],
@@ -138,7 +150,9 @@ impl ProfitUI {
 
         self.create_filter_button(ui, FilterMonth::TwentyFourMonth, "2A", cnpj);
         self.create_filter_button(ui, FilterMonth::TwelveMonth, "1A", cnpj);
+        self.create_filter_button(ui, FilterMonth::Ytd, "YTD", cnpj);
         self.create_filter_button(ui, FilterMonth::SixMonth, "6M", cnpj);
+        self.create_filter_button(ui, FilterMonth::OneMonth, "1M", cnpj);
     }
 
     fn create_filter_button(
@@ -155,6 +169,12 @@ impl ProfitUI {
             {
                 let now = chrono::offset::Utc::now().date_naive();
                 match self.profit_filter_date {
+                    FilterMonth::OneMonth => {
+                        let start_date = now
+                            .checked_sub_signed(chrono::Duration::days(30))
+                            .unwrap();
+                        self.send_profit_message(cnpj, start_date, now);
+                    }
                     FilterMonth::SixMonth => {
                         let start_date = now
                             .checked_sub_signed(chrono::Duration::days(6 * 30))
@@ -171,6 +191,10 @@ impl ProfitUI {
                         let start_date = now
                             .checked_sub_signed(chrono::Duration::days(24 * 30))
                             .unwrap();
+                        self.send_profit_message(cnpj, start_date, now);
+                    }
+                    FilterMonth::Ytd => {
+                        let start_date = chrono::NaiveDate::from_ymd_opt(now.year() as i32, 1, 1).unwrap();
                         self.send_profit_message(cnpj, start_date, now);
                     }
                     FilterMonth::Custom => {}
@@ -210,14 +234,14 @@ impl ProfitUI {
                 ui.horizontal(|ui| {
                     ui.label("Data Inicial:");
                     DatePickerButton::new(&mut self.profit_filter_start_date)
-                        .id_source("data_ini")
+                        .id_salt("data_ini")
                         .ui(ui);
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("Data Final:  ");
                     DatePickerButton::new(&mut self.profit_filter_end_date)
-                        .id_source("data_fim")
+                        .id_salt("data_fim")
                         .ui(ui);
                 });
 
@@ -226,10 +250,20 @@ impl ProfitUI {
                         .add_enabled(!self.loading, egui::Button::new("Aplicar"))
                         .clicked()
                     {
+                        let start_chrono = chrono::NaiveDate::from_ymd_opt(
+                            self.profit_filter_start_date.year() as i32,
+                            self.profit_filter_start_date.month() as u32,
+                            self.profit_filter_start_date.day() as u32,
+                        ).unwrap();
+                        let end_chrono = chrono::NaiveDate::from_ymd_opt(
+                            self.profit_filter_end_date.year() as i32,
+                            self.profit_filter_end_date.month() as u32,
+                            self.profit_filter_end_date.day() as u32,
+                        ).unwrap();
                         self.send_profit_message(
                             cnpj,
-                            self.profit_filter_start_date,
-                            self.profit_filter_end_date,
+                            start_chrono,
+                            end_chrono,
                         );
                         other = false;
                     }

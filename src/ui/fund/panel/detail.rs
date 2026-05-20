@@ -105,7 +105,7 @@ fn show_columns(_group_id: &str, columns: &[&str], cols: &[Series], n_rows: usiz
                 continue;
             }
             ui.label(header_title(field_name));
-            let value = col.get(row).unwrap();
+            let value = col.get(row).unwrap_or(AnyValue::Null);
 
             let value_str = if value.is_nested_null() {
                 "N/A".to_string() // Substitua "N/A" pela string que preferir para representar valores nulos

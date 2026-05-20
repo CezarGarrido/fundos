@@ -1,6 +1,7 @@
 use std::fmt;
 pub mod options;
 
+use once_cell::sync::Lazy;
 use options::{load, Options};
 use polars::{
     error::PolarsError,
@@ -9,6 +10,16 @@ use polars::{
     prelude::{DataType, LazyCsvReader, LazyFileListReader, LazyFrame, SortOptions},
     series::IntoSeries,
 };
+use std::sync::RwLock;
+
+pub static LOADING_STATUS: Lazy<RwLock<String>> =
+    Lazy::new(|| RwLock::new("Aguardando...".to_string()));
+
+pub fn set_status(s: &str) {
+    if let Ok(mut guard) = LOADING_STATUS.write() {
+        *guard = s.to_string();
+    }
+}
 
 use regex::Regex;
 use thiserror::Error;
@@ -66,6 +77,102 @@ impl Register {
         Self { options }
     }
 
+    fn load_cadastro(&self, path: std::path::PathBuf) -> Result<LazyFrame, Error> {
+        if path.is_dir() {
+            set_status("Processando e indexando tabelas CVM 175 com Polars...");
+            let path_fundo = path.join("registro_fundo.csv");
+            let path_classe = path.join("registro_classe.csv");
+
+            let lf_fundo = LazyCsvReader::new(&path_fundo)
+                .has_header(true)
+                .with_infer_schema_length(None)
+                .with_delimiter(b';')
+                .with_ignore_errors(true)
+                .finish()?;
+
+            let lf_classe = LazyCsvReader::new(&path_classe)
+                .has_header(true)
+                .with_infer_schema_length(None)
+                .with_delimiter(b';')
+                .with_ignore_errors(true)
+                .finish()?;
+
+            // Formatar CNPJ_Classe para o formato XX.XXX.XXX/XXXX-XX
+            let cnpj_raw = col("CNPJ_Classe").cast(DataType::Utf8);
+            let cnpj_str = polars::lazy::dsl::when(cnpj_raw.clone().str().lengths().eq(lit(13)))
+                .then(lit("0") + cnpj_raw.clone())
+                .otherwise(cnpj_raw.clone());
+
+            let cnpj_formatted = cnpj_str.clone().str().str_slice(0, Some(2))
+                + lit(".")
+                + cnpj_str.clone().str().str_slice(2, Some(3))
+                + lit(".")
+                + cnpj_str.clone().str().str_slice(5, Some(3))
+                + lit("/")
+                + cnpj_str.clone().str().str_slice(8, Some(4))
+                + lit("-")
+                + cnpj_str.clone().str().str_slice(12, Some(2));
+
+            // Seleciona APENAS as colunas necessárias de cada tabela para evitar conflitos no join
+            // Da tabela classe: ID_Registro_Fundo (chave), CNPJ_Classe, Classificacao, e colunas auxiliares
+            let classe_selected = lf_classe.clone().select([
+                col("ID_Registro_Fundo"),
+                col("CNPJ_Classe"),
+                col("Classificacao").alias("CLASSE"),
+                col("Classificacao_Anbima").alias("CLASSE_ANBIMA"),
+                col("Data_Inicio").alias("DT_INI_ATIV"),
+                col("Auditor").alias("AUDITOR"),
+                col("CNPJ_Auditor").alias("CNPJ_AUDITOR"),
+                col("Custodiante").alias("CUSTODIANTE"),
+                col("Exclusivo").alias("FUNDO_EXCLUSIVO"),
+                col("Publico_Alvo").alias("PUBLICO_ALVO"),
+                col("Entidade_Investimento").alias("ENTID_INVEST"),
+                col("Tributacao_Longo_Prazo").alias("TRIB_LPRAZO"),
+                col("Permitido_Aplicacao_CemPorCento_Exterior").alias("INVEST_CEMPR_EXTER"),
+            ]);
+
+            // Da tabela fundo: ID_Registro_Fundo (chave) + dados que queremos exibir
+            let fundo_selected = lf_fundo.clone().select([
+                col("ID_Registro_Fundo"),
+                col("Denominacao_Social").alias("DENOM_SOCIAL"),
+                col("Situacao").str().to_uppercase().alias("SIT"),
+                col("Data_Constituicao").alias("DT_CONST"),
+                col("Tipo_Fundo").alias("TP_FUNDO"),
+                col("Data_Registro").alias("DT_REG"),
+                col("Codigo_CVM").alias("CD_CVM"),
+                col("Data_Inicio_Situacao").alias("DT_INI_SIT"),
+                col("Data_Cancelamento").alias("DT_CANCEL"),
+                col("Diretor").alias("DIRETOR"),
+                col("Administrador").alias("ADMIN"),
+                col("CNPJ_Administrador").alias("CNPJ_ADMIN"),
+                col("Gestor").alias("GESTOR"),
+                col("CPF_CNPJ_Gestor").alias("CPF_CNPJ_GESTOR"),
+                col("Tipo_Pessoa_Gestor").alias("PF_PJ_GESTOR"),
+            ]);
+
+            // Join usando as tabelas sem conflito de nomes
+            let joined = classe_selected.left_join(
+                fundo_selected,
+                col("ID_Registro_Fundo"),
+                col("ID_Registro_Fundo"),
+            );
+
+            // Mapeia o CNPJ da classe para o formato exibido
+            let mapped = joined.with_column(cnpj_formatted.alias("CNPJ_FUNDO"));
+
+            Ok(mapped)
+        } else {
+            set_status("Lendo cadastro clássico (cad_fi.csv)...");
+            let lf = LazyCsvReader::new(&path)
+                .has_header(true)
+                .with_infer_schema_length(None)
+                .with_delimiter(b';')
+                .with_ignore_errors(true)
+                .finish()?;
+            Ok(lf)
+        }
+    }
+
     pub async fn async_find(
         &self,
         keyword: Option<String>,
@@ -74,21 +181,33 @@ impl Register {
         limit: Option<u32>,
     ) -> Result<DataFrame, Error> {
         let path = self.options.async_path().await?;
-        let lf = LazyCsvReader::new(&path)
-            .has_header(true)
-            .with_infer_schema_length(None)
-            .with_delimiter(b';')
-            // .with_cache(true)
-            .finish()?;
+        let lf = self.load_cadastro(path)?;
 
         let mut filtered = lf.clone();
 
         if let Some(keyword) = keyword {
-            filtered = filtered.filter(self.contains_normalized(keyword));
+            let trimmed = keyword.trim();
+            if !trimmed.is_empty() {
+                filtered = filtered.filter(self.contains_normalized(trimmed.to_string()));
+            }
         }
 
         if let Some(class) = class {
-            filtered = filtered.filter(col("CLASSE").eq(lit(class.to_string())));
+            let class_expr = match class {
+                Class::RendaFixa => col("CLASSE")
+                    .eq(lit("Renda Fixa"))
+                    .or(col("CLASSE").eq(lit("Curto Prazo")))
+                    .or(col("CLASSE").eq(lit("Referenciado")))
+                    .or(col("CLASSE").eq(lit("Dívida Externa"))),
+                Class::Acoes => col("CLASSE")
+                    .eq(lit("Ações"))
+                    .or(col("CLASSE").eq(lit("FMP-FGTS"))),
+                Class::Cambial => col("CLASSE").eq(lit("Cambial")),
+                Class::MultiMarket => col("CLASSE")
+                    .eq(lit("Multimercado"))
+                    .or(col("CLASSE").eq(lit("FIP Multi"))),
+            };
+            filtered = filtered.filter(class_expr);
         }
 
         let sit = situation.unwrap_or(Situation::Normal);
@@ -116,12 +235,7 @@ impl Register {
             self.options.async_path().await?
         };
 
-        let lf = LazyCsvReader::new(&path)
-            .has_header(true)
-            .with_infer_schema_length(None)
-            .with_delimiter(b';')
-            .with_cache(true)
-            .finish()?;
+        let lf = self.load_cadastro(path)?;
 
         let res = lf
             .filter(col("CNPJ_FUNDO").eq(lit(cnpj)))
@@ -167,12 +281,7 @@ impl Register {
 
     pub async fn async_stats(&self) -> Result<(DataFrame, DataFrame, DataFrame), Error> {
         let path = self.options.async_path().await?;
-        let lf = LazyCsvReader::new(&path)
-            .has_header(true)
-            .with_infer_schema_length(None)
-            .with_delimiter(b';')
-            .with_cache(true)
-            .finish()?;
+        let lf = self.load_cadastro(path)?;
         // Chama as funções para obter os DataFrames desejados
         let by_year = self.count_funds_by_year(lf.clone())?;
         let by_status = self.count_funds_by_status(lf.clone())?;

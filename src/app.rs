@@ -67,6 +67,8 @@ pub struct TemplateApp {
 
     #[serde(skip)]
     downloading: bool,
+    #[serde(skip)]
+    current_theme_dark: Option<bool>,
 }
 
 impl Default for TemplateApp {
@@ -114,6 +116,7 @@ impl Default for TemplateApp {
             started_watch: false,
             status: String::from(""),
             downloading: false,
+            current_theme_dark: None,
         }
     }
 }
@@ -125,8 +128,17 @@ impl TemplateApp {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
         cc.egui_ctx.set_fonts(fonts);
+        cc.egui_ctx.set_theme(egui::Theme::Light);
+        
+        cc.egui_ctx.options_mut(|opt| {
+            opt.warn_on_id_clash = false;
+        });
 
-        Default::default()
+        let mut app: Self = Default::default();
+        app.current_theme_dark = Some(false);
+        cc.egui_ctx.set_visuals(get_premium_visuals(false));
+        
+        app
     }
 
     pub fn add_tab(&mut self, cnpj: String, df: DataFrame) {
@@ -141,7 +153,7 @@ impl TemplateApp {
             .position(|tb| tb.title().text().contains(&cnpj.clone()))
         {
             let main_surface = self.tree.main_surface_mut();
-            main_surface.set_active_tab(NodeIndex(0), egui_dock::TabIndex(index));
+            let _ = main_surface.set_active_tab(NodeIndex(0), egui_dock::TabIndex(index));
         } else {
             let main_surface = self.tree.main_surface_mut();
             main_surface.set_focused_node(egui_dock::NodeIndex(2));
@@ -170,7 +182,7 @@ impl TemplateApp {
             .position(|tb| tb.title().text().contains("Dashboard"))
         {
             let main_surface = self.tree.main_surface_mut();
-            main_surface.set_active_tab(NodeIndex(0), egui_dock::TabIndex(index));
+            let _ = main_surface.set_active_tab(NodeIndex(0), egui_dock::TabIndex(index));
         } else {
             let main_surface = self.tree.main_surface_mut();
             main_surface.set_focused_node(egui_dock::NodeIndex(2));
@@ -204,33 +216,27 @@ impl TemplateApp {
                 Message::NewTab(cnpj) => {
                     let r = self.register.clone();
                     tokio::spawn(async move {
-                        if let Err(err) =
+                        if let Err(_cache_err) =
                             handle_fund_data(cnpj.clone(), true, r.clone(), &sender, &ctxc).await
                         {
-                            log::error!("Erro ao obter dados do fundo {}", err);
-                            util::toaster().add(Toast {
-                                kind: egui_toast::ToastKind::Error,
-                                text: "Erro ao obter dados do fundo".into(),
-                                options: ToastOptions::default().duration_in_seconds(1.5),
-                            });
-
-                            ctxc.request_repaint();
-
                             util::toaster().add(Toast {
                                 kind: egui_toast::ToastKind::Info,
-                                text: "Obtendo dados...".into(),
-                                options: ToastOptions::default().duration_in_seconds(10.0),
+                                text: format!("CNPJ {} não cadastrado localmente. Baixando dados online...", cnpj).into(),
+                                options: ToastOptions::default().duration_in_seconds(4.0),
+                                ..Default::default()
                             });
+                            ctxc.request_repaint();
 
-                            if let Err(err) =
+                            if let Err(online_err) =
                                 handle_fund_data(cnpj.clone(), false, r.clone(), &sender, &ctxc)
                                     .await
                             {
-                                log::error!("Erro ao obter dados do fundo {}", err);
+                                log::error!("Erro ao obter dados online do fundo {}: {}", cnpj, online_err);
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Error,
-                                    text: "Erro ao obter dados do fundo".into(),
-                                    options: ToastOptions::default().duration_in_seconds(1.5),
+                                    text: format!("Erro ao obter dados online do fundo (CNPJ: {})", cnpj).into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
                                 });
                             }
                         }
@@ -260,40 +266,72 @@ impl TemplateApp {
                             tokio::join!(profitability_future, cdi_future, ibov_future);
 
                         let cdi_dataframe = match cdi_result {
-                            Ok(res) => handle_result("cdi", res),
+                            Ok(Ok(df)) => df,
+                            Ok(Err(e)) => {
+                                log::warn!("Dados do CDI indisponíveis: {}", e);
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: "Dados históricos do CDI indisponíveis para o período.".into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
+                                });
+                                DataFrame::empty()
+                            }
                             Err(_) => {
                                 log::error!("Timeout ao obter dados do CDI");
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: "Tempo limite atingido ao obter dados do CDI.".into(),
-                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                    text: "Tempo limite atingido ao carregar dados do CDI.".into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
                                 });
                                 DataFrame::empty()
                             }
                         };
 
                         let profitability_dataframe = match profitability_result {
-                            Ok(res) => handle_result("fundo", res),
-                            Err(_) => {
-                                log::error!("Timeout ao obter rentabilidade do fundo");
+                            Ok(Ok(df)) => df,
+                            Ok(Err(e)) => {
+                                log::warn!("Rentabilidade indisponível para o CNPJ {}: {}", cnpj, e);
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: "Tempo limite atingido ao obter rentabilidade do fundo."
-                                        .into(),
-                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                    text: format!("Rentabilidade do fundo indisponível no período (CNPJ: {})", cnpj).into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
+                                });
+                                DataFrame::empty()
+                            }
+                            Err(_) => {
+                                log::error!("Timeout ao obter rentabilidade do fundo (CNPJ: {})", cnpj);
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: format!("Tempo limite atingido ao carregar rentabilidade do fundo (CNPJ: {})", cnpj).into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
                                 });
                                 DataFrame::empty()
                             }
                         };
 
                         let ibov_dataframe = match ibov_result {
-                            Ok(res) => handle_result("ibov", res),
+                            Ok(Ok(df)) => df,
+                            Ok(Err(e)) => {
+                                log::warn!("Dados do IBOV indisponíveis: {}", e);
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: "Dados históricos do IBOVESPA indisponíveis para o período.".into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
+                                });
+                                DataFrame::empty()
+                            }
                             Err(_) => {
                                 log::error!("Timeout ao obter dados do IBOV");
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: "Tempo limite atingido ao obter dados do IBOV.".into(),
-                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                    text: "Tempo limite atingido ao carregar dados do IBOVESPA.".into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
                                 });
                                 DataFrame::empty()
                             }
@@ -344,47 +382,51 @@ impl TemplateApp {
                                 if pl.is_empty() {
                                     util::toaster().add(Toast {
                                         kind: egui_toast::ToastKind::Warning,
-                                        text: "Nenhum Patrimônio Líquido encontrado.".into(),
-                                        options: ToastOptions::default().duration_in_seconds(3.0),
+                                        text: format!("Nenhum Patrimônio Líquido encontrado para {}/{} (CNPJ: {})", month, year, cnpj).into(),
+                                        options: ToastOptions::default().duration_in_seconds(4.0),
+                                        ..Default::default()
                                     });
                                 }
                                 if assets.is_empty() {
                                     util::toaster().add(Toast {
                                         kind: egui_toast::ToastKind::Warning,
-                                        text: "Nenhum ativo encontrado".into(),
-                                        options: ToastOptions::default().duration_in_seconds(3.0),
+                                        text: format!("Nenhum ativo de carteira registrado para {}/{} (CNPJ: {})", month, year, cnpj).into(),
+                                        options: ToastOptions::default().duration_in_seconds(4.0),
+                                        ..Default::default()
                                     });
                                 }
                                 if top_assets.is_empty() {
                                     util::toaster().add(Toast {
                                         kind: egui_toast::ToastKind::Warning,
-                                        text: "Não foi possível agrupar por aplicação.".into(),
-                                        options: ToastOptions::default().duration_in_seconds(3.0),
+                                        text: "Não foi possível agrupar os ativos por aplicação.".into(),
+                                        options: ToastOptions::default().duration_in_seconds(4.0),
+                                        ..Default::default()
                                     });
                                 }
                                 dfs
                             }
                             // Caso a chamada tenha retornado um erro dentro do timeout
                             Ok(Err(e)) => {
-                                log::error!("Erro ao obter ativos: {:?}", e);
+                                log::error!("Erro ao obter ativos para {}: {:?}", cnpj, e);
                                 util::toaster().add(Toast {
-                                    kind: egui_toast::ToastKind::Error,
-                                    text: "Erro ao obter ativos da carteira.".into(),
-                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                    kind: egui_toast::ToastKind::Warning,
+                                    text: format!("Ativos da carteira indisponíveis para {}/{} (CNPJ: {})", month, year, cnpj).into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
                                 });
                                 (DataFrame::empty(), DataFrame::empty(), DataFrame::empty())
                             }
                             // Timeout atingido
                             Err(_) => {
                                 log::error!(
-                                    "Timeout ao obter ativos da carteira para CNPJ: {}",
-                                    cnpj
+                                    "Timeout ao obter ativos da carteira para CNPJ: {} em {}/{}",
+                                    cnpj, month, year
                                 );
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: "Tempo limite atingido ao obter ativos da carteira."
-                                        .into(),
-                                    options: ToastOptions::default().duration_in_seconds(3.0),
+                                    text: format!("Tempo limite atingido ao obter ativos para {}/{} (CNPJ: {})", month, year, cnpj).into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
                                 });
                                 (DataFrame::empty(), DataFrame::empty(), DataFrame::empty())
                             }
@@ -437,6 +479,7 @@ impl TemplateApp {
                                     kind: egui_toast::ToastKind::Error,
                                     text: "Erro ao buscar fundos".into(),
                                     options: ToastOptions::default().duration_in_seconds(3.0),
+                                    ..Default::default()
                                 });
                             }
                         }
@@ -484,15 +527,15 @@ impl TemplateApp {
     }
 
     // Função para configurar o painel superior
-    fn setup_top_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            self.setup_menu_bar(ui, ctx);
+    fn setup_top_panel(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::top("top_panel").show_inside(ui, |ui| {
+            self.setup_menu_bar(ui);
         });
     }
 
     // Função para configurar a barra de menu
-    fn setup_menu_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        egui::menu::bar(ui, |ui| {
+    fn setup_menu_bar(&mut self, ui: &mut egui::Ui) {
+        egui::MenuBar::new().ui(ui, |ui| {
             let font_id = FontId::proportional(16.0);
             let icon = egui::RichText::new(egui_phosphor::regular::LIST.to_string()).font(font_id);
             ui.menu_button(icon, |ui| {
@@ -502,7 +545,7 @@ impl TemplateApp {
                 }
                 ui.separator();
                 if ui.button("Sair").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
         });
@@ -518,24 +561,44 @@ impl TemplateApp {
     }
 
     // Função para configurar o painel central
-    fn setup_central_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn setup_central_panel(&mut self, ui: &mut egui::Ui) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             if !self.search.open_window {
                 self.search.set_result(DataFrame::empty());
             }
             self.search.show(ui);
             self.asset_detail_modal.show(ui);
             self.about_modal.show(ui);
-            self.setup_dock_area(ui, ctx);
+            self.setup_dock_area(ui);
         });
     }
 
     // Função para configurar a Dock Area
-    fn setup_dock_area(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        egui::Frame::none().inner_margin(5.0).show(ui, |ui| {
+    fn setup_dock_area(&mut self, ui: &mut egui::Ui) {
+        let has_home = self.tree.iter_all_tabs().any(|(_, tab)| match tab {
+            TabType::Home(_) => true,
+            _ => false,
+        });
+
+        if !has_home {
+            let home_tab = TabType::Home(HomeTab::new(
+                "Início".to_string(),
+                self.channel.0.clone(),
+                self.history.clone(),
+            ));
+            
+            if self.tree.iter_all_tabs().count() == 0 {
+                self.tree = DockState::new(vec![home_tab]);
+            } else {
+                let main_surface = self.tree.main_surface_mut();
+                main_surface.push_to_focused_leaf(home_tab);
+            }
+        }
+
+        egui::Frame::NONE.inner_margin(5.0).show(ui, |ui| {
             DockArea::new(&mut self.tree)
                 .style({
-                    let mut style = Style::from_egui(ctx.style().as_ref());
+                    let mut style = Style::from_egui(ui.style());
                     style.buttons.add_tab_align = TabAddAlign::Left;
                     style
                 })
@@ -546,34 +609,24 @@ impl TemplateApp {
 }
 
 impl eframe::App for TemplateApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        self.handle_update(ctx, frame);
-        self.setup_top_panel(ctx);
-        self.show_statusbar(ctx, frame);
-        self.setup_central_panel(ctx);
-        util::toaster().show(ctx);
-    }
-}
-
-fn handle_result<T, E: std::fmt::Display>(name: &str, result: Result<T, E>) -> T
-where
-    T: Default,
-{
-    let msg = format!("Erro ao processar dados: {}", name);
-    match result {
-        Ok(data) => data,
-        Err(e) => {
-            util::toaster().add(Toast {
-                kind: egui_toast::ToastKind::Error,
-                text: msg.into(),
-                options: ToastOptions::default().duration_in_seconds(3.0),
-            });
-
-            log::error!("Falha ao processar dados: {}", e);
-            T::default()
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx();
+        
+        // Reativamente aplica e monitora o tema selecionado
+        let current_dark = ctx.theme() == egui::Theme::Dark;
+        if self.current_theme_dark != Some(current_dark) {
+            self.current_theme_dark = Some(current_dark);
+            ctx.set_visuals(get_premium_visuals(current_dark));
         }
+
+        self.handle_update(ctx, frame);
+        self.setup_top_panel(ui);
+        self.show_statusbar(ui, frame);
+        self.setup_central_panel(ui);
+        util::toaster().show(ui);
     }
 }
+
 
 async fn handle_fund_data(
     cnpj: String,
@@ -590,5 +643,79 @@ async fn handle_fund_data(
             Ok(())
         }
         Err(err) => Err(err),
+    }
+}
+
+fn get_premium_visuals(dark_mode: bool) -> egui::Visuals {
+    if dark_mode {
+        let mut visuals = egui::Visuals::dark();
+        
+        // Cores premium da paleta moderna (Dark Mode)
+        visuals.panel_fill = egui::Color32::from_rgb(18, 19, 23); // Fundo escuro profundo premium (Slate)
+        visuals.window_fill = egui::Color32::from_rgb(26, 27, 32); // Cinza escuro para janelas/modais
+        visuals.faint_bg_color = egui::Color32::from_rgb(26, 27, 32); // Listras de tabelas e separadores
+        visuals.extreme_bg_color = egui::Color32::from_rgb(13, 14, 16); // Caixa de texto escura
+        
+        // Cores de bordas e elementos não-interativos
+        visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(24, 25, 29);
+        visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(18, 19, 23);
+        visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::from_rgb(226, 232, 240); // Texto claro
+        visuals.widgets.noninteractive.bg_stroke.color = egui::Color32::from_rgb(38, 41, 49); // Bordas super sutis e finas
+        
+        // Botões (Inativos/Normais)
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(33, 35, 41);
+        visuals.widgets.inactive.fg_stroke.color = egui::Color32::from_rgb(203, 213, 224);
+        visuals.widgets.inactive.bg_stroke.color = egui::Color32::from_rgb(45, 48, 56);
+        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(5);
+        
+        // Botões (Hovered / Selecionados)
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(45, 48, 56);
+        visuals.widgets.hovered.fg_stroke.color = egui::Color32::WHITE;
+        visuals.widgets.hovered.bg_stroke.color = egui::Color32::from_rgb(59, 130, 246);
+        
+        // Botões (Active / Clicados)
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(59, 130, 246);
+        visuals.widgets.active.fg_stroke.color = egui::Color32::WHITE;
+        
+        // Destaque ativo (Azul elétrico premium)
+        visuals.selection.bg_fill = egui::Color32::from_rgb(59, 130, 246);
+        visuals.selection.stroke.color = egui::Color32::WHITE;
+        
+        visuals
+    } else {
+        let mut visuals = egui::Visuals::light();
+        
+        // Cores premium da paleta moderna (Light Mode: Branco Puro + Cinza Claro)
+        visuals.panel_fill = egui::Color32::from_rgb(255, 255, 255); // Branco puro para abas e painéis principais
+        visuals.window_fill = egui::Color32::from_rgb(255, 255, 255); // Branco puro para janelas/modais
+        visuals.faint_bg_color = egui::Color32::from_rgb(245, 246, 248); // Cinza muito claro para listras de tabelas/zebra e separadores
+        visuals.extreme_bg_color = egui::Color32::from_rgb(248, 249, 250); // Caixa de texto muito limpa
+        
+        // Cores de bordas e elementos não-interativos
+        visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(245, 246, 248); // Fundo cinza suave secundário
+        visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(250, 251, 252);
+        visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::from_rgb(44, 55, 72); // Texto cinza escuro/azul elegante
+        visuals.widgets.noninteractive.bg_stroke.color = egui::Color32::from_rgb(222, 226, 230); // Bordas super sutis e finas
+        
+        // Botões (Inativos/Normais)
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(248, 249, 250);
+        visuals.widgets.inactive.fg_stroke.color = egui::Color32::from_rgb(74, 85, 104);
+        visuals.widgets.inactive.bg_stroke.color = egui::Color32::from_rgb(226, 232, 240);
+        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(5);
+        
+        // Botões (Hovered / Selecionados)
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(237, 242, 247);
+        visuals.widgets.hovered.fg_stroke.color = egui::Color32::from_rgb(26, 32, 44);
+        visuals.widgets.hovered.bg_stroke.color = egui::Color32::from_rgb(26, 115, 232); // Bordas azuis no hover
+        
+        // Botões (Active / Clicados)
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(226, 232, 240);
+        visuals.widgets.active.fg_stroke.color = egui::Color32::from_rgb(26, 32, 44);
+        
+        // Destaque ativo (Azul corporativo limpo)
+        visuals.selection.bg_fill = egui::Color32::from_rgb(26, 115, 232);
+        visuals.selection.stroke.color = egui::Color32::WHITE;
+        
+        visuals
     }
 }

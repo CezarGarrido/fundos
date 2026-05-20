@@ -4,15 +4,15 @@ version = "0.1.0"
 authors = ["Cezar Garrido <cezar.cgb18@gmail.com>"]
 edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
-rust-version = "1.76"
+rust-version = "1.80"
 
 [package.metadata.docs.rs]
 all-features = true
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
-egui = "0.27.0"
-eframe = { version = "0.27.0", default-features = false, features = [
+egui = "0.34"
+eframe = { version = "0.34", default-features = false, features = [
     "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
@@ -25,17 +25,17 @@ log = "0.4"
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
-egui_dock = "0.12.0"
-egui_extras = { version = "0.27.2", default-features = true, features = [
+egui_dock = "0.19"
+egui_extras = { version = "0.34", default-features = true, features = [
     "datepicker",
 ] }
-egui-phosphor = "0.5.0"
+egui-phosphor = "0.12"
 chrono = "0.4.19"
 
 tokio = { version = "1.37.0", features = ["full"] }
 encoding_rs = "0.8.33"
 encoding_rs_io = "0.1.7"
-egui_plot = "0.27.2"
+egui_plot = "0.35"
 polars = { version = "0.32.0", features = [
     "lazy",
     "strings",
@@ -55,9 +55,11 @@ serde_derive = "1.0.204"
 config = "0.14.0"
 yahoo_finance_api = "2.2.1"
 zip = "2.1.5"
-egui-toast = "0.13.0"
+egui-toast = "0.20"
 cached-path = { version = "0.6.1", default-features = false, features = ["rustls-tls"]}
-egui_logger = "0.4.4"
+egui_logger = "0.10"
+nix = { version = "0.26", features = ["fs", "mman"] }
+jiff = "0.2"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

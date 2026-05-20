@@ -1,35 +1,52 @@
 pub fn show(ui: &mut egui::Ui) {
-    // let errored = assets.load_progress.errored();
-    // egui::CentralPanel::default()
-    // .frame(egui::Frame::default())
-    // .show_inside(ui, |ui| {
-    let height = 40.0; //ui.available_height();
+    let height = 50.0;
     let ctx = ui.ctx().clone();
+    
+    // Solicita repintar continuamente para manter as animações fluidas
+    ctx.request_repaint();
 
-    let space_size = 0.03;
-    let spinner_size = 0.10;
-    let text_size = 0.034;
+    let time = ui.input(|i| i.time);
+    let pulse = (time * 3.5).sin() as f32; // -1.0 a 1.0
+    let scale = 1.0 + pulse * 0.08;
+
+    let status = if let Ok(guard) = crate::provider::cvm::fund::LOADING_STATUS.read() {
+        guard.clone()
+    } else {
+        "Carregando...".to_string()
+    };
+
     ui.vertical_centered(|ui| {
-        ui.add_space(height * 0.3);
+        ui.add_space(30.0);
 
+        // Ícone com pulso de escala e cor azul premium elegante
         let rect = ui
             .label(
                 egui::RichText::new(egui_phosphor::regular::CHART_BAR)
-                    //.color(egui::Color32::WHITE)
-                    .size(height),
+                    .color(egui::Color32::from_rgb(90, 160, 250))
+                    .size(height * scale),
             )
             .rect;
-        egui::Spinner::new().paint_at(ui, rect.expand(spinner_size * height * 0.2));
-        ui.add_space(height * space_size);
-        ui.label(
-            egui::RichText::new("Carregando")
-                .color(egui::Color32::WHITE)
-                .size(height * text_size),
-        );
-    });
+            
+        // Spinner girando com glow ao redor do ícone
+        egui::Spinner::new()
+            .color(egui::Color32::from_rgb(140, 200, 255))
+            .paint_at(ui, rect.expand(12.0 * scale));
+            
+        ui.add_space(20.0);
+        
+        // Texto de status com cor legível e adaptável ao tema
+        let text_color = if ui.visuals().dark_mode {
+            egui::Color32::from_rgb(200, 215, 245) // Prateado-azul suave e legível no tema escuro
+        } else {
+            egui::Color32::from_rgb(30, 45, 70) // Azul marinho escuro com excelente contraste no tema claro
+        };
 
-    ctx.data_mut(|d| {
-        d.insert_temp(ui.id(), (spinner_size, space_size, text_size));
-    })
-    //    });
+        ui.label(
+            egui::RichText::new(status)
+                .color(text_color)
+                .font(egui::FontId::proportional(15.0)),
+        );
+        
+        ui.add_space(10.0);
+    });
 }

@@ -19,16 +19,14 @@ pub fn by_year_bar(dataframe: &DataFrame, ui: &mut Ui) {
                 .map(|(year, count)| Bar::new(year as f64, count as f64).width(0.6))
                 .collect();
 
-            BarChart::new(histogram_data)
+            BarChart::new("Fundos por Ano", histogram_data)
                 //.color(Color32::LIGHT_BLUE)
-                .name("Fundos por Ano")
         }
-        _ => BarChart::new(Vec::new())
-            .color(Color32::LIGHT_BLUE)
-            .name("Fundos por Ano"),
+        _ => BarChart::new("Fundos por Ano", Vec::new())
+            .color(Color32::LIGHT_BLUE),
     };
 
-    let x_formatter = |mark: GridMark, _digits, _range: &RangeInclusive<f64>| {
+    let x_formatter = |mark: GridMark, _range: &RangeInclusive<f64>| {
         let year = mark.value as i32;
         if year < 0 {
             String::new() // No labels for negative years
@@ -38,7 +36,7 @@ pub fn by_year_bar(dataframe: &DataFrame, ui: &mut Ui) {
     };
 
     let y_formatter =
-        |mark: GridMark, _digits, _range: &RangeInclusive<f64>| format!("{}", mark.value);
+        |mark: GridMark, _range: &RangeInclusive<f64>| format!("{}", mark.value);
 
     let x_axes = vec![AxisHints::new_x().label("Ano").formatter(x_formatter)];
 
@@ -48,10 +46,10 @@ pub fn by_year_bar(dataframe: &DataFrame, ui: &mut Ui) {
 
     Plot::new("plot::funds:year")
         .legend(Legend::default())
-        .legend(Legend::default())
+        .show_background(false)
         // .set_margin_fraction(egui::Vec2::new(0.0, 0.15))
         //.y_axis_position(egui_plot::HPlacement::Left)
-        .y_axis_width(0)
+        .y_axis_min_width(0.0)
         .custom_x_axes(x_axes)
         .custom_y_axes(y_axes)
         .include_y(0.0)
@@ -94,10 +92,9 @@ pub fn by_category_bar(
             let bar_charts: Vec<BarChart> = histogram_data
                 .iter()
                 .map(|(category_index, category_name, value)| {
-                    BarChart::new(vec![Bar::new(*category_index as f64, *value).width(0.6)])
+                    BarChart::new(category_name.clone(), vec![Bar::new(*category_index as f64, *value).width(0.6)])
                         //.color(colors[*category_index])
                         .width(0.6)
-                        .name(category_name)
                 })
                 .collect();
 
@@ -107,7 +104,7 @@ pub fn by_category_bar(
     };
 
     let format_data = data.1.clone();
-    let x_formatter = move |mark: GridMark, _digits, _range: &RangeInclusive<f64>| {
+    let x_formatter = move |mark: GridMark, _range: &RangeInclusive<f64>| {
         let v = mark.value as usize;
         let binding = format_data.clone();
         let c = binding.get(v);
@@ -118,7 +115,7 @@ pub fn by_category_bar(
     };
 
     let y_formatter =
-        |mark: GridMark, _digits, _range: &RangeInclusive<f64>| format!("{}", mark.value);
+        |mark: GridMark, _range: &RangeInclusive<f64>| format!("{}", mark.value);
 
     let x_axes = vec![AxisHints::new_x().label(x_label).formatter(x_formatter)];
 
@@ -131,9 +128,10 @@ pub fn by_category_bar(
         .text_style(egui::TextStyle::Small);
 
     Plot::new(format!("plot::funds::{}", x_label.to_lowercase()))
-        .legend(legend)
-        .custom_x_axes(x_axes)
-        .custom_y_axes(y_axes)
+         .legend(legend)
+         .show_background(false)
+         .custom_x_axes(x_axes)
+         .custom_y_axes(y_axes)
         .show(ui, |plot_ui| {
             for bar_chart in data.0 {
                 plot_ui.bar_chart(bar_chart);
