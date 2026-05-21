@@ -15,6 +15,26 @@ fn get_str(col: &polars::series::Series, row: usize) -> String {
         .unwrap_or_default()
 }
 
+fn fmt_num(n: f64) -> String {
+    let n = n.round() as i64;
+    if n == 0 {
+        return "0".into();
+    }
+    let neg = n < 0;
+    let s = n.unsigned_abs().to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push('.');
+        }
+        result.push(c);
+    }
+    if neg {
+        result.push('-');
+    }
+    result.chars().rev().collect()
+}
+
 fn get_f64(col: &polars::series::Series, row: usize) -> f64 {
     col.get(row)
         .ok()
@@ -833,19 +853,19 @@ impl HistoricoTab {
 
     fn render_analytics_inline(&mut self, ui: &mut Ui, codigo: &str) {
         let dark = ui.visuals().dark_mode;
-        let (tx, hd, bg, muted) = if dark {
+        let (hd, tx, muted, bg) = if dark {
             (
-                Color32::from_rgb(140, 155, 175),
-                Color32::WHITE,
-                Color32::from_rgb(20, 25, 35),
-                Color32::from_rgb(90, 100, 120),
+                Color32::from_rgb(235, 240, 250),
+                Color32::from_rgb(185, 195, 215),
+                Color32::from_rgb(120, 130, 155),
+                Color32::from_rgb(18, 22, 32),
             )
         } else {
             (
-                Color32::from_rgb(90, 100, 120),
-                Color32::from_rgb(20, 30, 50),
+                Color32::from_rgb(15, 20, 35),
+                Color32::from_rgb(55, 60, 75),
+                Color32::from_rgb(120, 125, 140),
                 Color32::from_rgb(248, 250, 253),
-                Color32::from_rgb(140, 150, 165),
             )
         };
         let accent = Color32::from_rgb(37, 99, 235);
@@ -873,60 +893,58 @@ impl HistoricoTab {
         Frame::NONE
             .fill(bg)
             .corner_radius(egui::CornerRadius::same(8))
-            .inner_margin(egui::Margin::symmetric(12, 8))
+            .inner_margin(egui::Margin::symmetric(14, 10))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
 
                 // ── Linha 1: Preço + cotas ─────────────────────────
-                ui.horizontal(|ui| {
-                    if let Some((prices, _, _, qt_pos)) = yahoo_data {
-                        let last_p = prices
-                            .column("adjclose")
-                            .ok()
-                            .and_then(|c| {
-                                let n = prices.height();
-                                if n > 0 {
-                                    c.get(n - 1).ok()
-                                } else {
-                                    None
-                                }
-                            })
-                            .and_then(|v| v.try_extract::<f64>().ok())
-                            .unwrap_or(0.0);
+                if let Some((prices, _, _, qt_pos)) = yahoo_data {
+                    let last_p = prices
+                        .column("adjclose")
+                        .ok()
+                        .and_then(|c| {
+                            let n = prices.height();
+                            if n > 0 {
+                                c.get(n - 1).ok()
+                            } else {
+                                None
+                            }
+                        })
+                        .and_then(|v| v.try_extract::<f64>().ok())
+                        .unwrap_or(0.0);
 
-                        let first_p = prices
-                            .column("adjclose")
-                            .ok()
-                            .and_then(|c| c.get(0).ok())
-                            .and_then(|v| v.try_extract::<f64>().ok())
-                            .unwrap_or(last_p);
+                    let first_p = prices
+                        .column("adjclose")
+                        .ok()
+                        .and_then(|c| c.get(0).ok())
+                        .and_then(|v| v.try_extract::<f64>().ok())
+                        .unwrap_or(last_p);
 
-                        let change = if first_p > 0.0 {
-                            ((last_p - first_p) / first_p) * 100.0
-                        } else {
-                            0.0
-                        };
-                        let chg_color = if change > 0.0 {
-                            green
-                        } else if change < 0.0 {
-                            red
-                        } else {
-                            tx
-                        };
+                    let change = if first_p > 0.0 {
+                        ((last_p - first_p) / first_p) * 100.0
+                    } else {
+                        0.0
+                    };
+                    let chg_color = if change > 0.0 {
+                        green
+                    } else if change < 0.0 {
+                        red
+                    } else {
+                        tx
+                    };
 
-                        ui.label(
-                            RichText::new(format!("R$ {:.2}", last_p))
-                                .size(20.0)
-                                .strong()
-                                .color(hd),
-                        );
+                    ui.horizontal(|ui| {
+                        let price_str = crate::util::to_real(last_p)
+                            .map(|r| r.format())
+                            .unwrap_or_else(|_| format!("R$ {:.2}", last_p));
+                        ui.label(RichText::new(price_str).size(22.0).strong().color(hd));
                         ui.label(
                             RichText::new(format!(
                                 "  {}{:.2}%",
                                 if change > 0.0 {
-                                    "▴ "
+                                    "▲ "
                                 } else if change < 0.0 {
-                                    "▾ "
+                                    "▼ "
                                 } else {
                                     ""
                                 },
@@ -937,49 +955,63 @@ impl HistoricoTab {
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.label(
-                                RichText::new(format!("{:.0} cotas", qt_pos))
-                                    .size(12.0)
-                                    .color(tx),
+                                RichText::new(format!(
+                                    "{}  {}",
+                                    egui_phosphor::regular::STACK,
+                                    fmt_num(qt_pos)
+                                ))
+                                .size(11.0)
+                                .color(muted),
                             );
                         });
-                    }
-                });
+                    });
 
-                // ── Linha 2: PM Compra ────────────────────────────
-                if let Some(analytics) = self.analytics_cache.get(codigo) {
-                    if analytics.avg_buy_price > 0.0 {
-                        ui.add_space(2.0);
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("PM Compra").size(10.0).color(muted));
-                            ui.label(
-                                RichText::new(format!("R$ {:.2}", analytics.avg_buy_price))
-                                    .size(12.0)
-                                    .strong()
-                                    .color(accent),
-                            );
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if let Some((_, _, vl_aquis, _)) = yahoo_data {
-                                    if vl_aquis > 0.0 {
-                                        ui.label(
-                                            RichText::new(format!("Custo R$ {:.2}", vl_aquis))
-                                                .size(10.0)
-                                                .color(muted),
-                                        );
-                                    }
+                    // PM Compra
+                    ui.add_space(3.0);
+                    ui.horizontal(|ui| {
+                        if let Some(analytics) = self.analytics_cache.get(codigo) {
+                            if analytics.avg_buy_price > 0.0 {
+                                let pm_str = crate::util::to_real(analytics.avg_buy_price)
+                                    .map(|r| r.format())
+                                    .unwrap_or_else(|_| {
+                                        format!("R$ {:.2}", analytics.avg_buy_price)
+                                    });
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} PM Compra",
+                                        egui_phosphor::regular::SHOPPING_CART
+                                    ))
+                                    .size(10.0)
+                                    .color(muted),
+                                );
+                                ui.label(RichText::new(pm_str).size(11.0).strong().color(accent));
+                            }
+                        }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if let Some((_, _, vl_aquis, _)) = yahoo_data {
+                                if vl_aquis > 0.0 {
+                                    let cost_str = crate::util::to_real(vl_aquis)
+                                        .map(|r| r.format())
+                                        .unwrap_or_else(|_| format!("R$ {:.2}", vl_aquis));
+                                    ui.label(
+                                        RichText::new(format!("Custo {}", cost_str))
+                                            .size(10.0)
+                                            .color(muted),
+                                    );
                                 }
-                            });
+                            }
                         });
-                    }
+                    });
                 }
-
-                ui.add_space(6.0);
-                ui.separator();
-                ui.add_space(4.0);
 
                 // ── Extrapolação ──────────────────────────────────
                 if let Some(analytics) = self.analytics_cache.get(codigo) {
                     if let Some(ref q) = analytics.extrapolation_quality {
                         if let Some(last_est) = analytics.hidden_qty_estimates.last() {
+                            ui.add_space(6.0);
+                            ui.separator();
+                            ui.add_space(4.0);
+
                             let max_qty = analytics
                                 .hidden_qty_estimates
                                 .first()
@@ -990,15 +1022,18 @@ impl HistoricoTab {
                             let bar_pct = (last_est.1 / max_qty).clamp(0.0, 1.0) as f32;
 
                             ui.label(
-                                RichText::new("📈 Posição Oculta Estimada")
-                                    .size(10.0)
-                                    .strong()
-                                    .color(tx),
+                                RichText::new(format!(
+                                    "{} Posição Oculta Estimada",
+                                    egui_phosphor::regular::EYE_SLASH
+                                ))
+                                .size(10.0)
+                                .strong()
+                                .color(tx),
                             );
-                            ui.add_space(2.0);
+                            ui.add_space(3.0);
 
                             // Barra de progresso
-                            let bar_h = 10.0;
+                            let bar_h = 8.0;
                             let (bar_rect, _) = ui.allocate_exact_size(
                                 egui::vec2(ui.available_width(), bar_h),
                                 Sense::hover(),
@@ -1007,9 +1042,9 @@ impl HistoricoTab {
                                 bar_rect,
                                 egui::CornerRadius::same(4),
                                 if dark {
-                                    Color32::from_rgb(40, 45, 55)
+                                    Color32::from_rgb(35, 40, 55)
                                 } else {
-                                    Color32::from_rgb(230, 235, 245)
+                                    Color32::from_rgb(220, 228, 240)
                                 },
                             );
                             let fill = egui::Rect::from_min_size(
@@ -1019,12 +1054,17 @@ impl HistoricoTab {
                             ui.painter()
                                 .rect_filled(fill, egui::CornerRadius::same(4), accent);
 
+                            ui.add_space(2.0);
                             ui.horizontal(|ui| {
                                 ui.label(
-                                    RichText::new(format!("{:.0} cotas", last_est.1))
-                                        .size(11.0)
-                                        .strong()
-                                        .color(hd),
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        egui_phosphor::regular::CIRCLES_THREE_PLUS,
+                                        fmt_num(last_est.1)
+                                    ))
+                                    .size(12.0)
+                                    .strong()
+                                    .color(hd),
                                 );
                                 let val_fmt = crate::util::to_real(last_est.2)
                                     .map(|r| r.format())
@@ -1036,7 +1076,7 @@ impl HistoricoTab {
                                     ui.label(
                                         RichText::new(format!(
                                             "{}  R²={:.2}",
-                                            q.method,
+                                            egui_phosphor::regular::BRAIN,
                                             q.r_squared.unwrap_or(0.0)
                                         ))
                                         .size(9.0)
@@ -1044,9 +1084,14 @@ impl HistoricoTab {
                                     );
                                     if let Some((lo, hi)) = q.confidence_95 {
                                         ui.label(
-                                            RichText::new(format!("IC95 [{:.0} – {:.0}]", lo, hi))
-                                                .size(9.0)
-                                                .color(muted),
+                                            RichText::new(format!(
+                                                "{} [{:.0} – {:.0}]",
+                                                egui_phosphor::regular::ARROWS_HORIZONTAL,
+                                                lo,
+                                                hi
+                                            ))
+                                            .size(9.0)
+                                            .color(muted),
                                         );
                                     }
                                 });
@@ -1055,23 +1100,33 @@ impl HistoricoTab {
                     }
                 }
 
-                ui.add_space(6.0);
-                ui.separator();
-                ui.add_space(4.0);
-
                 // ── Estratégia ────────────────────────────────────
                 if let Some(analytics) = self.analytics_cache.get(codigo) {
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
                     ui.label(
-                        RichText::new("⚡ Estratégia do Gestor")
-                            .size(10.0)
-                            .strong()
-                            .color(tx),
+                        RichText::new(format!(
+                            "{} Estratégia do Gestor",
+                            egui_phosphor::regular::LIGHTNING
+                        ))
+                        .size(10.0)
+                        .strong()
+                        .color(tx),
                     );
-                    ui.add_space(2.0);
+                    ui.add_space(3.0);
 
                     ui.columns(3, |cols| {
                         cols[0].vertical(|ui| {
-                            ui.label(RichText::new("Montagem").size(9.0).color(muted));
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} Montagem",
+                                    egui_phosphor::regular::HOURGLASS_HIGH
+                                ))
+                                .size(9.0)
+                                .color(muted),
+                            );
                             if analytics.speed_to_peak > 0 {
                                 let speed_color = if analytics.speed_to_peak <= 2 {
                                     purple
@@ -1085,11 +1140,18 @@ impl HistoricoTab {
                                         .color(speed_color),
                                 );
                             } else {
-                                ui.label(RichText::new("N/D").size(11.0).weak());
+                                ui.label(RichText::new("—").size(13.0).weak());
                             }
                         });
                         cols[1].vertical(|ui| {
-                            ui.label(RichText::new("Take-Profit").size(9.0).color(muted));
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} Take-Profit",
+                                    egui_phosphor::regular::FLAG_BANNER
+                                ))
+                                .size(9.0)
+                                .color(muted),
+                            );
                             if analytics.take_profit_trigger > 0.0 {
                                 ui.label(
                                     RichText::new(format!(
@@ -1101,11 +1163,18 @@ impl HistoricoTab {
                                     .color(green),
                                 );
                             } else {
-                                ui.label(RichText::new("Não detectado").size(11.0).weak());
+                                ui.label(RichText::new("—").size(13.0).weak());
                             }
                         });
                         cols[2].vertical(|ui| {
-                            ui.label(RichText::new("Ganho Oculto").size(9.0).color(muted));
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} Ganho Oculto",
+                                    egui_phosphor::regular::MAGNIFYING_GLASS
+                                ))
+                                .size(9.0)
+                                .color(muted),
+                            );
                             if let Some((prices, _, vl_aquis, qt_pos)) = yahoo_data {
                                 let last_p = prices
                                     .column("adjclose")
@@ -1134,7 +1203,7 @@ impl HistoricoTab {
                                         .color(gain_color),
                                 );
                             } else {
-                                ui.label(RichText::new("N/D").size(11.0).weak());
+                                ui.label(RichText::new("—").size(13.0).weak());
                             }
                         });
                     });
