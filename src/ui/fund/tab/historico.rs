@@ -938,21 +938,18 @@ impl HistoricoTab {
                             .map(|r| r.format())
                             .unwrap_or_else(|_| format!("R$ {:.2}", last_p));
                         ui.label(RichText::new(price_str).size(22.0).strong().color(hd));
-                        ui.label(
-                            RichText::new(format!(
-                                "  {}{:.2}%",
-                                if change > 0.0 {
-                                    "▲ "
-                                } else if change < 0.0 {
-                                    "▼ "
-                                } else {
-                                    ""
-                                },
-                                change.abs()
-                            ))
-                            .size(14.0)
-                            .color(chg_color),
-                        );
+                        if change != 0.0 {
+                            let icon = if change > 0.0 {
+                                egui_phosphor::regular::TREND_UP
+                            } else {
+                                egui_phosphor::regular::TREND_DOWN
+                            };
+                            ui.label(
+                                RichText::new(format!("  {} {:.2}%", icon, change.abs()))
+                                    .size(14.0)
+                                    .color(chg_color),
+                            );
+                        }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.label(
                                 RichText::new(format!(
