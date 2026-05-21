@@ -218,6 +218,7 @@ impl AssetsMarketTab {
     // Render toolbar
     fn render_toolbar(&mut self, ui: &mut Ui) {
         ui.group(|ui| {
+            ui.set_min_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 // Label de período
                 ui.label(egui::RichText::new("PERÍODO").size(11.0).strong());

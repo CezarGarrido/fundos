@@ -227,6 +227,27 @@ impl TemplateApp {
         let ctxc = ctx.clone();
         let sender = self.channel.0.clone();
 
+        // Atalhos globais de teclado
+        ctx.input_mut(|i| {
+            // Ctrl+F → Pesquisar Fundos
+            if i.consume_key(egui::Modifiers::CTRL, egui::Key::F) {
+                let _ = sender.send(Message::OpenSearchWindow(true));
+            }
+            // Ctrl+D → Painel Geral
+            if i.consume_key(egui::Modifiers::CTRL, egui::Key::D) {
+                let _ = sender.send(Message::OpenDashboardTab);
+            }
+            // Ctrl+A → Ativos do Mercado
+            if i.consume_key(egui::Modifiers::CTRL, egui::Key::A) {
+                use chrono::{Duration, Local, Months};
+                let end = Local::now().naive_local().date();
+                let start = end
+                    .checked_sub_months(Months::new(6))
+                    .unwrap_or(end - Duration::days(183));
+                let _ = sender.send(Message::OpenAtivosTab(start, end));
+            }
+        });
+
         if let Ok(message) = self.channel.1.try_recv() {
             match message {
                 Message::OpenSearchWindow(value) => {
@@ -691,10 +712,12 @@ impl TemplateApp {
                             if let Some(ref mut htab) = tab.historico_tab {
                                 if htab.cnpj == cnpj {
                                     htab.set_data(df.clone());
-                                    ctxc.request_repaint();
-                                    break;
                                 }
                             }
+                            if tab.portfolio_ui.cnpj == cnpj {
+                                tab.portfolio_ui.fund_history = Some(df.clone());
+                            }
+                            ctxc.request_repaint();
                         }
                     }
                 }

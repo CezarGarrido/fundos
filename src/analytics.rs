@@ -5,6 +5,7 @@ pub struct AssetAnalytics {
     pub avg_sell_price: f64,
     pub take_profit_trigger: f64,
     pub speed_to_peak: usize, // Months to build the position
+    pub hidden_qty_estimates: Vec<(String, f64, f64)>, // Date, Qty, Value
 }
 
 /// Calculate behavioral analytics for a specific asset using the fund's historical DataFrame.
@@ -80,11 +81,12 @@ pub fn compute_asset_analytics_v1(df: &DataFrame, asset_code: &str) -> Option<As
         avg_sell_price: 0.0,
         take_profit_trigger: take_profit,
         speed_to_peak: months_to_peak,
+        hidden_qty_estimates: Vec::new(),
     })
 }
 
 // Se o CSV for o bruto da CVM, use essa abordagem baseada em saldo (Delta)
-pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str) -> Option<AssetAnalytics> {
+pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str, quotes: Option<&[crate::provider::yahoo::MonthlyQuote]>) -> Option<AssetAnalytics> {
     let filtered_df = df
         .clone()
         .lazy()
@@ -191,11 +193,29 @@ pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str) -> Option<Asset
     let avg_buy_price = if total_buy_qty > 0.0 { total_buy_value / total_buy_qty } else { 0.0 };
     let avg_sell_price = if total_sell_qty > 0.0 { total_sell_value / total_sell_qty } else { 0.0 };
 
+    let mut hidden_qty_estimates = Vec::new();
+
+    // RF11: Extrapolar para os meses ocultos
+    if let Some(quotes) = quotes {
+        if let Some(dt_col) = filtered_df.column("DT_COMPTC").ok() {
+            if let Some(last_known_dt) = dt_col.get(height - 1).ok().and_then(|v| v.get_str().map(|s| s.to_string())) {
+                // Procurar cotações após a last_known_dt
+                for q in quotes {
+                    if q.date > last_known_dt && last_qty > 0.0 {
+                        let est_value = last_qty * q.close_price;
+                        hidden_qty_estimates.push((q.date.clone(), last_qty, est_value));
+                    }
+                }
+            }
+        }
+    }
+
     Some(AssetAnalytics {
         avg_buy_price,
         avg_sell_price,
         take_profit_trigger: take_profit,
         speed_to_peak: months_counting_to_peak,
+        hidden_qty_estimates,
     })
 }
 

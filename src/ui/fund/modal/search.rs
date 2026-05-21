@@ -72,7 +72,7 @@ impl Search {
             .default_width(default_modal_width)
             .max_width(screen_width * 0.98)
             .max_height(600.0)
-            .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 150.0))
+            .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, -60.0))
             .open(&mut open)
             .show(ui.ctx(), |ui| {
                 let search_bar = egui::TextEdit::singleline(&mut self.query)
@@ -112,13 +112,13 @@ impl Search {
                         .resizable(false)
                         .header(20.0, |mut header| {
                             header.col(|ui| {
-                                ui.label("cnpj");
+                                ui.label("CNPJ");
                             });
                             header.col(|ui| {
-                                ui.label("nome");
+                                ui.label("Nome do Fundo");
                             });
                             header.col(|ui| {
-                                ui.label("classe");
+                                ui.label("Classe");
                             });
                         })
                         .body(|body| {

@@ -688,7 +688,7 @@ impl HistoricoTab {
         let vt = Color32::from_rgb(139, 92, 246);
         let bl = Color32::from_rgb(59, 130, 246);
         
-        if let Some(analytics) = crate::analytics::compute_asset_analytics(&self.data, codigo) {
+        if let Some(analytics) = crate::analytics::compute_asset_analytics(&self.data, codigo, None) {
             ui.columns(4, |cols| {
                 cols[0].vertical(|ui| {
                     ui.label(RichText::new("PM Histórico (Compra)").size(9.0).color(tx));
