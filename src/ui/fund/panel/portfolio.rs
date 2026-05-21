@@ -1,6 +1,11 @@
-use crate::{message, ui::fund::modal::asset_detail::{AssetDetailModal, AssetModalContext}, ui::loading, util};
+use crate::{
+    message,
+    ui::fund::modal::asset_detail::{AssetDetailModal, AssetModalContext},
+    ui::loading,
+    util,
+};
 use chrono::{Datelike, Duration, NaiveDate};
-use egui::{epaint::Hsva, Color32, ComboBox, Layout, Sense, Ui};
+use egui::{epaint::Hsva, ComboBox, Layout, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 use polars::{
     frame::DataFrame,
@@ -26,6 +31,7 @@ pub struct PortfolioUI {
     pub sender: Option<UnboundedSender<message::Message>>,
     pub loading: bool,
     pub asset_modal: AssetDetailModal,
+    #[allow(dead_code)]
     pub show_insights: bool,
     pub fund_history: Option<DataFrame>,
 }
@@ -84,20 +90,29 @@ impl PortfolioUI {
                     egui::Panel::top("insights_kpi_panel")
                         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
                         .show_inside(ui, |ui| {
-                            crate::ui::fund::panel::insights::show_kpis(self.assets.clone(), self.pl.clone(), ui);
+                            crate::ui::fund::panel::insights::show_kpis(
+                                self.assets.clone(),
+                                self.pl.clone(),
+                                ui,
+                            );
                         });
 
-                    egui::SidePanel::right("insights_detailed_panel")
+                    egui::Panel::right("insights_detailed_panel")
                         .resizable(true)
-                        .min_width(320.0)
-                        .default_width(380.0)
+                        .min_size(320.0)
+                        .default_size(380.0)
                         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 4)))
                         .show_inside(ui, |ui| {
                             egui::ScrollArea::vertical().show(ui, |ui| {
-                                crate::ui::fund::panel::insights::show_detailed(self.assets.clone(), self.pl.clone(), self.fund_history.clone(), ui);
+                                crate::ui::fund::panel::insights::show_detailed(
+                                    self.assets.clone(),
+                                    self.pl.clone(),
+                                    self.fund_history.clone(),
+                                    ui,
+                                );
                             });
                         });
-                        
+
                     ui.add_space(4.0);
                     self.show_assets_panel(ui);
                 }
@@ -179,19 +194,19 @@ impl PortfolioUI {
     }
 
     pub fn show_assets_panel(&mut self, ui: &mut Ui) {
-        let card_bg = if ui.visuals().dark_mode {
+        let _card_bg = if ui.visuals().dark_mode {
             egui::Color32::from_rgb(30, 35, 45)
         } else {
             egui::Color32::from_rgb(245, 247, 250)
         };
-        
+
         let heading_color = if ui.visuals().dark_mode {
             egui::Color32::from_rgb(220, 230, 245)
         } else {
             egui::Color32::from_rgb(30, 40, 60)
         };
 
-        let progress_text_color = if ui.visuals().dark_mode {
+        let _progress_text_color = if ui.visuals().dark_mode {
             egui::Color32::from_rgb(250, 250, 250)
         } else {
             egui::Color32::from_rgb(40, 50, 60)
@@ -231,100 +246,120 @@ impl PortfolioUI {
         }
 
         egui::Panel::left(ui.id().with("left_assets_panel"))
-                .resizable(true)
-                .default_size(280.0)
-                .size_range(180.0..=400.0)
-                .show_inside(ui, |ui| {
-                    ui.add_space(10.0);
-                    let nr_rows = self.top_assets.height();
-                    let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
-                    let colors = generate_colors(self.top_assets.height());
+            .resizable(true)
+            .default_size(280.0)
+            .size_range(180.0..=400.0)
+            .show_inside(ui, |ui| {
+                ui.add_space(10.0);
+                let nr_rows = self.top_assets.height();
+                let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
+                let colors = generate_colors(self.top_assets.height());
 
-                    ui.push_id("top_assets", |ui| {
-                        ui.heading(
-                            egui::RichText::new(format!(
-                                "{} Classes de Ativos",
-                                egui_phosphor::regular::CHART_PIE_SLICE
-                            ))
-                            .size(14.0)
-                            .strong()
-                            .color(heading_color)
-                        );
-                        ui.separator();
-                        ui.add_space(8.0);
-                        TableBuilder::new(ui)
-                            .id_salt("portfolio_assets_table")
-                            .column(Column::initial(100.0).resizable(true).clip(true))
-                            .column(Column::initial(100.0).clip(true))
-                            .column(Column::remainder().at_least(120.0))
-                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .striped(true)
-                            .resizable(false)
-                            .sense(Sense::click())
-                            .header(20.0, |mut header| {
-                                header.col(|ui| {
-                                    ui.label(egui::RichText::new("Classe").size(11.0).strong());
-                                });
-                                header.col(|ui| {
-                                    ui.label(egui::RichText::new("Valor").size(11.0).strong());
-                                });
-                                header.col(|ui| {
-                                    ui.label(egui::RichText::new("% PL").size(11.0).strong());
-                                });
-                            })
-                            .body(|body| {
-                                body.rows(20.0, nr_rows, |mut row| {
-                                    let row_index = row.index();
-                                    row.set_selected(self.tp_aplic_selected.contains(&row_index));
-                                    for col in &cols {
-                                        row.col(|ui| {
-                                            if let Ok(column) = self.top_assets.column(col) {
-                                                if let Ok(value) = column.get(row_index) {
-                                                    if col.contains("VL_PORCENTAGEM_PL") {
-                                                        let a = value
-                                                            .try_extract::<f64>()
-                                                            .unwrap_or_else(|_| value.to_string().parse::<f64>().unwrap_or(0.0));
-                                                        
-                                                        ui.centered_and_justified(|ui| {
-                                                            draw_custom_progress_bar(ui, a);
+                ui.push_id("top_assets", |ui| {
+                    ui.heading(
+                        egui::RichText::new(format!(
+                            "{} Classes de Ativos",
+                            egui_phosphor::regular::CHART_PIE_SLICE
+                        ))
+                        .size(14.0)
+                        .strong()
+                        .color(heading_color),
+                    );
+                    ui.separator();
+                    ui.add_space(8.0);
+                    TableBuilder::new(ui)
+                        .id_salt("portfolio_assets_table")
+                        .column(Column::initial(100.0).resizable(true).clip(true))
+                        .column(Column::initial(100.0).clip(true))
+                        .column(Column::remainder().at_least(120.0))
+                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                        .striped(true)
+                        .resizable(false)
+                        .sense(Sense::click())
+                        .header(20.0, |mut header| {
+                            header.col(|ui| {
+                                ui.label(egui::RichText::new("Classe").size(11.0).strong());
+                            });
+                            header.col(|ui| {
+                                ui.label(egui::RichText::new("Valor").size(11.0).strong());
+                            });
+                            header.col(|ui| {
+                                ui.label(egui::RichText::new("% PL").size(11.0).strong());
+                            });
+                        })
+                        .body(|body| {
+                            body.rows(20.0, nr_rows, |mut row| {
+                                let row_index = row.index();
+                                row.set_selected(self.tp_aplic_selected.contains(&row_index));
+                                for col in &cols {
+                                    row.col(|ui| {
+                                        if let Ok(column) = self.top_assets.column(col) {
+                                            if let Ok(value) = column.get(row_index) {
+                                                if col.contains("VL_PORCENTAGEM_PL") {
+                                                    let a = value
+                                                        .try_extract::<f64>()
+                                                        .unwrap_or_else(|_| {
+                                                            value
+                                                                .to_string()
+                                                                .parse::<f64>()
+                                                                .unwrap_or(0.0)
                                                         });
-                                                    } else if col.contains("VL_MERC_POS_FINAL") {
-                                                        let a = value
-                                                            .try_extract::<f64>()
-                                                            .unwrap_or_else(|_| value.to_string().parse::<f64>().unwrap_or(0.0));
-                                                        let r = util::to_real(a).unwrap();
-                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                            ui.label(egui::RichText::new(r.format()).size(11.0));
+
+                                                    ui.centered_and_justified(|ui| {
+                                                        draw_custom_progress_bar(ui, a);
+                                                    });
+                                                } else if col.contains("VL_MERC_POS_FINAL") {
+                                                    let a = value
+                                                        .try_extract::<f64>()
+                                                        .unwrap_or_else(|_| {
+                                                            value
+                                                                .to_string()
+                                                                .parse::<f64>()
+                                                                .unwrap_or(0.0)
                                                         });
-                                                    } else if let Some(value_str) = value.get_str()
-                                                    {
-                                                        ui.horizontal(|ui| {
+                                                    let r = util::to_real(a).unwrap();
+                                                    ui.with_layout(
+                                                        egui::Layout::right_to_left(
+                                                            egui::Align::Center,
+                                                        ),
+                                                        |ui| {
                                                             ui.label(
-                                                                egui::RichText::new("●")
-                                                                    .color(colors[row_index])
+                                                                egui::RichText::new(r.format())
                                                                     .size(11.0),
                                                             );
-                                                            ui.label(egui::RichText::new(value_str).size(11.0));
-                                                        });
-                                                    }
+                                                        },
+                                                    );
+                                                } else if let Some(value_str) = value.get_str() {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new("●")
+                                                                .color(colors[row_index])
+                                                                .size(11.0),
+                                                        );
+                                                        ui.label(
+                                                            egui::RichText::new(value_str)
+                                                                .size(11.0),
+                                                        );
+                                                    });
                                                 }
                                             }
-                                        });
-                                    }
-                                    if row.response().hovered() {
-                                        row.response()
-                                            .ctx
-                                            .set_cursor_icon(egui::CursorIcon::PointingHand);
-                                    }
-                                    toggle_row_selection(
-                                        &mut self.tp_aplic_selected,
-                                        row_index,
-                                        &row.response(),
-                                    );
-                                });
-                                });
+                                        }
+                                    });
+                                }
+                                if row.response().hovered() {
+                                    row.response()
+                                        .ctx
+                                        .set_cursor_icon(egui::CursorIcon::PointingHand);
+                                }
+                                toggle_row_selection(
+                                    &mut self.tp_aplic_selected,
+                                    row_index,
+                                    &row.response(),
+                                );
                             });
+                        });
                 });
+            });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.push_id("filter_assets", |ui| {
@@ -356,15 +391,23 @@ impl PortfolioUI {
                 };
 
                 let mut filtered_df = lf.collect().unwrap();
-                
+
                 let query = crate::util::normalize_string(&self.search_query);
                 if !query.is_empty() {
                     let mut mask_vec = Vec::with_capacity(filtered_df.height());
                     for i in 0..filtered_df.height() {
-                        let a = crate::util::normalize_string(&get_value_from_column("DS_ATIVO", &filtered_df, i).unwrap_or_default());
-                        let b = crate::util::normalize_string(&get_value_from_column("NM_FUNDO_COTA", &filtered_df, i).unwrap_or_default());
-                        let c = crate::util::normalize_string(&get_value_from_column("TP_APLIC", &filtered_df, i).unwrap_or_default());
-                        mask_vec.push(a.contains(&query) || b.contains(&query) || c.contains(&query));
+                        let a = crate::util::normalize_string(
+                            &get_value_from_column("DS_ATIVO", &filtered_df, i).unwrap_or_default(),
+                        );
+                        let b = crate::util::normalize_string(
+                            &get_value_from_column("NM_FUNDO_COTA", &filtered_df, i)
+                                .unwrap_or_default(),
+                        );
+                        let c = crate::util::normalize_string(
+                            &get_value_from_column("TP_APLIC", &filtered_df, i).unwrap_or_default(),
+                        );
+                        mask_vec
+                            .push(a.contains(&query) || b.contains(&query) || c.contains(&query));
                     }
                     if let Ok(mask_series) = Series::new("mask", mask_vec).bool() {
                         if let Ok(f_df) = filtered_df.filter(mask_series) {
@@ -388,14 +431,22 @@ impl PortfolioUI {
                         ))
                         .size(14.0)
                         .strong()
-                        .color(heading_color)
+                        .color(heading_color),
                     );
                     ui.separator();
                     ui.add_space(8.0);
-                    
+
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS.to_string()).size(14.0));
-                        ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text("Pesquisar ativo, fundo ou aplicação..."));
+                        ui.label(
+                            egui::RichText::new(
+                                egui_phosphor::regular::MAGNIFYING_GLASS.to_string(),
+                            )
+                            .size(14.0),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.search_query)
+                                .hint_text("Pesquisar ativo, fundo ou aplicação..."),
+                        );
                     });
                     ui.add_space(8.0);
 
@@ -403,75 +454,54 @@ impl PortfolioUI {
                         .id_salt("detail_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                    TableBuilder::new(ui)
-                        .auto_shrink([false, false])
-                        .column(Column::initial(150.0).at_least(100.0).resizable(true).clip(true))
-                        .column(Column::remainder().at_least(100.0).clip(true))
-                        .column(Column::initial(150.0).at_least(150.0).resizable(true).clip(true))
-                        .column(Column::initial(140.0).at_least(140.0).resizable(false).clip(true))
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .striped(true)
-                        .header(20.0, |mut header| {
-                                header.col(|ui| {
-                                    ui.label("Aplicação");
-                                });
-                                header.col(|ui| {
-                                    ui.label("Detalhes");
-                                });
-                                header.col(|ui| {
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        ui.label("Valor");
+                            TableBuilder::new(ui)
+                                .auto_shrink([false, false])
+                                .column(
+                                    Column::initial(150.0)
+                                        .at_least(100.0)
+                                        .resizable(true)
+                                        .clip(true),
+                                )
+                                .column(Column::remainder().at_least(100.0).clip(true))
+                                .column(
+                                    Column::initial(150.0)
+                                        .at_least(150.0)
+                                        .resizable(true)
+                                        .clip(true),
+                                )
+                                .column(
+                                    Column::initial(140.0)
+                                        .at_least(140.0)
+                                        .resizable(false)
+                                        .clip(true),
+                                )
+                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                .striped(true)
+                                .header(20.0, |mut header| {
+                                    header.col(|ui| {
+                                        ui.label("Aplicação");
                                     });
-                                });
-                                header.col(|ui| {
-                                    ui.label("% Patrim. Liq");
-                                });
-                            })
-                            .body(|body| {
-                                body.rows(20.0, nr_rows, |mut row| {
-                                    let row_index = row.index();
-                                    for (i, col_name) in cols.iter().enumerate() {
-                                        row.col(|ui| {
-                                            if i == 1 {
-                                                let cd_ativo = get_value_from_column("CD_ATIVO", &filtered_df, row_index).unwrap_or_default();
-                                                let isin = get_value_from_column("CD_ISIN", &filtered_df, row_index).unwrap_or_default();
-                                                let sigla = if !cd_ativo.is_empty() { cd_ativo } else { isin };
-                                                
-                                                let mut name_part = [
-                                                    "DS_ATIVO",
-                                                    "NM_FUNDO_COTA",
-                                                    "TP_TITPUB",
-                                                    "TP_APLIC",
-                                                ]
-                                                .iter()
-                                                .filter_map(|&col| {
-                                                    let v = get_value_from_column(col, &filtered_df, row_index).unwrap_or_default();
-                                                    if !v.is_empty() { Some(v) } else { None }
-                                                })
-                                                .next()
-                                                .unwrap_or_else(|| "N/A".to_string());
-                                                
-                                                let details_label = if !sigla.is_empty() && name_part != sigla {
-                                                    format!("{} - {}", sigla, name_part)
-                                                } else if !sigla.is_empty() {
-                                                    sigla
-                                                } else {
-                                                    name_part
-                                                };
-                                                if ui.link(details_label.clone()).clicked() {
-                                                    // Populate AssetDetailModal from the clicked row
-                                                    let aplic = get_value_from_column(
-                                                        "TP_APLIC",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .unwrap_or_default();
-                                                    let tp_ativo = get_value_from_column(
-                                                        "TP_ATIVO",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .unwrap_or_default();
+                                    header.col(|ui| {
+                                        ui.label("Detalhes");
+                                    });
+                                    header.col(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                ui.label("Valor");
+                                            },
+                                        );
+                                    });
+                                    header.col(|ui| {
+                                        ui.label("% Patrim. Liq");
+                                    });
+                                })
+                                .body(|body| {
+                                    body.rows(20.0, nr_rows, |mut row| {
+                                        let row_index = row.index();
+                                        for (i, col_name) in cols.iter().enumerate() {
+                                            row.col(|ui| {
+                                                if i == 1 {
                                                     let cd_ativo = get_value_from_column(
                                                         "CD_ATIVO",
                                                         &filtered_df,
@@ -484,115 +514,192 @@ impl PortfolioUI {
                                                         row_index,
                                                     )
                                                     .unwrap_or_default();
-                                                    let ds_ativo = get_value_from_column(
-                                                        "DS_ATIVO",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .unwrap_or_default();
-                                                    let nm_fundo = get_value_from_column(
-                                                        "NM_FUNDO_COTA",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .unwrap_or_default();
-                                                    let titpub = get_value_from_column(
-                                                        "TP_TITPUB",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .unwrap_or_default();
-
-                                                    let codigo = if !cd_ativo.is_empty() {
+                                                    let sigla = if !cd_ativo.is_empty() {
                                                         cd_ativo
-                                                    } else if !isin.is_empty() {
+                                                    } else {
                                                         isin
-                                                    } else {
-                                                        String::new()
                                                     };
-                                                    let nome = if !titpub.is_empty() {
-                                                        titpub
-                                                    } else if !ds_ativo.is_empty() {
-                                                        ds_ativo
-                                                    } else {
-                                                        aplic.clone()
-                                                    };
-                                                    let vl_merc = get_value_from_column(
-                                                        "VL_MERC_POS_FINAL",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .and_then(|v| v.parse::<f64>().ok())
-                                                    .unwrap_or(0.0);
-                                                    let vl_aquis = get_value_from_column(
-                                                        "VL_AQUIS_NEGOC",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .and_then(|v| v.parse::<f64>().ok())
-                                                    .unwrap_or(0.0);
-                                                    let pct = get_value_from_column(
-                                                        "VL_PORCENTAGEM_PL",
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
-                                                    .and_then(|v| v.parse::<f64>().ok())
-                                                    .unwrap_or(0.0);
 
-
-                                                    self.asset_modal.title =
-                                                        format!("Detalhes - {}", nome);
-                                                    self.asset_modal.codigo = codigo;
-                                                    self.asset_modal.nome = nome;
-                                                    self.asset_modal.tp_ativo = tp_ativo;
-                                                    self.asset_modal.tp_aplic = aplic;
-                                                    self.asset_modal.dt_venc = String::new();
-                                                    self.asset_modal.nm_fundo = nm_fundo;
-                                                    self.asset_modal.cnpj = self.cnpj.clone();
-                                                    self.asset_modal.sender =
-                                                        Some(self.sender.clone().unwrap());
-                                                    self.asset_modal.vl_mercado = vl_merc;
-                                                    self.asset_modal.vl_aquisicao = vl_aquis;
-                                                    self.asset_modal.pct_pl = pct;
-                                                    self.asset_modal.n_fundos = 0;
-                                                    self.asset_modal.vl_comprado = vl_aquis;
-                                                    self.asset_modal.n_compradores = 0;
-                                                    self.asset_modal.n_vendedores = 0;
-                                                    self.asset_modal.pl_medio = 0.0;
-                                                    self.asset_modal.open_with_auto_fetch();
-                                                }
-                                            } else if let Ok(column) = filtered_df.column(col_name)
-                                            {
-                                                if let Ok(value) = column.get(row_index) {
-                                                    if col_name.contains("VL_PORCENTAGEM_PL") {
-                                                        let a = value
-                                                            .try_extract::<f64>()
-                                                            .unwrap_or_else(|_| value.to_string().parse::<f64>().unwrap_or(0.0));
-                                                        
-                                                        ui.centered_and_justified(|ui| {
-                                                            draw_custom_progress_bar(ui, a);
-                                                        });
-                                                    } else if let Some(value_str) = value.get_str()
-                                                    {
-                                                        if col_name.contains("VL_MERC_POS_FINAL") {
-                                                            let a = value_str
-                                                                .to_string()
-                                                                .parse::<f64>()
-                                                                .unwrap();
-                                                            let r = util::to_real(a).unwrap();
-                                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                                ui.label(r.format());
-                                                            });
+                                                    let name_part = [
+                                                        "DS_ATIVO",
+                                                        "NM_FUNDO_COTA",
+                                                        "TP_TITPUB",
+                                                        "TP_APLIC",
+                                                    ]
+                                                    .iter()
+                                                    .filter_map(|&col| {
+                                                        let v = get_value_from_column(
+                                                            col,
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+                                                        if !v.is_empty() {
+                                                            Some(v)
                                                         } else {
-                                                            ui.label(value_str);
+                                                            None
+                                                        }
+                                                    })
+                                                    .next()
+                                                    .unwrap_or_else(|| "N/A".to_string());
+
+                                                    let details_label = if !sigla.is_empty()
+                                                        && name_part != sigla
+                                                    {
+                                                        format!("{} - {}", sigla, name_part)
+                                                    } else if !sigla.is_empty() {
+                                                        sigla
+                                                    } else {
+                                                        name_part
+                                                    };
+                                                    if ui.link(details_label.clone()).clicked() {
+                                                        // Populate AssetDetailModal from the clicked row
+                                                        let aplic = get_value_from_column(
+                                                            "TP_APLIC",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+                                                        let tp_ativo = get_value_from_column(
+                                                            "TP_ATIVO",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+                                                        let cd_ativo = get_value_from_column(
+                                                            "CD_ATIVO",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+                                                        let isin = get_value_from_column(
+                                                            "CD_ISIN",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+                                                        let ds_ativo = get_value_from_column(
+                                                            "DS_ATIVO",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+                                                        let nm_fundo = get_value_from_column(
+                                                            "NM_FUNDO_COTA",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+                                                        let titpub = get_value_from_column(
+                                                            "TP_TITPUB",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .unwrap_or_default();
+
+                                                        let codigo = if !cd_ativo.is_empty() {
+                                                            cd_ativo
+                                                        } else if !isin.is_empty() {
+                                                            isin
+                                                        } else {
+                                                            String::new()
+                                                        };
+                                                        let nome = if !titpub.is_empty() {
+                                                            titpub
+                                                        } else if !ds_ativo.is_empty() {
+                                                            ds_ativo
+                                                        } else {
+                                                            aplic.clone()
+                                                        };
+                                                        let vl_merc = get_value_from_column(
+                                                            "VL_MERC_POS_FINAL",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .and_then(|v| v.parse::<f64>().ok())
+                                                        .unwrap_or(0.0);
+                                                        let vl_aquis = get_value_from_column(
+                                                            "VL_AQUIS_NEGOC",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .and_then(|v| v.parse::<f64>().ok())
+                                                        .unwrap_or(0.0);
+                                                        let pct = get_value_from_column(
+                                                            "VL_PORCENTAGEM_PL",
+                                                            &filtered_df,
+                                                            row_index,
+                                                        )
+                                                        .and_then(|v| v.parse::<f64>().ok())
+                                                        .unwrap_or(0.0);
+
+                                                        self.asset_modal.title =
+                                                            format!("Detalhes - {}", nome);
+                                                        self.asset_modal.codigo = codigo;
+                                                        self.asset_modal.nome = nome;
+                                                        self.asset_modal.tp_ativo = tp_ativo;
+                                                        self.asset_modal.tp_aplic = aplic;
+                                                        self.asset_modal.dt_venc = String::new();
+                                                        self.asset_modal.nm_fundo = nm_fundo;
+                                                        self.asset_modal.cnpj = self.cnpj.clone();
+                                                        self.asset_modal.sender =
+                                                            Some(self.sender.clone().unwrap());
+                                                        self.asset_modal.vl_mercado = vl_merc;
+                                                        self.asset_modal.vl_aquisicao = vl_aquis;
+                                                        self.asset_modal.pct_pl = pct;
+                                                        self.asset_modal.n_fundos = 0;
+                                                        self.asset_modal.vl_comprado = vl_aquis;
+                                                        self.asset_modal.n_compradores = 0;
+                                                        self.asset_modal.n_vendedores = 0;
+                                                        self.asset_modal.pl_medio = 0.0;
+                                                        self.asset_modal.open_with_auto_fetch();
+                                                    }
+                                                } else if let Ok(column) =
+                                                    filtered_df.column(col_name)
+                                                {
+                                                    if let Ok(value) = column.get(row_index) {
+                                                        if col_name.contains("VL_PORCENTAGEM_PL") {
+                                                            let a = value
+                                                                .try_extract::<f64>()
+                                                                .unwrap_or_else(|_| {
+                                                                    value
+                                                                        .to_string()
+                                                                        .parse::<f64>()
+                                                                        .unwrap_or(0.0)
+                                                                });
+
+                                                            ui.centered_and_justified(|ui| {
+                                                                draw_custom_progress_bar(ui, a);
+                                                            });
+                                                        } else if let Some(value_str) =
+                                                            value.get_str()
+                                                        {
+                                                            if col_name
+                                                                .contains("VL_MERC_POS_FINAL")
+                                                            {
+                                                                let a = value_str
+                                                                    .to_string()
+                                                                    .parse::<f64>()
+                                                                    .unwrap();
+                                                                let r = util::to_real(a).unwrap();
+                                                                ui.with_layout(
+                                                                    egui::Layout::right_to_left(
+                                                                        egui::Align::Center,
+                                                                    ),
+                                                                    |ui| {
+                                                                        ui.label(r.format());
+                                                                    },
+                                                                );
+                                                            } else {
+                                                                ui.label(value_str);
+                                                            }
                                                         }
                                                     }
                                                 }
-                                            }
-                                        });
-                                    }
-                                }); // fechar body.rows
-                            }); // fechar .body
+                                            });
+                                        }
+                                    }); // fechar body.rows
+                                }); // fechar .body
                         }); // fechar ScrollArea
                 } // fechar bloco
             }); // fechar push_id
@@ -678,16 +785,24 @@ fn month_name(month: i32) -> String {
 fn draw_custom_progress_bar(ui: &mut egui::Ui, percentage: f64) {
     let desired_width = ui.available_width().max(60.0);
     let height = 18.0;
-    let (rect, _response) = ui.allocate_exact_size(egui::vec2(desired_width, height), egui::Sense::hover());
+    let (rect, _response) =
+        ui.allocate_exact_size(egui::vec2(desired_width, height), egui::Sense::hover());
 
-    let track_color = if ui.visuals().dark_mode { egui::Color32::from_rgb(45, 50, 60) } else { egui::Color32::from_rgb(245, 247, 250) };
-    ui.painter().rect_filled(rect, egui::CornerRadius::same(9), track_color);
+    let track_color = if ui.visuals().dark_mode {
+        egui::Color32::from_rgb(45, 50, 60)
+    } else {
+        egui::Color32::from_rgb(245, 247, 250)
+    };
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::same(9), track_color);
 
     let progress = (percentage / 100.0).clamp(0.0, 1.0) as f32;
     let text = format!("{:.2}%", percentage);
     let text_color = egui::Color32::WHITE;
-    
-    let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(11.0), text_color);
+
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text, egui::FontId::proportional(11.0), text_color);
     let text_width = galley.rect.width();
 
     let mut fill_width = rect.width() * progress;
@@ -699,10 +814,18 @@ fn draw_custom_progress_bar(ui: &mut egui::Ui, percentage: f64) {
         fill_width = rect.width();
     }
 
-    let fill_color = if percentage < 0.0 { egui::Color32::from_rgb(200, 80, 80) } else { egui::Color32::from_rgb(60, 160, 100) };
+    let fill_color = if percentage < 0.0 {
+        egui::Color32::from_rgb(200, 80, 80)
+    } else {
+        egui::Color32::from_rgb(60, 160, 100)
+    };
     let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(fill_width, height));
-    ui.painter().rect_filled(fill_rect, egui::CornerRadius::same(9), fill_color);
+    ui.painter()
+        .rect_filled(fill_rect, egui::CornerRadius::same(9), fill_color);
 
-    let text_pos = egui::pos2(fill_rect.left() + 6.0, fill_rect.center().y - galley.rect.height() / 2.0);
+    let text_pos = egui::pos2(
+        fill_rect.left() + 6.0,
+        fill_rect.center().y - galley.rect.height() / 2.0,
+    );
     ui.painter().galley(text_pos, galley, text_color);
 }

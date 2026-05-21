@@ -77,6 +77,7 @@ pub async fn async_dataframe(
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[allow(dead_code)]
 pub struct Ibov {
     pub date: String,
     pub timestamp: u64,

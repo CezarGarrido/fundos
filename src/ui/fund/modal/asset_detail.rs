@@ -314,7 +314,9 @@ impl AssetDetailModal {
                                     );
                                 });
                                 cols[1].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Compradores").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new("Compradores").size(9.0).color(tx),
+                                    );
                                     ui.label(
                                         egui::RichText::new(format!("{}", n_cp))
                                             .size(18.0)
@@ -401,7 +403,9 @@ impl AssetDetailModal {
                             section(ui, hd, "Volume e Exposição");
                             ui.columns(3, |cols| {
                                 cols[0].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Volume Total").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new("Volume Total").size(9.0).color(tx),
+                                    );
                                     ui.label(
                                         egui::RichText::new(fmt(vl_md))
                                             .size(13.0)
@@ -414,7 +418,9 @@ impl AssetDetailModal {
                                     ui.label(egui::RichText::new(fmt(pl_md)).size(13.0).strong());
                                 });
                                 cols[2].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Fluxo Líquido").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new("Fluxo Líquido").size(9.0).color(tx),
+                                    );
                                     let flx_color = if flx > 0.0 {
                                         gr
                                     } else if flx < 0.0 {
@@ -424,10 +430,14 @@ impl AssetDetailModal {
                                     };
                                     let prefix = if flx > 0.0 { "+" } else { "" };
                                     ui.label(
-                                        egui::RichText::new(format!("{}{}", prefix, fmt(flx.abs())))
-                                            .size(13.0)
-                                            .strong()
-                                            .color(flx_color),
+                                        egui::RichText::new(format!(
+                                            "{}{}",
+                                            prefix,
+                                            fmt(flx.abs())
+                                        ))
+                                        .size(13.0)
+                                        .strong()
+                                        .color(flx_color),
                                     );
                                 });
                             });
@@ -439,13 +449,17 @@ impl AssetDetailModal {
                             section(ui, hd, "Resumo de Negociação (período)");
                             ui.columns(2, |cols| {
                                 cols[0].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Total Comprado").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new("Total Comprado").size(9.0).color(tx),
+                                    );
                                     ui.label(
                                         egui::RichText::new(fmt(vcp)).size(13.0).strong().color(gr),
                                     );
                                 });
                                 cols[1].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Total Vendido").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new("Total Vendido").size(9.0).color(tx),
+                                    );
                                     ui.label(
                                         egui::RichText::new(fmt(vvd)).size(13.0).strong().color(rd),
                                     );
@@ -459,7 +473,9 @@ impl AssetDetailModal {
                             section(ui, hd, "Posição do Fundo");
                             ui.columns(3, |cols| {
                                 cols[0].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Valor da Posição").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new("Valor da Posição").size(9.0).color(tx),
+                                    );
                                     ui.label(
                                         egui::RichText::new(fmt(vl_md))
                                             .size(13.0)
@@ -468,7 +484,11 @@ impl AssetDetailModal {
                                     );
                                 });
                                 cols[1].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Custo de Aquisição").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new("Custo de Aquisição")
+                                            .size(9.0)
+                                            .color(tx),
+                                    );
                                     ui.label(
                                         egui::RichText::new(fmt(vl_aq))
                                             .size(13.0)
@@ -552,9 +572,11 @@ impl AssetDetailModal {
                             ui.separator();
                             ui.add_space(6.0);
                             section(ui, hd, "Fundos Investidores");
-                            
+
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Filtrar Fundo:").size(11.0).color(tx));
+                                ui.label(
+                                    egui::RichText::new("Filtrar Fundo:").size(11.0).color(tx),
+                                );
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.holders_filter)
                                         .margin(egui::vec2(6.0, 4.0))
@@ -583,61 +605,138 @@ impl AssetDetailModal {
                                     has_nm = true;
                                     nm_col = c.clone();
                                 }
-                                let cnpj_col = holders.column("CNPJ_FUNDO").unwrap_or(&polars::series::Series::default()).clone();
-                                let vl_col = holders.column("VL_MERC_POS_FINAL").unwrap_or(&polars::series::Series::default()).clone();
-                                let pct_col = holders.column("VL_PORCENTAGEM_PL").unwrap_or(&polars::series::Series::default()).clone();
-                                
+                                let cnpj_col = holders
+                                    .column("CNPJ_FUNDO")
+                                    .unwrap_or(&polars::series::Series::default())
+                                    .clone();
+                                let vl_col = holders
+                                    .column("VL_MERC_POS_FINAL")
+                                    .unwrap_or(&polars::series::Series::default())
+                                    .clone();
+                                let pct_col = holders
+                                    .column("VL_PORCENTAGEM_PL")
+                                    .unwrap_or(&polars::series::Series::default())
+                                    .clone();
+
                                 let mut rows = Vec::new();
                                 for i in 0..holders.height() {
-                                    let c = cnpj_col.get(i).unwrap_or(polars::datatypes::AnyValue::Null).to_string();
+                                    let c = cnpj_col
+                                        .get(i)
+                                        .unwrap_or(polars::datatypes::AnyValue::Null)
+                                        .to_string();
                                     let n = if has_nm {
-                                        nm_col.get(i).unwrap_or(polars::datatypes::AnyValue::Null).to_string()
+                                        nm_col
+                                            .get(i)
+                                            .unwrap_or(polars::datatypes::AnyValue::Null)
+                                            .to_string()
                                     } else {
                                         String::new()
                                     };
                                     let filter = self.holders_filter.to_lowercase();
-                                    if filter.is_empty() || c.to_lowercase().contains(&filter) || n.to_lowercase().contains(&filter) {
+                                    if filter.is_empty()
+                                        || c.to_lowercase().contains(&filter)
+                                        || n.to_lowercase().contains(&filter)
+                                    {
                                         rows.push(i);
                                     }
                                 }
 
-                                egui::ScrollArea::horizontal().id_source("holders_h_scroll").show(ui, |ui| {
-                                    egui_extras::TableBuilder::new(ui)
-                                        .striped(true)
-                                        .resizable(true)
-                                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                                        .column(egui_extras::Column::initial(220.0).at_least(100.0))
-                                        .column(egui_extras::Column::initial(110.0).at_least(80.0))
-                                        .column(egui_extras::Column::initial(110.0).at_least(80.0))
-                                        .header(24.0, |mut header| {
-                                            header.col(|ui| { ui.label(egui::RichText::new(if has_nm { "Fundo" } else { "CNPJ" }).size(11.0).strong()); });
-                                            header.col(|ui| { ui.label(egui::RichText::new("Volume (R$)").size(11.0).strong()); });
-                                            header.col(|ui| { ui.label(egui::RichText::new("% PL").size(11.0).strong()); });
-                                        })
-                                        .body(|body| {
-                                            body.rows(20.0, rows.len().min(100), |mut row| {
-                                                let idx = rows[row.index()];
-                                                let c = cnpj_col.get(idx).unwrap_or(polars::datatypes::AnyValue::Null).to_string().replace("\"", "");
-                                                let n = if has_nm {
-                                                    nm_col.get(idx).unwrap_or(polars::datatypes::AnyValue::Null).to_string().replace("\"", "")
-                                                } else {
-                                                    String::new()
-                                                };
-                                                let v = get_f64(&vl_col, idx);
-                                                let p = get_f64(&pct_col, idx);
+                                egui::ScrollArea::horizontal()
+                                    .id_salt("holders_h_scroll")
+                                    .show(ui, |ui| {
+                                        egui_extras::TableBuilder::new(ui)
+                                            .striped(true)
+                                            .resizable(true)
+                                            .cell_layout(egui::Layout::left_to_right(
+                                                egui::Align::Center,
+                                            ))
+                                            .column(
+                                                egui_extras::Column::initial(220.0).at_least(100.0),
+                                            )
+                                            .column(
+                                                egui_extras::Column::initial(110.0).at_least(80.0),
+                                            )
+                                            .column(
+                                                egui_extras::Column::initial(110.0).at_least(80.0),
+                                            )
+                                            .header(24.0, |mut header| {
+                                                header.col(|ui| {
+                                                    ui.label(
+                                                        egui::RichText::new(if has_nm {
+                                                            "Fundo"
+                                                        } else {
+                                                            "CNPJ"
+                                                        })
+                                                        .size(11.0)
+                                                        .strong(),
+                                                    );
+                                                });
+                                                header.col(|ui| {
+                                                    ui.label(
+                                                        egui::RichText::new("Volume (R$)")
+                                                            .size(11.0)
+                                                            .strong(),
+                                                    );
+                                                });
+                                                header.col(|ui| {
+                                                    ui.label(
+                                                        egui::RichText::new("% PL")
+                                                            .size(11.0)
+                                                            .strong(),
+                                                    );
+                                                });
+                                            })
+                                            .body(|body| {
+                                                body.rows(20.0, rows.len().min(100), |mut row| {
+                                                    let idx = rows[row.index()];
+                                                    let c = cnpj_col
+                                                        .get(idx)
+                                                        .unwrap_or(
+                                                            polars::datatypes::AnyValue::Null,
+                                                        )
+                                                        .to_string()
+                                                        .replace("\"", "");
+                                                    let n = if has_nm {
+                                                        nm_col
+                                                            .get(idx)
+                                                            .unwrap_or(
+                                                                polars::datatypes::AnyValue::Null,
+                                                            )
+                                                            .to_string()
+                                                            .replace("\"", "")
+                                                    } else {
+                                                        String::new()
+                                                    };
+                                                    let v = get_f64(&vl_col, idx);
+                                                    let p = get_f64(&pct_col, idx);
 
-                                                row.col(|ui| {
-                                                    ui.label(egui::RichText::new(if n.is_empty() { c } else { n }).size(10.5));
-                                                });
-                                                row.col(|ui| {
-                                                    ui.label(egui::RichText::new(fmt(v)).size(10.5));
-                                                });
-                                                row.col(|ui| {
-                                                    ui.label(egui::RichText::new(format!("{:.2}%", p)).size(10.5));
+                                                    row.col(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(if n.is_empty() {
+                                                                c
+                                                            } else {
+                                                                n
+                                                            })
+                                                            .size(10.5),
+                                                        );
+                                                    });
+                                                    row.col(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(fmt(v)).size(10.5),
+                                                        );
+                                                    });
+                                                    row.col(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(format!(
+                                                                "{:.2}%",
+                                                                p
+                                                            ))
+                                                            .size(10.5),
+                                                        );
+                                                    });
                                                 });
                                             });
-                                        });
-                                });
+                                    });
                             }
                         }
                     });

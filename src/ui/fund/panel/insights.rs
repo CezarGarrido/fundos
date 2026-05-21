@@ -1,26 +1,27 @@
+use crate::util;
 use egui::Ui;
 use polars::prelude::*;
-use crate::util;
 
 pub fn show_kpis(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
     // Definir paleta de cores dinâmicas de alto contraste de acordo com o tema
-    let (heading_color, text_color, secondary_color, success_color, card_bg) = if ui.visuals().dark_mode {
-        (
-            egui::Color32::from_rgb(255, 255, 255), // Branco brilhante para títulos
-            egui::Color32::from_rgb(230, 235, 245), // Cinza muito claro para leitura
-            egui::Color32::from_rgb(175, 185, 200), // Cinza intermediário para secundários (legível)
-            egui::Color32::from_rgb(46, 204, 113),  // Verde esmeralda
-            egui::Color32::from_rgb(30, 35, 45),    // Fundo do card escuro
-        )
-    } else {
-        (
-            egui::Color32::from_rgb(10, 15, 25),    // Azul escuro/preto para títulos
-            egui::Color32::from_rgb(30, 35, 45),    // Cinza grafite escuro para leitura
-            egui::Color32::from_rgb(80, 85, 100),   // Cinza escuro legível para secundários
-            egui::Color32::from_rgb(19, 115, 51),   // Verde escuro floresta
-            egui::Color32::from_rgb(245, 247, 250), // Fundo do card claro
-        )
-    };
+    let (heading_color, _text_color, secondary_color, success_color, card_bg) =
+        if ui.visuals().dark_mode {
+            (
+                egui::Color32::from_rgb(255, 255, 255), // Branco brilhante para títulos
+                egui::Color32::from_rgb(230, 235, 245), // Cinza muito claro para leitura
+                egui::Color32::from_rgb(175, 185, 200), // Cinza intermediário para secundários (legível)
+                egui::Color32::from_rgb(46, 204, 113),  // Verde esmeralda
+                egui::Color32::from_rgb(30, 35, 45),    // Fundo do card escuro
+            )
+        } else {
+            (
+                egui::Color32::from_rgb(10, 15, 25), // Azul escuro/preto para títulos
+                egui::Color32::from_rgb(30, 35, 45), // Cinza grafite escuro para leitura
+                egui::Color32::from_rgb(80, 85, 100), // Cinza escuro legível para secundários
+                egui::Color32::from_rgb(19, 115, 51), // Verde escuro floresta
+                egui::Color32::from_rgb(245, 247, 250), // Fundo do card claro
+            )
+        };
 
     if assets.height() == 0 {
         ui.vertical_centered(|ui| {
@@ -46,88 +47,96 @@ pub fn show_kpis(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
         return;
     }
 
-            // Obter estatísticas da maior posição
-            let max_pos = get_largest_position(&assets);
-            let total_assets_count = get_unique_assets_count(&assets);
-            let (short_term_pct, long_term_pct) = get_duration_split(&assets);
+    // Obter estatísticas da maior posição
+    let max_pos = get_largest_position(&assets);
+    let total_assets_count = get_unique_assets_count(&assets);
+    let (_short_term_pct, _long_term_pct) = get_duration_split(&assets);
 
-            // Grid Superior: Resumos Rápidos (KPI Cards)
-            ui.columns(3, |cols| {
-                // Card 1: Diversificação
-                draw_kpi_card(
-                    &mut cols[0],
-                    "GRAU DE DIVERSIFICAÇÃO",
-                    &format!("{} Ativos", total_assets_count),
-                    if total_assets_count > 30 {
-                        "Alta diversificação (Risco diluído)"
-                    } else if total_assets_count > 10 {
-                        "Diversificação moderada (Equilibrada)"
-                    } else {
-                        "Carteira concentrada (Foco em convicção)"
-                    },
-                    success_color,
-                    card_bg,
-                );
+    // Grid Superior: Resumos Rápidos (KPI Cards)
+    ui.columns(3, |cols| {
+        // Card 1: Diversificação
+        draw_kpi_card(
+            &mut cols[0],
+            "GRAU DE DIVERSIFICAÇÃO",
+            &format!("{} Ativos", total_assets_count),
+            if total_assets_count > 30 {
+                "Alta diversificação (Risco diluído)"
+            } else if total_assets_count > 10 {
+                "Diversificação moderada (Equilibrada)"
+            } else {
+                "Carteira concentrada (Foco em convicção)"
+            },
+            success_color,
+            card_bg,
+        );
 
-                // Card 2: Maior Posição %
-                let max_pct = max_pos.as_ref().map(|p| p.pct).unwrap_or(0.0);
-                draw_kpi_card(
-                    &mut cols[1],
-                    "MAIOR CONCENTRAÇÃO",
-                    &format!("{:.2}% do PL", max_pct),
-                    if max_pct > 20.0 {
-                        "Concentração alta (>20% do PL)"
-                    } else if max_pct > 10.0 {
-                        "Exposição relevante (Teto privado 10%)"
-                    } else {
-                        "Dispersão excelente (<10% por ativo)"
-                    },
-                    if max_pct > 20.0 {
-                        egui::Color32::from_rgb(231, 76, 60)
-                    } else {
-                        egui::Color32::from_rgb(52, 152, 219)
-                    },
-                    card_bg,
-                );
+        // Card 2: Maior Posição %
+        let max_pct = max_pos.as_ref().map(|p| p.pct).unwrap_or(0.0);
+        draw_kpi_card(
+            &mut cols[1],
+            "MAIOR CONCENTRAÇÃO",
+            &format!("{:.2}% do PL", max_pct),
+            if max_pct > 20.0 {
+                "Concentração alta (>20% do PL)"
+            } else if max_pct > 10.0 {
+                "Exposição relevante (Teto privado 10%)"
+            } else {
+                "Dispersão excelente (<10% por ativo)"
+            },
+            if max_pct > 20.0 {
+                egui::Color32::from_rgb(231, 76, 60)
+            } else {
+                egui::Color32::from_rgb(52, 152, 219)
+            },
+            card_bg,
+        );
 
-                // Card 3: Patrimônio Líquido
-                let pl_val = get_pl_value(&pl);
-                let pl_formatted = if pl_val > 0.0 {
-                    util::to_real(pl_val).unwrap().format()
-                } else {
-                    "R$ N/A".to_string()
-                };
-                draw_kpi_card(
-                    &mut cols[2],
-                    "PATRIMÔNIO LÍQUIDO",
-                    &pl_formatted,
-                    "Total sob gestão deste fundo",
-                    egui::Color32::from_rgb(155, 89, 182),
-                    card_bg,
-                );
-            });
+        // Card 3: Patrimônio Líquido
+        let pl_val = get_pl_value(&pl);
+        let pl_formatted = if pl_val > 0.0 {
+            util::to_real(pl_val).unwrap().format()
+        } else {
+            "R$ N/A".to_string()
+        };
+        draw_kpi_card(
+            &mut cols[2],
+            "PATRIMÔNIO LÍQUIDO",
+            &pl_formatted,
+            "Total sob gestão deste fundo",
+            egui::Color32::from_rgb(155, 89, 182),
+            card_bg,
+        );
+    });
 }
 
-pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<DataFrame>, ui: &mut Ui) {
-    if assets.height() == 0 { return; }
-    
-    let (heading_color, text_color, secondary_color, success_color, _card_bg) = if ui.visuals().dark_mode {
-        (
-            egui::Color32::from_rgb(255, 255, 255),
-            egui::Color32::from_rgb(230, 235, 245),
-            egui::Color32::from_rgb(175, 185, 200),
-            egui::Color32::from_rgb(46, 204, 113),
-            egui::Color32::from_rgb(30, 35, 45),
-        )
-    } else {
-        (
-            egui::Color32::from_rgb(10, 15, 25),
-            egui::Color32::from_rgb(30, 35, 45),
-            egui::Color32::from_rgb(80, 85, 100),
-            egui::Color32::from_rgb(19, 115, 51),
-            egui::Color32::from_rgb(245, 247, 250),
-        )
-    };
+pub fn show_detailed(
+    assets: DataFrame,
+    _pl: DataFrame,
+    fund_history: Option<DataFrame>,
+    ui: &mut Ui,
+) {
+    if assets.height() == 0 {
+        return;
+    }
+
+    let (heading_color, text_color, secondary_color, success_color, _card_bg) =
+        if ui.visuals().dark_mode {
+            (
+                egui::Color32::from_rgb(255, 255, 255),
+                egui::Color32::from_rgb(230, 235, 245),
+                egui::Color32::from_rgb(175, 185, 200),
+                egui::Color32::from_rgb(46, 204, 113),
+                egui::Color32::from_rgb(30, 35, 45),
+            )
+        } else {
+            (
+                egui::Color32::from_rgb(10, 15, 25),
+                egui::Color32::from_rgb(30, 35, 45),
+                egui::Color32::from_rgb(80, 85, 100),
+                egui::Color32::from_rgb(19, 115, 51),
+                egui::Color32::from_rgb(245, 247, 250),
+            )
+        };
 
     let max_pos = get_largest_position(&assets);
     let (short_term_pct, long_term_pct) = get_duration_split(&assets);
@@ -241,7 +250,7 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<Data
                         ui.add_space(15.0);
                         ui.separator();
                         ui.add_space(15.0);
-                        
+
                         // RF11 & Analytics: Comportamento do Gestor
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
@@ -249,7 +258,7 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<Data
                                 ui.label(egui::RichText::new("Comportamento do Gestor (Analytics)").strong().size(12.0).color(heading_color));
                             });
                             ui.separator();
-                            
+
                             if let Some(history_df) = &fund_history {
                                 if let Some(analytics) = crate::analytics::compute_asset_analytics(history_df, &pos.codigo, None) {
                                     egui::Grid::new("analytics_grid")
@@ -265,7 +274,7 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<Data
                                                 ui.label(egui::RichText::new(formatted.format()).color(success_color));
                                             }
                                             ui.end_row();
-                                            
+
                                             ui.label(egui::RichText::new("Take-Profit Gatilho:").color(text_color));
                                             let tp_color = if analytics.take_profit_trigger > 0.0 { success_color } else { secondary_color };
                                             ui.label(egui::RichText::new(format!("{:.1}% do PL", analytics.take_profit_trigger)).color(tp_color));
@@ -323,7 +332,7 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<Data
                     // Desenhar barra de progresso horizontal comparando Curto vs Longo Prazo
                     let total_pct = short_term_pct + long_term_pct;
                     let short_ratio = if total_pct > 0.0 { short_term_pct / total_pct } else { 0.5 };
-                    
+
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Liquidez / Curto Prazo").size(11.0).color(secondary_color));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -334,7 +343,7 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<Data
                     // Barra customizada
                     let (rect, _response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 16.0), egui::Sense::hover());
                     let painter = ui.painter();
-                    
+
                     // Fundo da barra (Longo Prazo - Laranja de alto contraste)
                     let orange_color = if ui.visuals().dark_mode {
                         egui::Color32::from_rgb(230, 126, 34)
@@ -342,7 +351,7 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<Data
                         egui::Color32::from_rgb(190, 95, 10)
                     };
                     painter.rect_filled(rect, egui::CornerRadius::same(4), orange_color);
-                    
+
                     // Parte Curta da barra (Curto Prazo - Verde de alto contraste)
                     let short_width = rect.width() * short_ratio as f32;
                     let short_rect = egui::Rect::from_min_size(rect.min, egui::vec2(short_width, rect.height()));
@@ -535,13 +544,21 @@ fn get_duration_split(assets: &DataFrame) -> (f64, f64) {
 
     if let (Some(tp_col), Some(p_col)) = (tp_aplic_col, pct_col) {
         for i in 0..assets.height() {
-            let tp_val = tp_col.get(i).ok().and_then(|v| v.get_str().map(|s| s.to_lowercase())).unwrap_or_default();
-            let pct_val = p_col.get(i).ok().and_then(|v| {
-                v.try_extract::<f64>().ok().or_else(|| {
-                    v.get_str()
-                        .and_then(|s| s.replace(',', ".").parse::<f64>().ok())
+            let tp_val = tp_col
+                .get(i)
+                .ok()
+                .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
+                .unwrap_or_default();
+            let pct_val = p_col
+                .get(i)
+                .ok()
+                .and_then(|v| {
+                    v.try_extract::<f64>().ok().or_else(|| {
+                        v.get_str()
+                            .and_then(|s| s.replace(',', ".").parse::<f64>().ok())
+                    })
                 })
-            }).unwrap_or(0.0);
+                .unwrap_or(0.0);
 
             let is_short = tp_val.contains("títulos públicos")
                 || tp_val.contains("operações compromissadas")
@@ -575,7 +592,10 @@ fn draw_kpi_card(
     let (text_color, desc_color) = if ui.visuals().dark_mode {
         (egui::Color32::WHITE, egui::Color32::from_rgb(180, 190, 205))
     } else {
-        (egui::Color32::from_rgb(20, 25, 35), egui::Color32::from_rgb(70, 75, 90))
+        (
+            egui::Color32::from_rgb(20, 25, 35),
+            egui::Color32::from_rgb(70, 75, 90),
+        )
     };
 
     egui::Frame::group(ui.style())
@@ -587,12 +607,19 @@ fn draw_kpi_card(
             ui.set_height(70.0);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 // Barra vertical colorida
-                let (rect, _response) = ui.allocate_exact_size(egui::vec2(4.0, 54.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, egui::CornerRadius::same(2), accent_color);
-                
+                let (rect, _response) =
+                    ui.allocate_exact_size(egui::vec2(4.0, 54.0), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(rect, egui::CornerRadius::same(2), accent_color);
+
                 ui.add_space(6.0);
                 ui.vertical(|ui| {
-                    ui.label(egui::RichText::new(title).size(9.0).strong().color(desc_color));
+                    ui.label(
+                        egui::RichText::new(title)
+                            .size(9.0)
+                            .strong()
+                            .color(desc_color),
+                    );
                     ui.label(
                         egui::RichText::new(value)
                             .size(17.0)

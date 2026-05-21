@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use yahoo_finance_api as yahoo;
@@ -9,11 +9,14 @@ pub struct MonthlyQuote {
     pub close_price: f64,
 }
 
+#[allow(dead_code)]
 pub struct YahooProvider {
     pub cache: Arc<Mutex<std::collections::HashMap<String, Vec<MonthlyQuote>>>>,
 }
 
+#[allow(dead_code)]
 impl YahooProvider {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -21,6 +24,7 @@ impl YahooProvider {
     }
 
     /// Busca as cotações históricas de um ativo, retornando o preço de fechamento no último dia de cada mês.
+    #[allow(dead_code)]
     pub async fn get_monthly_quotes(&self, ticker: &str, months_back: i64) -> Result<Vec<MonthlyQuote>, String> {
         let mut cache = self.cache.lock().await;
         if let Some(cached) = cache.get(ticker) {
@@ -28,10 +32,10 @@ impl YahooProvider {
         }
 
         let provider = yahoo::YahooConnector::new().map_err(|e| e.to_string())?;
-        
+
         let end = Utc::now();
         let start = end - chrono::Duration::days(months_back * 30);
-        
+
         let start_ts = yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(start.timestamp()).unwrap();
         let end_ts = yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(end.timestamp()).unwrap();
 

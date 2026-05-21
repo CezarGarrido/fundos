@@ -57,12 +57,16 @@ impl Search {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let screen_width = ui.ctx().screen_rect().width();
+        let screen_width = ui.ctx().content_rect().width();
         let default_modal_width = 850.0f32.min(screen_width * 0.95);
 
         let mut open = self.open_window;
         let is_large = screen_width > 950.0;
-        let window_id = if is_large { "Fundos_large" } else { "Fundos_small" };
+        let window_id = if is_large {
+            "Fundos_large"
+        } else {
+            "Fundos_small"
+        };
 
         egui::Window::new("Fundos")
             .id(egui::Id::new(window_id))
@@ -124,7 +128,7 @@ impl Search {
                         .body(|body| {
                             body.rows(22.0, nr_rows, |mut row| {
                                 let row_index = row.index();
-                                
+
                                 let mut cnpj_str = String::new();
                                 if let Ok(column) = self.result.column("CNPJ_FUNDO") {
                                     if let Ok(value) = column.get(row_index) {
@@ -138,9 +142,13 @@ impl Search {
                                 row.col(|ui| {
                                     if !cnpj_str.is_empty() {
                                         ui.push_id((&cnpj_str, "link_cnpj"), |ui| {
-                                            let resp = ui.link(&cnpj_str).on_hover_cursor(egui::CursorIcon::PointingHand);
+                                            let resp = ui
+                                                .link(&cnpj_str)
+                                                .on_hover_cursor(egui::CursorIcon::PointingHand);
                                             if resp.clicked() {
-                                                let _ = self.sender.send(Message::NewTab(cnpj_str.clone()));
+                                                let _ = self
+                                                    .sender
+                                                    .send(Message::NewTab(cnpj_str.clone()));
                                             }
                                         });
                                     } else {
@@ -155,7 +163,9 @@ impl Search {
                                             if let Ok(column) = self.result.column("DENOM_SOCIAL") {
                                                 if let Ok(value) = column.get(row_index) {
                                                     if let Some(value_str) = value.get_str() {
-                                                        ui.add(egui::Label::new(value_str).truncate());
+                                                        ui.add(
+                                                            egui::Label::new(value_str).truncate(),
+                                                        );
                                                     }
                                                 }
                                             }
@@ -223,23 +233,36 @@ impl Search {
 fn draw_class_badge(ui: &mut egui::Ui, class_str: &str) {
     let (bg_color, text_color) = match class_str.to_lowercase().as_str() {
         // Renda Fixa
-        s if s.contains("renda fixa") || s.contains("curto prazo") || s.contains("referenciado") || s.contains("dívida externa") => {
-            (egui::Color32::from_rgb(232, 240, 254), egui::Color32::from_rgb(26, 115, 232))
+        s if s.contains("renda fixa")
+            || s.contains("curto prazo")
+            || s.contains("referenciado")
+            || s.contains("dívida externa") =>
+        {
+            (
+                egui::Color32::from_rgb(232, 240, 254),
+                egui::Color32::from_rgb(26, 115, 232),
+            )
         }
         // Ações
-        s if s.contains("ações") || s.contains("fmp-fgts") || s.contains("acao") => {
-            (egui::Color32::from_rgb(230, 244, 234), egui::Color32::from_rgb(19, 115, 51))
-        }
+        s if s.contains("ações") || s.contains("fmp-fgts") || s.contains("acao") => (
+            egui::Color32::from_rgb(230, 244, 234),
+            egui::Color32::from_rgb(19, 115, 51),
+        ),
         // Multimercado
-        s if s.contains("multimercado") || s.contains("fip") => {
-            (egui::Color32::from_rgb(254, 247, 224), egui::Color32::from_rgb(176, 96, 0))
-        }
+        s if s.contains("multimercado") || s.contains("fip") => (
+            egui::Color32::from_rgb(254, 247, 224),
+            egui::Color32::from_rgb(176, 96, 0),
+        ),
         // Cambial
-        s if s.contains("cambial") => {
-            (egui::Color32::from_rgb(243, 229, 245), egui::Color32::from_rgb(106, 27, 154))
-        }
+        s if s.contains("cambial") => (
+            egui::Color32::from_rgb(243, 229, 245),
+            egui::Color32::from_rgb(106, 27, 154),
+        ),
         // Outros
-        _ => (egui::Color32::from_rgb(241, 243, 244), egui::Color32::from_rgb(95, 99, 104)),
+        _ => (
+            egui::Color32::from_rgb(241, 243, 244),
+            egui::Color32::from_rgb(95, 99, 104),
+        ),
     };
 
     let label_text = match class_str {

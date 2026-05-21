@@ -21,6 +21,7 @@ pub enum TabType {
     Home(HomeTab),
     Dashboard(DashboardTab),
     Ativos(AssetsMarketTab),
+    #[allow(dead_code)]
     Historico(HistoricoTab),
 }
 
