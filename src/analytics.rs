@@ -1,3 +1,4 @@
+use log::{debug, info};
 use polars::prelude::*;
 
 // ── Analytics Structures ─────────────────────────────────────────────────
@@ -61,6 +62,12 @@ pub fn extrapolate_best(
     let mut best_result: Option<ExtrapolationResult> = None;
     let mut best_r2: f64 = -1.0;
 
+    info!(
+        "Extrapolação: comparando 4 métodos com {} pontos históricos e {} cotações futuras",
+        historical_qtys.len(),
+        quotes.len()
+    );
+
     for method in &methods {
         let (estimates, quality) = extrapolate(
             method.clone(),
@@ -70,13 +77,30 @@ pub fn extrapolate_best(
             last_known_dt,
         );
         let r2 = quality.r_squared.unwrap_or(-1.0);
+        debug!(
+            "  {} → R²={:.4}, MAE={:?}, estimativas={}",
+            method,
+            r2,
+            quality.mae,
+            estimates.len()
+        );
         if r2 > best_r2 {
             best_r2 = r2;
             best_result = Some((estimates, quality));
         }
     }
 
+    if let Some((ref estimates, ref quality)) = best_result {
+        info!(
+            "Extrapolação: vencedor = {} (R²={:.4}, {} estimativas)",
+            quality.method,
+            best_r2,
+            estimates.len()
+        );
+    }
+
     best_result.unwrap_or_else(|| {
+        info!("Extrapolação: todos os métodos falharam, usando baseline");
         let (estimates, quality) = extrapolate(
             ExtrapolationMethod::Baseline,
             historical_qtys,
@@ -123,6 +147,11 @@ fn extrapolate_baseline(
             estimates.push((q.date.clone(), last_qty, last_qty * q.close_price));
         }
     }
+    debug!(
+        "Baseline: qtd={:.0} estática, {} estimativas geradas",
+        last_qty,
+        estimates.len()
+    );
     let quality = ExtrapolationQuality {
         method: ExtrapolationMethod::Baseline,
         r_squared: None,
@@ -186,6 +215,11 @@ fn extrapolate_linear(
         .map(|(ti, yi)| (yi - (intercept + slope * ti)).abs())
         .sum::<f64>()
         / n as f64;
+
+    debug!(
+        "Regressão Linear: intercept={:.2}, slope={:.4}, R²={:.4}, MAE={:.2}",
+        intercept, slope, r_squared, mae
+    );
 
     // Projetar para os meses ocultos
     let mut estimates = Vec::new();
@@ -307,6 +341,11 @@ fn extrapolate_kalman(
     let ci_lower = (x[0] - 1.96 * std_dev).max(0.0);
     let ci_upper = x[0] + 1.96 * std_dev;
 
+    debug!(
+        "Kalman: estado_final=[pos={:.2}, vel={:.4}], IC95=[{:.0}, {:.0}], R²={:.4}, MAE={:.2}",
+        x[0], x[1], ci_lower, ci_upper, r_squared, mae
+    );
+
     // Projetar para frente usando o modelo de velocidade constante
     let mut estimates = Vec::new();
     let mut future_x = x;
@@ -403,6 +442,11 @@ fn extrapolate_random_forest(
         .map(|(y, p)| (y - p).abs())
         .sum::<f64>()
         / m as f64;
+
+    debug!(
+        "Random Forest: {} árvores (depth={}), {} amostras, R²={:.4}, MAE={:.2}",
+        n_trees, max_depth, m, r_squared, mae
+    );
 
     // Projeção recursiva: cada mês futuro usa a predição do mês anterior como lag
     let mut estimates = Vec::new();
@@ -816,6 +860,10 @@ pub fn compute_asset_analytics(
                 .ok()
                 .and_then(|v| v.get_str().map(|s| s.to_string()))
             {
+                info!(
+                    "Analytics: executando extrapolação para {} ({} meses históricos, última qtd={:.0})",
+                    asset_code, historical_qtys.len(), last_qty
+                );
                 extrapolate_best(&historical_qtys, last_qty, quotes, &last_known_dt)
             } else {
                 (
