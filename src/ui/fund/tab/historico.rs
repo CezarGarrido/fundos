@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use egui::{Align, Color32, Frame, Layout, RichText, ScrollArea, Sense, Ui, WidgetText};
 use egui_extras::{Column, TableBuilder};
 use egui_plot::{AxisHints, GridMark, Legend, Line, Plot};
-use polars::frame::DataFrame;
+use polars::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{message::Message, ui::tabs::Tab};
@@ -128,115 +128,64 @@ impl HistoricoTab {
     }
 
     fn process_series(&mut self) {
-        self.monthly_series.clear();
+        self.monthly_series = Self::compute_series(&self.data);
+    }
 
-        let dt_col = match self.data.column("DT_COMPTC") {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let cd_ativo_col = self.data.column("CD_ATIVO").ok();
-        let cd_isin_col = self.data.column("CD_ISIN").ok();
-        let titpub_col = self.data.column("TP_TITPUB").ok();
-        let ds_ativo_col = self.data.column("DS_ATIVO").ok();
-        let nm_fundo_col = self.data.column("NM_FUNDO_COTA").ok();
-        let aplic_col = self.data.column("TP_APLIC").ok();
-        let merc_col = match self.data.column("VL_MERC_POS_FINAL") {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let pct_col = self.data.column("VL_PORCENTAGEM_PL").ok();
-
-        let height = self.data.height();
+    fn compute_series(data: &DataFrame) -> Vec<MonthlySeries> {
+        let mut series = Vec::new();
+        let height = data.height();
         if height == 0 {
-            return;
+            return series;
         }
 
-        let months = self.extract_months();
+        // Usa Polars lazy para groupby
+        let df = data
+            .clone()
+            .lazy()
+            .with_column(
+                when(col("CD_ATIVO").neq(lit("")))
+                    .then(col("CD_ATIVO"))
+                    .otherwise(col("CD_ISIN"))
+                    .alias("asset_key"),
+            )
+            .with_column(col("DT_COMPTC").str().str_slice(0, Some(7)).alias("month"))
+            .filter(col("asset_key").neq(lit("")))
+            .groupby(vec![col("month"), col("asset_key")])
+            .agg(vec![
+                col("VL_MERC_POS_FINAL").sum().alias("total_merc"),
+                col("VL_PORCENTAGEM_PL").sum().alias("total_pct"),
+            ])
+            .sort("month", SortOptions::default())
+            .collect();
 
-        // Build asset identity: key = CD_ATIVO or CD_ISIN, name = best available description
-        let mut asset_keys: Vec<(String, String)> = vec![]; // (key, display_name)
-        for i in 0..height {
-            let cd_ativo = cd_ativo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let cd_isin = cd_isin_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let key = if !cd_ativo.is_empty() {
-                cd_ativo.clone()
-            } else if !cd_isin.is_empty() {
-                cd_isin.clone()
-            } else {
-                continue;
-            }; // skip if no identifier
+        let grouped = match df {
+            Ok(g) => g,
+            Err(_) => return series,
+        };
+        if grouped.height() == 0 {
+            return series;
+        }
 
-            let titpub = titpub_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let ds_ativo = ds_ativo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let nm_fundo = nm_fundo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let aplic = aplic_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-
-            let mut name = if !titpub.is_empty() {
-                titpub
-            } else if !ds_ativo.is_empty() {
-                ds_ativo
-            } else if !nm_fundo.is_empty() {
-                nm_fundo
-            } else if !aplic.is_empty() {
-                aplic
-            } else {
-                key.clone()
-            };
-
-            // Coloca a sigla (CD_ATIVO) na frente do nome
-            if !cd_ativo.is_empty() && name != cd_ativo && !name.starts_with(&cd_ativo) {
-                name = format!("{} - {}", cd_ativo, name);
-            }
-
-            if !asset_keys.iter().any(|(k, _)| k == &key) {
-                asset_keys.push((key, name));
+        // Top 8 ativos
+        let mut asset_totals: HashMap<String, f64> = HashMap::new();
+        let merc_col_g = grouped.column("total_merc").ok();
+        let key_col_g = grouped.column("asset_key").ok();
+        if let (Some(mc), Some(kc)) = (merc_col_g, key_col_g) {
+            for i in 0..grouped.height() {
+                let key = get_str(kc, i);
+                let val = get_f64(mc, i);
+                *asset_totals.entry(key).or_default() += val;
             }
         }
-
-        // Compute total value per asset for ranking
-        let mut total_per_asset: BTreeMap<String, f64> = BTreeMap::new();
-        for i in 0..height {
-            let cd_ativo = cd_ativo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let cd_isin = cd_isin_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let key = if !cd_ativo.is_empty() {
-                cd_ativo
-            } else if !cd_isin.is_empty() {
-                cd_isin
-            } else {
-                continue;
-            };
-            let val = get_f64(merc_col, i);
-            *total_per_asset.entry(key).or_default() += val;
-        }
-
-        // Sort by total value, take top 8
-        let mut sorted: Vec<(String, f64)> = total_per_asset.into_iter().collect();
+        let mut sorted: Vec<(String, f64)> = asset_totals.into_iter().collect();
         sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let top_keys: Vec<String> = sorted.into_iter().take(8).map(|(k, _)| k).collect();
+
+        let asset_names = Self::build_names(data, &top_keys);
+
+        let merc_col = grouped.column("total_merc").ok();
+        let pct_col = grouped.column("total_pct").ok();
+        let akey_col = grouped.column("asset_key").ok();
 
         let palette = [
             Color32::from_rgb(37, 99, 235),
@@ -250,82 +199,85 @@ impl HistoricoTab {
         ];
 
         for (idx, key) in top_keys.iter().enumerate() {
-            // Get display name
-            let name = asset_keys
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, n)| n.clone())
-                .unwrap_or_else(|| key.clone());
+            let name = asset_names.get(key).cloned().unwrap_or_else(|| key.clone());
             let mut points: Vec<(f64, f64)> = vec![];
-            for (mi, month) in months.iter().enumerate() {
-                let mut asset_val = 0.0_f64;
-                let mut month_total = 0.0_f64;
-                for i in 0..height {
-                    let d = get_str(dt_col, i);
-                    let val = get_f64(merc_col, i);
-                    let m_prefix = if d.len() >= 7 { &d[..7] } else { &d };
-                    if m_prefix == month {
-                        month_total += val;
-                        let cd_ativo = cd_ativo_col
-                            .as_ref()
-                            .map(|c| get_str(c, i))
-                            .unwrap_or_default();
-                        let cd_isin = cd_isin_col
-                            .as_ref()
-                            .map(|c| get_str(c, i))
-                            .unwrap_or_default();
-                        let row_key = if !cd_ativo.is_empty() {
-                            cd_ativo
-                        } else {
-                            cd_isin
-                        };
-                        if row_key == *key {
-                            asset_val += val;
-                        }
+            for mi in 0..grouped.height() {
+                if let (Some(mc), Some(ac)) = (merc_col, akey_col) {
+                    let akey = get_str(ac, mi);
+                    if akey != *key {
+                        continue;
                     }
-                }
-                let pct = if pct_col.is_some() {
-                    let mut total = 0.0;
-                    for i in 0..height {
-                        let d = get_str(dt_col, i);
-                        let m_prefix = if d.len() >= 7 { &d[..7] } else { &d };
-                        if m_prefix == month {
-                            let cd_ativo = cd_ativo_col
-                                .as_ref()
-                                .map(|c| get_str(c, i))
-                                .unwrap_or_default();
-                            let cd_isin = cd_isin_col
-                                .as_ref()
-                                .map(|c| get_str(c, i))
-                                .unwrap_or_default();
-                            let row_key = if !cd_ativo.is_empty() {
-                                cd_ativo
-                            } else {
-                                cd_isin
-                            };
-                            if row_key == *key {
-                                if let Some(pc) = pct_col {
-                                    total += get_f64(pc, i);
-                                }
-                            }
-                        }
-                    }
-                    total
-                } else {
-                    if month_total > 0.0 {
-                        (asset_val / month_total) * 100.0
+                    let month_idx = mi as f64;
+                    let pct = if let Some(pc) = pct_col {
+                        get_f64(pc, mi)
                     } else {
-                        0.0
-                    }
-                };
-                points.push((mi as f64, pct));
+                        get_f64(mc, mi)
+                    };
+                    points.push((month_idx, pct));
+                }
             }
-            self.monthly_series.push(MonthlySeries {
+            points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            series.push(MonthlySeries {
                 label: name,
                 color: palette[idx % palette.len()],
                 points,
             });
         }
+        series
+    }
+
+    fn build_names(data: &DataFrame, top_keys: &[String]) -> HashMap<String, String> {
+        let mut names = HashMap::new();
+        let cd_ativo_col = data.column("CD_ATIVO").ok();
+        let cd_isin_col = data.column("CD_ISIN").ok();
+        let ds_ativo_col = data.column("DS_ATIVO").ok();
+        let nm_fundo_col = data.column("NM_FUNDO_COTA").ok();
+        let titpub_col = data.column("TP_TITPUB").ok();
+
+        for i in 0..data.height() {
+            let cd_ativo = cd_ativo_col
+                .as_ref()
+                .map(|c| get_str(c, i))
+                .unwrap_or_default();
+            let cd_isin = cd_isin_col
+                .as_ref()
+                .map(|c| get_str(c, i))
+                .unwrap_or_default();
+            let key = if !cd_ativo.is_empty() {
+                cd_ativo.clone()
+            } else {
+                cd_isin.clone()
+            };
+            if key.is_empty() || !top_keys.contains(&key) || names.contains_key(&key) {
+                continue;
+            }
+            let ds = ds_ativo_col
+                .as_ref()
+                .map(|c| get_str(c, i))
+                .unwrap_or_default();
+            let nf = nm_fundo_col
+                .as_ref()
+                .map(|c| get_str(c, i))
+                .unwrap_or_default();
+            let tp = titpub_col
+                .as_ref()
+                .map(|c| get_str(c, i))
+                .unwrap_or_default();
+            let mut name = if !tp.is_empty() {
+                tp
+            } else if !ds.is_empty() {
+                ds
+            } else if !nf.is_empty() {
+                nf
+            } else {
+                key.clone()
+            };
+            if !cd_ativo.is_empty() && name != cd_ativo && !name.starts_with(&cd_ativo) {
+                name = format!("{} - {}", cd_ativo, name);
+            }
+            names.insert(key, name);
+        }
+        names
     }
 
     fn render_asset_line_chart(&self, ui: &mut Ui, months: &[String], selected_name: &str) {
