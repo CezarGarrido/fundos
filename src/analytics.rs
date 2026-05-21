@@ -728,8 +728,46 @@ pub fn compute_asset_analytics_v1(df: &DataFrame, asset_code: &str) -> Option<As
 pub fn compute_asset_analytics(
     df: &DataFrame,
     asset_code: &str,
-    quotes: Option<&[crate::provider::yahoo::MonthlyQuote]>,
+    yahoo_prices: Option<&DataFrame>,
 ) -> Option<AssetAnalytics> {
+    // Converter DataFrame da Yahoo para Vec<MonthlyQuote>
+    let quotes: Option<Vec<crate::provider::yahoo::MonthlyQuote>> =
+        yahoo_prices.and_then(|prices_df| {
+            let date_col = prices_df.column("date").ok()?;
+            let close_col = prices_df.column("adjclose").ok()?;
+            let n = prices_df.height();
+            let mut quotes = Vec::with_capacity(n);
+            for i in 0..n {
+                let date = date_col
+                    .get(i)
+                    .ok()
+                    .and_then(|v| v.get_str().map(|s| s.to_string()))
+                    .unwrap_or_default();
+                let close = close_col
+                    .get(i)
+                    .ok()
+                    .and_then(|v| v.try_extract::<f64>().ok())
+                    .unwrap_or(0.0);
+                if !date.is_empty() && close > 0.0 {
+                    quotes.push(crate::provider::yahoo::MonthlyQuote {
+                        date,
+                        close_price: close,
+                    });
+                }
+            }
+            if quotes.is_empty() {
+                None
+            } else {
+                Some(quotes)
+            }
+        });
+
+    info!(
+        "Analytics iniciado para '{}': {} linhas, quotes={}",
+        asset_code,
+        df.height(),
+        quotes.as_ref().map(|q| q.len()).unwrap_or(0)
+    );
     let filtered_df = df
         .clone()
         .lazy()
@@ -853,7 +891,8 @@ pub fn compute_asset_analytics(
     };
 
     // ── Extrapolação: testa todos os métodos e escolhe o melhor ─────
-    let (hidden_qty_estimates, extrapolation_quality) = if let Some(quotes) = quotes {
+    let (hidden_qty_estimates, extrapolation_quality) = if let Some(ref quotes) = quotes {
+        debug!("Analytics: quotes disponíveis ({} cotações)", quotes.len());
         if let Ok(dt_col) = filtered_df.column("DT_COMPTC") {
             if let Some(last_known_dt) = dt_col
                 .get(height - 1)
@@ -888,6 +927,7 @@ pub fn compute_asset_analytics(
             )
         }
     } else {
+        debug!("Analytics: sem quotes disponíveis — pulando extrapolação");
         (
             Vec::new(),
             ExtrapolationQuality {

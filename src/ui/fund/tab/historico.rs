@@ -916,7 +916,9 @@ impl HistoricoTab {
         let vt = Color32::from_rgb(139, 92, 246);
         let bl = Color32::from_rgb(59, 130, 246);
 
-        if let Some(analytics) = crate::analytics::compute_asset_analytics(&self.data, codigo, None)
+        let yahoo_df = self.yahoo_prices.get(codigo);
+        if let Some(analytics) =
+            crate::analytics::compute_asset_analytics(&self.data, codigo, yahoo_df)
         {
             ui.columns(4, |cols| {
                 cols[0].vertical(|ui| {
