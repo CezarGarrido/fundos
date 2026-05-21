@@ -168,7 +168,7 @@ fn extrapolate_baseline(
     (estimates, quality)
 }
 
-// ── Regressão Linear (OLS) ─────────────────────────────────────────────
+// ── Regressão Linear (OLS via smartcore) ──────────────────────────────
 
 fn extrapolate_linear(
     historical_qtys: &[f64],
@@ -181,54 +181,53 @@ fn extrapolate_linear(
         return extrapolate_baseline(quotes, last_known_dt, last_qty);
     }
 
-    // X = [1, t]  —  intercepto + tendência linear (t = 0..n-1)
-    let t: Vec<f64> = (0..n).map(|i| i as f64).collect();
-    let y: Vec<f64> = historical_qtys.to_vec();
+    // Features: X = [[t]] para cada ponto, target: y = qtd
+    let features: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
+    let targets: Vec<f64> = historical_qtys.to_vec();
 
-    // OLS: β = (XᵀX)⁻¹ Xᵀy
-    let sum_t: f64 = t.iter().sum();
-    let sum_t2: f64 = t.iter().map(|ti| ti * ti).sum();
-    let sum_y: f64 = y.iter().sum();
-    let sum_ty: f64 = t.iter().zip(y.iter()).map(|(ti, yi)| ti * yi).sum();
+    let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features)
+        .expect("DenseMatrix failed");
+    let lr = smartcore::linear::linear_regression::LinearRegression::fit(
+        &x,
+        &targets,
+        Default::default(),
+    );
 
-    let denom = n as f64 * sum_t2 - sum_t * sum_t;
-    if denom.abs() < 1e-10 {
-        return extrapolate_baseline(quotes, last_known_dt, last_qty);
-    }
+    let (intercept, slope, r_squared, mae) = match lr {
+        Ok(model) => {
+            let preds = model.predict(&x).unwrap_or_else(|_| targets.clone());
+            let intercept = *model.intercept();
+            let slope = model.coefficients().iter().next().copied().unwrap_or(0.0);
 
-    let intercept = (sum_t2 * sum_y - sum_t * sum_ty) / denom;
-    let slope = (n as f64 * sum_ty - sum_t * sum_y) / denom;
-
-    // R² e MAE
-    let y_mean = sum_y / n as f64;
-    let ss_res: f64 = t
-        .iter()
-        .zip(y.iter())
-        .map(|(ti, yi)| {
-            let pred = intercept + slope * ti;
-            (yi - pred).powi(2)
-        })
-        .sum();
-    let ss_tot: f64 = y.iter().map(|yi| (yi - y_mean).powi(2)).sum();
-    let r_squared = if ss_tot > 0.0 {
-        1.0 - ss_res / ss_tot
-    } else {
-        0.0
+            let y_mean = targets.iter().sum::<f64>() / n as f64;
+            let ss_res: f64 = targets
+                .iter()
+                .zip(preds.iter())
+                .map(|(y, p)| (y - p).powi(2))
+                .sum();
+            let ss_tot: f64 = targets.iter().map(|y| (y - y_mean).powi(2)).sum();
+            let r2 = if ss_tot > 0.0 {
+                1.0 - ss_res / ss_tot
+            } else {
+                0.0
+            };
+            let m: f64 = targets
+                .iter()
+                .zip(preds.iter())
+                .map(|(y, p)| (y - p).abs())
+                .sum::<f64>()
+                / n as f64;
+            (intercept, slope, r2, m)
+        }
+        Err(_) => return extrapolate_baseline(quotes, last_known_dt, last_qty),
     };
-
-    let mae: f64 = t
-        .iter()
-        .zip(y.iter())
-        .map(|(ti, yi)| (yi - (intercept + slope * ti)).abs())
-        .sum::<f64>()
-        / n as f64;
 
     debug!(
         "Regressão Linear: intercept={:.2}, slope={:.4}, R²={:.4}, MAE={:.2}",
         intercept, slope, r_squared, mae
     );
 
-    // Se R² for muito baixo, regressão é ruído — usa baseline para as estimativas
+    // R² < 0.1 → ruído, usa baseline
     if r_squared < 0.1 {
         debug!(
             "Regressão Linear: R² muito baixo ({:.4}), usando baseline",
@@ -244,7 +243,6 @@ fn extrapolate_linear(
         return (estimates, quality);
     }
 
-    // Projetar para os meses ocultos
     let mut estimates = Vec::new();
     for (j, q) in quotes.iter().enumerate() {
         if q.date.as_str() > last_known_dt {
@@ -368,7 +366,7 @@ fn extrapolate_kalman(
     (estimates, quality)
 }
 
-// ── Random Forest (implementação simplificada) ──────────────────────────
+// ── Random Forest (via smartcore) ─────────────────────────────────────
 
 fn extrapolate_random_forest(
     historical_qtys: &[f64],
@@ -378,72 +376,94 @@ fn extrapolate_random_forest(
 ) -> ExtrapolationResult {
     let n = historical_qtys.len();
     if n < 6 {
-        // Poucos dados, fallback para regressão linear
         return extrapolate_linear(historical_qtys, last_qty, quotes, last_known_dt);
     }
 
-    // Features: [t, y_lag1] — tempo + qtd do mês anterior
-    let mut features: Vec<[f64; 2]> = Vec::with_capacity(n - 1);
+    // Features: [t, y_lag1]
+    let mut features: Vec<Vec<f64>> = Vec::with_capacity(n - 1);
     let mut targets: Vec<f64> = Vec::with_capacity(n - 1);
     for i in 1..n {
-        features.push([i as f64, historical_qtys[i - 1]]);
+        features.push(vec![i as f64, historical_qtys[i - 1]]);
         targets.push(historical_qtys[i]);
     }
     let m = features.len();
 
-    // Hiperparâmetros adaptativos: datasets pequenos precisam de menos complexidade
-    let (n_trees, max_depth) = if m < 20 {
-        (15_usize, 3_usize)
+    let max_depth: u16 = if m < 20 {
+        3
     } else if m < 40 {
-        (30_usize, 4_usize)
+        4
     } else {
-        (50_usize, 5_usize)
+        5
+    };
+    let n_trees: usize = if m < 20 {
+        15
+    } else if m < 40 {
+        30
+    } else {
+        50
     };
 
-    // Treinar ensemble
-    let forest = train_random_forest(&features, &targets, n_trees, max_depth);
-
-    // R² e MAE nos dados de treino
-    let train_preds: Vec<f64> = features
-        .iter()
-        .map(|f| forest_predict(&forest, *f))
-        .collect();
-    let y_mean: f64 = targets.iter().sum::<f64>() / m as f64;
-    let ss_res: f64 = targets
-        .iter()
-        .zip(train_preds.iter())
-        .map(|(y, p)| (y - p).powi(2))
-        .sum();
-    let ss_tot: f64 = targets.iter().map(|y| (y - y_mean).powi(2)).sum();
-    let r_squared = if ss_tot > 0.0 {
-        1.0 - ss_res / ss_tot
-    } else {
-        0.0
+    let x = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&features)
+        .expect("DenseMatrix failed");
+    let rf_params = smartcore::ensemble::random_forest_regressor::RandomForestRegressorParameters {
+        n_trees,
+        max_depth: Some(max_depth),
+        seed: 42,
+        ..Default::default()
     };
-    let mae: f64 = targets
-        .iter()
-        .zip(train_preds.iter())
-        .map(|(y, p)| (y - p).abs())
-        .sum::<f64>()
-        / m as f64;
+
+    let (r_squared, mae, model) =
+        match smartcore::ensemble::random_forest_regressor::RandomForestRegressor::fit(
+            &x, &targets, rf_params,
+        ) {
+            Ok(model) => {
+                let preds = model.predict(&x).unwrap_or_else(|_| targets.clone());
+                let y_mean = targets.iter().sum::<f64>() / m as f64;
+                let ss_res: f64 = targets
+                    .iter()
+                    .zip(preds.iter())
+                    .map(|(y, p)| (y - p).powi(2))
+                    .sum();
+                let ss_tot: f64 = targets.iter().map(|y| (y - y_mean).powi(2)).sum();
+                let r2 = if ss_tot > 0.0 {
+                    1.0 - ss_res / ss_tot
+                } else {
+                    0.0
+                };
+                let err: f64 = targets
+                    .iter()
+                    .zip(preds.iter())
+                    .map(|(y, p)| (y - p).abs())
+                    .sum::<f64>()
+                    / m as f64;
+                (r2, err, Some(model))
+            }
+            Err(_) => return extrapolate_linear(historical_qtys, last_qty, quotes, last_known_dt),
+        };
 
     debug!(
         "Random Forest: {} árvores (depth={}), {} amostras, R²={:.4}, MAE={:.2}",
         n_trees, max_depth, m, r_squared, mae
     );
 
-    // Projeção recursiva com suavização: evita que predições explodam
+    // Projeção recursiva com suavização
     let mut estimates = Vec::new();
     let mut prev_qty = historical_qtys[n - 1];
-    let ema_alpha = 0.3; // peso da nova predição no moving average
+    let ema_alpha = 0.3;
     for (j, q) in quotes.iter().enumerate() {
         if q.date.as_str() > last_known_dt {
-            let feat = [(n + j) as f64, prev_qty];
-            let raw_pred = forest_predict(&forest, feat).max(0.0);
-            // Suavização exponencial + clamp: não deixa variar mais de 30% por mês
+            let feat = vec![(n + j) as f64, prev_qty];
+            let raw_pred = if let Some(ref model) = model {
+                let fx_vec = vec![feat];
+                let fx = smartcore::linalg::basic::matrix::DenseMatrix::from_2d_vec(&fx_vec)
+                    .expect("DenseMatrix failed");
+                model.predict(&fx).unwrap_or_else(|_| vec![prev_qty])[0].max(0.0)
+            } else {
+                prev_qty
+            };
             let max_change = prev_qty * 0.30;
             let clamped = raw_pred.clamp(prev_qty - max_change, prev_qty + max_change);
-            let pred_qty = ema_alpha * clamped + (1.0 - ema_alpha) * prev_qty;
+            let pred_qty = (ema_alpha * clamped + (1.0 - ema_alpha) * prev_qty).max(0.0);
             estimates.push((q.date.clone(), pred_qty, pred_qty * q.close_price));
             prev_qty = pred_qty;
         }
@@ -456,207 +476,6 @@ fn extrapolate_random_forest(
         confidence_95: None,
     };
     (estimates, quality)
-}
-
-// ── Random Forest internals ─────────────────────────────────────────────
-
-struct TreeNode {
-    split_feature: usize,
-    split_value: f64,
-    left: Option<Box<TreeNode>>,
-    right: Option<Box<TreeNode>>,
-    leaf_value: f64,
-}
-
-struct DecisionTree {
-    root: TreeNode,
-}
-
-fn train_random_forest(
-    features: &[[f64; 2]],
-    targets: &[f64],
-    n_trees: usize,
-    max_depth: usize,
-) -> Vec<DecisionTree> {
-    let m = features.len();
-    let mut rng = SimpleRng::new(42);
-    let mut trees = Vec::with_capacity(n_trees);
-
-    for _ in 0..n_trees {
-        // Bootstrap sample
-        let mut boot_features = Vec::with_capacity(m);
-        let mut boot_targets = Vec::with_capacity(m);
-        for _ in 0..m {
-            let idx = rng.next() as usize % m;
-            boot_features.push(features[idx]);
-            boot_targets.push(targets[idx]);
-        }
-        let tree = build_tree(&boot_features, &boot_targets, max_depth, &mut rng);
-        trees.push(tree);
-    }
-    trees
-}
-
-fn forest_predict(forest: &[DecisionTree], features: [f64; 2]) -> f64 {
-    let sum: f64 = forest.iter().map(|t| tree_predict(&t.root, features)).sum();
-    sum / forest.len() as f64
-}
-
-fn tree_predict(node: &TreeNode, features: [f64; 2]) -> f64 {
-    if node.left.is_none() && node.right.is_none() {
-        return node.leaf_value;
-    }
-    if features[node.split_feature] <= node.split_value {
-        node.left
-            .as_ref()
-            .map_or(node.leaf_value, |l| tree_predict(l, features))
-    } else {
-        node.right
-            .as_ref()
-            .map_or(node.leaf_value, |r| tree_predict(r, features))
-    }
-}
-
-fn build_tree(
-    features: &[[f64; 2]],
-    targets: &[f64],
-    depth: usize,
-    rng: &mut SimpleRng,
-) -> DecisionTree {
-    let n = targets.len();
-    if n == 0 {
-        return DecisionTree {
-            root: TreeNode {
-                split_feature: 0,
-                split_value: 0.0,
-                left: None,
-                right: None,
-                leaf_value: 0.0,
-            },
-        };
-    }
-
-    let mean = targets.iter().sum::<f64>() / n as f64;
-
-    if depth == 0 || n <= 2 {
-        return DecisionTree {
-            root: TreeNode {
-                split_feature: 0,
-                split_value: 0.0,
-                left: None,
-                right: None,
-                leaf_value: mean,
-            },
-        };
-    }
-
-    // Encontrar o melhor split (MSE)
-    let n_features = 2;
-    // Feature bagging: usar feature aleatória
-    let split_feat = (rng.next() as usize) % n_features;
-
-    let mut best_split = 0.0_f64;
-    let mut best_mse = f64::MAX;
-
-    let mut values: Vec<f64> = features.iter().map(|f| f[split_feat]).collect();
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    for i in 1..values.len() {
-        let split_val = (values[i - 1] + values[i]) / 2.0;
-        let mut left_sum = 0.0;
-        let mut left_count = 0;
-        let mut right_sum = 0.0;
-        let mut right_count = 0;
-        for (j, f) in features.iter().enumerate() {
-            if f[split_feat] <= split_val {
-                left_sum += targets[j];
-                left_count += 1;
-            } else {
-                right_sum += targets[j];
-                right_count += 1;
-            }
-        }
-        if left_count == 0 || right_count == 0 {
-            continue;
-        }
-        let left_mean = left_sum / left_count as f64;
-        let right_mean = right_sum / right_count as f64;
-        let mse: f64 = features
-            .iter()
-            .enumerate()
-            .map(|(j, f)| {
-                let pred = if f[split_feat] <= split_val {
-                    left_mean
-                } else {
-                    right_mean
-                };
-                (targets[j] - pred).powi(2)
-            })
-            .sum();
-        if mse < best_mse {
-            best_mse = mse;
-            best_split = split_val;
-        }
-    }
-
-    if best_mse == f64::MAX {
-        return DecisionTree {
-            root: TreeNode {
-                split_feature: 0,
-                split_value: 0.0,
-                left: None,
-                right: None,
-                leaf_value: mean,
-            },
-        };
-    }
-
-    let mut left_feat = Vec::new();
-    let mut left_targ = Vec::new();
-    let mut right_feat = Vec::new();
-    let mut right_targ = Vec::new();
-    for (j, f) in features.iter().enumerate() {
-        if f[split_feat] <= best_split {
-            left_feat.push(*f);
-            left_targ.push(targets[j]);
-        } else {
-            right_feat.push(*f);
-            right_targ.push(targets[j]);
-        }
-    }
-
-    let left = build_tree(&left_feat, &left_targ, depth - 1, rng);
-    let right = build_tree(&right_feat, &right_targ, depth - 1, rng);
-
-    DecisionTree {
-        root: TreeNode {
-            split_feature: split_feat,
-            split_value: best_split,
-            left: Some(Box::new(left.root)),
-            right: Some(Box::new(right.root)),
-            leaf_value: mean,
-        },
-    }
-}
-
-// ── RNG linear simples para bootstrap ───────────────────────────────────
-
-struct SimpleRng {
-    state: u64,
-}
-
-impl SimpleRng {
-    fn new(seed: u64) -> Self {
-        Self { state: seed }
-    }
-
-    fn next(&mut self) -> u64 {
-        self.state = self
-            .state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        self.state >> 32
-    }
 }
 
 // ── Original analytics (RF09, RF10, RF11) ───────────────────────────────
