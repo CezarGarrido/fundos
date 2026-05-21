@@ -52,7 +52,8 @@ pub struct HistoricoTab {
     pub selected_asset: Option<String>,
     pub yahoo_prices: HashMap<String, DataFrame>,
     pub yahoo_loading: bool,
-    pub last_yahoo_fetch: Option<String>, // tracks last fetched asset to avoid re-fetch
+    pub last_yahoo_fetch: Option<String>,
+    pub analytics_cache: HashMap<String, crate::analytics::AssetAnalytics>, // tracks last fetched asset to avoid re-fetch
 }
 
 pub struct MonthlySeries {
@@ -74,6 +75,7 @@ impl HistoricoTab {
             yahoo_prices: HashMap::new(),
             yahoo_loading: false,
             last_yahoo_fetch: None,
+            analytics_cache: HashMap::new(),
         };
         tab.send_load_request();
         tab
@@ -91,11 +93,13 @@ impl HistoricoTab {
 
     pub fn set_data(&mut self, df: DataFrame) {
         self.data = df;
+        self.analytics_cache.clear();
         self.process_series();
         self.loading = false;
     }
 
     pub fn set_yahoo_prices(&mut self, codigo: String, prices: DataFrame) {
+        self.analytics_cache.remove(&codigo); // invalida cache desse ativo
         self.yahoo_prices.insert(codigo, prices);
         self.yahoo_loading = false;
     }
@@ -904,7 +908,7 @@ impl HistoricoTab {
         });
     }
 
-    fn render_analytics_inline(&self, ui: &mut Ui, codigo: &str) {
+    fn render_analytics_inline(&mut self, ui: &mut Ui, codigo: &str) {
         let dark = ui.visuals().dark_mode;
         let tx = if dark {
             Color32::from_rgb(140, 155, 175)
@@ -916,10 +920,16 @@ impl HistoricoTab {
         let vt = Color32::from_rgb(139, 92, 246);
         let bl = Color32::from_rgb(59, 130, 246);
 
-        let yahoo_df = self.yahoo_prices.get(codigo);
-        if let Some(analytics) =
-            crate::analytics::compute_asset_analytics(&self.data, codigo, yahoo_df)
-        {
+        // Cache: só computa analytics uma vez por ativo
+        if !self.analytics_cache.contains_key(codigo) {
+            let yahoo_df = self.yahoo_prices.get(codigo);
+            if let Some(a) = crate::analytics::compute_asset_analytics(&self.data, codigo, yahoo_df)
+            {
+                self.analytics_cache.insert(codigo.to_string(), a);
+            }
+        }
+
+        if let Some(analytics) = self.analytics_cache.get(codigo) {
             ui.columns(4, |cols| {
                 cols[0].vertical(|ui| {
                     ui.label(RichText::new("PM Histórico (Compra)").size(9.0).color(tx));

@@ -922,18 +922,44 @@ pub fn compute_asset_analytics(
 
     // ── Extrapolação: testa todos os métodos e escolhe o melhor ─────
     let (hidden_qty_estimates, extrapolation_quality) = if let Some(ref quotes) = quotes {
-        debug!("Analytics: quotes disponíveis ({} cotações)", quotes.len());
-        if let Ok(dt_col) = filtered_df.column("DT_COMPTC") {
-            if let Some(last_known_dt) = dt_col
-                .get(height - 1)
-                .ok()
-                .and_then(|v| v.get_str().map(|s| s.to_string()))
-            {
-                info!(
-                    "Analytics: executando extrapolação para {} ({} meses históricos, última qtd={:.0})",
-                    asset_code, historical_qtys.len(), last_qty
-                );
-                extrapolate_best(&historical_qtys, last_qty, quotes, &last_known_dt)
+        if historical_qtys.len() < 3 {
+            debug!(
+                "Analytics: poucos dados ({}) — pulando extrapolação",
+                historical_qtys.len()
+            );
+            (
+                Vec::new(),
+                ExtrapolationQuality {
+                    method: ExtrapolationMethod::Baseline,
+                    r_squared: None,
+                    mae: None,
+                    confidence_95: None,
+                },
+            )
+        } else {
+            debug!("Analytics: quotes disponíveis ({} cotações)", quotes.len());
+            if let Ok(dt_col) = filtered_df.column("DT_COMPTC") {
+                if let Some(last_known_dt) = dt_col
+                    .get(height - 1)
+                    .ok()
+                    .and_then(|v| v.get_str().map(|s| s.to_string()))
+                {
+                    info!(
+                        "Analytics: executando extrapolação para {} ({} meses históricos, última qtd={:.0})",
+                        asset_code, historical_qtys.len(), last_qty
+                    );
+                    extrapolate_best(&historical_qtys, last_qty, quotes, &last_known_dt)
+                } else {
+                    (
+                        Vec::new(),
+                        ExtrapolationQuality {
+                            method: ExtrapolationMethod::Baseline,
+                            r_squared: None,
+                            mae: None,
+                            confidence_95: None,
+                        },
+                    )
+                }
             } else {
                 (
                     Vec::new(),
@@ -945,16 +971,6 @@ pub fn compute_asset_analytics(
                     },
                 )
             }
-        } else {
-            (
-                Vec::new(),
-                ExtrapolationQuality {
-                    method: ExtrapolationMethod::Baseline,
-                    r_squared: None,
-                    mae: None,
-                    confidence_95: None,
-                },
-            )
         }
     } else {
         debug!("Analytics: sem quotes disponíveis — pulando extrapolação");
