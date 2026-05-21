@@ -16,6 +16,7 @@ pub trait Tab {
     fn closeable(&self) -> bool;
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum TabType {
     Fund(FundTab),
     Home(HomeTab),

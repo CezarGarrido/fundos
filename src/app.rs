@@ -136,8 +136,10 @@ impl TemplateApp {
             opt.warn_on_id_clash = false;
         });
 
-        let mut app: Self = Default::default();
-        app.current_theme_dark = Some(false);
+        let app = Self {
+            current_theme_dark: Some(false),
+            ..Default::default()
+        };
         cc.egui_ctx.set_visuals(get_premium_visuals(false));
 
         app
@@ -901,10 +903,10 @@ impl TemplateApp {
 
     // Função para configurar a Dock Area
     fn setup_dock_area(&mut self, ui: &mut egui::Ui) {
-        let has_home = self.tree.iter_all_tabs().any(|(_, tab)| match tab {
-            TabType::Home(_) => true,
-            _ => false,
-        });
+        let has_home = self
+            .tree
+            .iter_all_tabs()
+            .any(|(_, tab)| matches!(tab, TabType::Home(_)));
 
         if !has_home {
             let home_tab = TabType::Home(HomeTab::new(

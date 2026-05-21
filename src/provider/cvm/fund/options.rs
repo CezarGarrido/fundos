@@ -73,7 +73,7 @@ impl Options {
             log::info!("cached_path retornou diretório: {:?}", path);
             Self::ensure_utf8_for_dir(&path).await?
         } else if self.url.split('?').next().unwrap_or("").ends_with(".zip")
-            || path.extension().map_or(false, |ext| ext == "zip")
+            || path.extension().is_some_and(|ext| ext == "zip")
             || Self::is_zip_file(&path)
         {
             // Arquivo zip: extrair e converter para UTF-8
@@ -120,10 +120,10 @@ impl Options {
                 utf8_dir
             );
             fs::remove_dir_all(utf8_dir).map_err(|e| {
-                cached_path::Error::from(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Falha ao remover diretório antigo: {}", e),
-                ))
+                cached_path::Error::from(std::io::Error::other(format!(
+                    "Falha ao remover diretório antigo: {}",
+                    e
+                )))
             })?;
         }
 
@@ -189,7 +189,7 @@ impl Options {
                 let subdir_name = path.file_name().unwrap();
                 let dst_subdir = dst_dir.join(subdir_name);
                 Self::convert_csv_files_recursively(&path, &dst_subdir)?;
-            } else if path.extension().map_or(false, |ext| ext == "csv") {
+            } else if path.extension().is_some_and(|ext| ext == "csv") {
                 // Converter arquivo CSV para UTF-8
                 let file_name = path.file_name().unwrap();
                 let dst_path = dst_dir.join(file_name);
@@ -230,10 +230,10 @@ impl Options {
 
         if let Some(p) = utf8_path.parent() {
             fs::create_dir_all(p).map_err(|e| {
-                cached_path::Error::from(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Falha ao criar diretório: {}", e),
-                ))
+                cached_path::Error::from(std::io::Error::other(format!(
+                    "Falha ao criar diretório: {}",
+                    e
+                )))
             })?;
         }
 
@@ -311,7 +311,7 @@ impl Options {
         .unwrap()?;
 
         let is_zip = self.url.split('?').next().unwrap_or("").ends_with(".zip")
-            || path.extension().map_or(false, |ext| ext == "zip")
+            || path.extension().is_some_and(|ext| ext == "zip")
             || Self::is_zip_file(&path);
 
         let result_path = if path.is_dir() {

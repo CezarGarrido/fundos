@@ -240,7 +240,7 @@ fn extract_ranking(df: &DataFrame, category_col: &str, value_col: &str) -> Vec<(
         }
         _ => return vec![],
     };
-    items.sort_by(|a, b| b.1.cmp(&a.1));
+    items.sort_by_key(|b| std::cmp::Reverse(b.1));
     items
 }
 

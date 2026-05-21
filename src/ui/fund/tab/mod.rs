@@ -7,18 +7,13 @@ use egui::{Ui, WidgetText};
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Default)]
 pub enum Panel {
+    #[default]
     Details,
     Profit,
     Assets,
     Historico,
-}
-
-impl Default for Panel {
-    fn default() -> Self {
-        Self::Details
-    }
 }
 
 pub struct FundTab {

@@ -22,7 +22,7 @@ fn fmt_val(v: f64) -> String {
     }
 }
 
-fn get_str<'a>(col: &'a polars::series::Series, row: usize) -> String {
+fn get_str(col: &polars::series::Series, row: usize) -> String {
     col.get(row)
         .ok()
         .and_then(|v| v.get_str().map(|s| s.to_string()))
@@ -294,7 +294,7 @@ impl HistoricoTab {
                                 cd_isin
                             };
                             if row_key == *key {
-                                if let Some(ref pc) = pct_col {
+                                if let Some(pc) = pct_col {
                                     total += get_f64(pc, i);
                                 }
                             }
@@ -484,13 +484,13 @@ impl HistoricoTab {
                     };
                     if row_key == asset_key {
                         total_merc += get_f64(merc_col, i);
-                        if let Some(ref pc) = pct_col {
+                        if let Some(pc) = pct_col {
                             total_pct += get_f64(pc, i);
                         }
-                        if let Some(ref qc) = qt_col {
+                        if let Some(qc) = qt_col {
                             total_qt += get_f64(qc, i);
                         }
-                        if let Some(ref ac) = aquis_col {
+                        if let Some(ac) = aquis_col {
                             total_aquis += get_f64(ac, i);
                         }
                     }
@@ -1125,7 +1125,7 @@ impl Tab for HistoricoTab {
                                 ui.painter().text(
                                     egui::pos2(rect.max.x - 8.0, rect.center().y),
                                     egui::Align2::RIGHT_CENTER,
-                                    &format!("{:.1}%", latest_pct),
+                                    format!("{:.1}%", latest_pct),
                                     egui::FontId::proportional(10.0),
                                     pct_color,
                                 );

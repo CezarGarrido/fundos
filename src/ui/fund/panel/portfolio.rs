@@ -374,7 +374,7 @@ impl PortfolioUI {
                 }
 
                 let filters_series = Series::new("filters", filters);
-                let lf = if filters_series.len() > 0 {
+                let lf = if !filters_series.is_empty() {
                     self.assets
                         .clone()
                         .lazy()

@@ -268,16 +268,10 @@ impl Portfolio {
             .unwrap_or(false)
         {
             // Align PL schema
-            let pl_cols = vec!["CNPJ_FUNDO", "VL_PATRIM_LIQ", "DT_COMPTC"];
+            let pl_cols = ["CNPJ_FUNDO", "VL_PATRIM_LIQ", "DT_COMPTC"];
             let pl_exists: Vec<&str> = pl_cols
                 .iter()
-                .filter(|c| {
-                    pl_lf
-                        .schema()
-                        .ok()
-                        .map(|s| s.contains(**c))
-                        .unwrap_or(false)
-                })
+                .filter(|c| pl_lf.schema().ok().map(|s| s.contains(c)).unwrap_or(false))
                 .copied()
                 .collect();
             if pl_exists.len() == 3 {

@@ -193,8 +193,7 @@ impl ProfitUI {
                         self.send_profit_message(cnpj, start_date, now);
                     }
                     FilterMonth::Ytd => {
-                        let start_date =
-                            chrono::NaiveDate::from_ymd_opt(now.year() as i32, 1, 1).unwrap();
+                        let start_date = chrono::NaiveDate::from_ymd_opt(now.year(), 1, 1).unwrap();
                         self.send_profit_message(cnpj, start_date, now);
                     }
                     FilterMonth::Custom => {}

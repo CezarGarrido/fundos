@@ -222,7 +222,7 @@ pub fn compute_asset_analytics(
 
     // RF11: Extrapolar para os meses ocultos
     if let Some(quotes) = quotes {
-        if let Some(dt_col) = filtered_df.column("DT_COMPTC").ok() {
+        if let Ok(dt_col) = filtered_df.column("DT_COMPTC") {
             if let Some(last_known_dt) = dt_col
                 .get(height - 1)
                 .ok()

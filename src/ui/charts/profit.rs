@@ -23,7 +23,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
             let mut line_data = Vec::new();
             let dates = dates.utf8().unwrap();
             let rentabilidade = rentabilidade.f64().unwrap();
-            for (date, rent) in dates.into_iter().zip(rentabilidade.into_iter()) {
+            for (date, rent) in dates.into_iter().zip(rentabilidade) {
                 if let (Some(date), Some(rent)) = (date, rent) {
                     if let Ok(parsed_date) = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") {
                         let timestamp = parsed_date
@@ -56,7 +56,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 let mut line_data = Vec::new();
                 let dates = dates.utf8().unwrap();
                 let rentabilidade = rentabilidade.f64().unwrap();
-                for (date, rent) in dates.into_iter().zip(rentabilidade.into_iter()) {
+                for (date, rent) in dates.into_iter().zip(rentabilidade) {
                     if let (Some(date), Some(rent)) = (date, rent) {
                         if let Ok(parsed_date) = chrono::NaiveDate::parse_from_str(date, "%d/%m/%Y")
                         {
