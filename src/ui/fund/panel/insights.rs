@@ -281,10 +281,38 @@ pub fn show_detailed(
                                             ui.end_row();
 
                                             if !analytics.hidden_qty_estimates.is_empty() {
+                                                // ── Extrapolação: resultado do melhor método ──────
+                                                if let Some(ref q) = analytics.extrapolation_quality {
+                                                    ui.label(egui::RichText::new("Extrapolação:").color(text_color));
+                                                    ui.label(
+                                                        egui::RichText::new(format!(
+                                                            "{} (R²={:.2})",
+                                                            q.method,
+                                                            q.r_squared.unwrap_or(0.0)
+                                                        ))
+                                                        .strong()
+                                                        .color(success_color),
+                                                    );
+                                                    ui.end_row();
+                                                }
                                                 ui.label(egui::RichText::new("Posição Oculta (Estimada):").color(text_color));
                                                 if let Some(last_est) = analytics.hidden_qty_estimates.last() {
-                                                    let warn_color = if ui.visuals().dark_mode { egui::Color32::from_rgb(230, 126, 34) } else { egui::Color32::from_rgb(190, 95, 10) };
-                                                    ui.label(egui::RichText::new(format!("{} cotas em {}", last_est.1, last_est.0)).strong().color(warn_color));
+                                                    let warn_color = if ui.visuals().dark_mode {
+                                                        egui::Color32::from_rgb(230, 126, 34)
+                                                    } else {
+                                                        egui::Color32::from_rgb(190, 95, 10)
+                                                    };
+                                                    let val_str = crate::util::to_real(last_est.2)
+                                                        .map(|r| r.format())
+                                                        .unwrap_or_else(|_| format!("R$ {:.2}", last_est.2));
+                                                    ui.label(
+                                                        egui::RichText::new(format!(
+                                                            "{:.0} cotas ≈ {} em {}",
+                                                            last_est.1, val_str, last_est.0
+                                                        ))
+                                                        .strong()
+                                                        .color(warn_color),
+                                                    );
                                                 }
                                                 ui.end_row();
                                             }

@@ -978,6 +978,48 @@ impl HistoricoTab {
                     }
                 });
             });
+
+            // ── Extrapolação: qualidade do método vencedor ──────────────
+            if let Some(ref q) = analytics.extrapolation_quality {
+                if !analytics.hidden_qty_estimates.is_empty() {
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("📈 {}", q.method))
+                                .size(9.0)
+                                .color(tx),
+                        );
+                        if let Some(r2) = q.r_squared {
+                            ui.label(RichText::new(format!("R²={:.3}", r2)).size(9.0).color(gr));
+                        }
+                        if let Some(mae) = q.mae {
+                            ui.label(RichText::new(format!("MAE={:.0}", mae)).size(9.0).weak());
+                        }
+                        if let Some((lo, hi)) = q.confidence_95 {
+                            ui.label(
+                                RichText::new(format!("IC95=[{:.0}, {:.0}]", lo, hi))
+                                    .size(9.0)
+                                    .color(bl),
+                            );
+                        }
+                        if let Some(last) = analytics.hidden_qty_estimates.last() {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(format!("{:.0} cotas", last.1))
+                                            .size(10.0)
+                                            .strong()
+                                            .color(vt),
+                                    );
+                                },
+                            );
+                        }
+                    });
+                }
+            }
         }
     }
 }
