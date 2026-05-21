@@ -8,20 +8,6 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{message::Message, ui::tabs::Tab};
 
-fn fmt_val(v: f64) -> String {
-    if v >= 1_000_000_000.0 {
-        format!("R$ {:.2} Bi", v / 1e9)
-    } else if v >= 1_000_000.0 {
-        format!("R$ {:.2} Mi", v / 1e6)
-    } else if v >= 1_000.0 {
-        format!("R$ {:.1} K", v / 1e3)
-    } else if v == 0.0 {
-        "-".into()
-    } else {
-        format!("R$ {:.2}", v)
-    }
-}
-
 fn get_str(col: &polars::series::Series, row: usize) -> String {
     col.get(row)
         .ok()
@@ -770,16 +756,9 @@ impl HistoricoTab {
             || u.contains("FUNDO DE INVESTIMENTO IMOBILIÁRIO")
     }
 
-    fn render_yahoo_inline(
-        &self,
-        ui: &mut Ui,
-        codigo: &str,
-        _vl_merc: f64,
-        vl_aquis: f64,
-        qt_pos: f64,
-    ) {
+    fn render_yahoo_inline(&self, ui: &mut Ui, codigo: &str) {
         let dark = ui.visuals().dark_mode;
-        let tx = if dark {
+        let _tx = if dark {
             Color32::from_rgb(140, 155, 175)
         } else {
             Color32::from_rgb(90, 100, 120)
@@ -842,7 +821,7 @@ impl HistoricoTab {
         });
         Plot::new("hist_yahoo_inline")
             .show_background(false)
-            .height(90.0)
+            .height(70.0)
             .show(ui, |p| {
                 p.line(
                     Line::new(codigo, pts)
@@ -850,77 +829,31 @@ impl HistoricoTab {
                         .width(2.0),
                 );
             });
-
-        // Extrapolação de Posições (RF11)
-        let extrapolated_value = qt_pos * last_p;
-        let diff_value = extrapolated_value - vl_aquis;
-        let diff_pct = if vl_aquis > 0.0 {
-            (diff_value / vl_aquis) * 100.0
-        } else {
-            0.0
-        };
-
-        let tx_color = if dark {
-            Color32::from_rgb(140, 155, 175)
-        } else {
-            Color32::from_rgb(90, 100, 120)
-        };
-        let hd_color = if dark {
-            Color32::WHITE
-        } else {
-            Color32::from_rgb(20, 30, 50)
-        };
-
-        ui.columns(3, |cols| {
-            for (i, (lbl, val, color)) in [
-                (
-                    "Qtde. Oculta (Últ. Mês CVM)",
-                    format!("{:.0}", qt_pos),
-                    hd_color,
-                ),
-                (
-                    "Extrapolação a Mercado (Hoje)",
-                    fmt_val(extrapolated_value),
-                    hd_color,
-                ),
-                (
-                    "Lucro/Prejuízo Oculto (Estimado)",
-                    if diff_value != 0.0 {
-                        format!("R$ {:.2} ({:+.2}%)", diff_value, diff_pct)
-                    } else {
-                        "N/A".into()
-                    },
-                    if diff_value > 0.0 {
-                        Color32::from_rgb(34, 197, 94)
-                    } else if diff_value < 0.0 {
-                        Color32::from_rgb(239, 68, 68)
-                    } else {
-                        tx_color
-                    },
-                ),
-            ]
-            .iter()
-            .enumerate()
-            {
-                cols[i].label(RichText::new(*lbl).size(9.0).color(tx));
-                cols[i].label(RichText::new(val).size(12.0).strong().color(*color));
-            }
-        });
     }
 
     fn render_analytics_inline(&mut self, ui: &mut Ui, codigo: &str) {
         let dark = ui.visuals().dark_mode;
-        let tx = if dark {
-            Color32::from_rgb(140, 155, 175)
+        let (tx, hd, bg, muted) = if dark {
+            (
+                Color32::from_rgb(140, 155, 175),
+                Color32::WHITE,
+                Color32::from_rgb(20, 25, 35),
+                Color32::from_rgb(90, 100, 120),
+            )
         } else {
-            Color32::from_rgb(90, 100, 120)
+            (
+                Color32::from_rgb(90, 100, 120),
+                Color32::from_rgb(20, 30, 50),
+                Color32::from_rgb(248, 250, 253),
+                Color32::from_rgb(140, 150, 165),
+            )
         };
-        let gr = Color32::from_rgb(34, 197, 94);
-        let rd = Color32::from_rgb(239, 68, 68);
-        let vt = Color32::from_rgb(139, 92, 246);
-        let bl = Color32::from_rgb(59, 130, 246);
+        let accent = Color32::from_rgb(37, 99, 235);
+        let green = Color32::from_rgb(34, 197, 94);
+        let red = Color32::from_rgb(239, 68, 68);
+        let purple = Color32::from_rgb(139, 92, 246);
 
-        // Cache: só computa analytics uma vez por ativo
+        // Cache
         if !self.analytics_cache.contains_key(codigo) {
             let yahoo_df = self.yahoo_prices.get(codigo);
             if let Some(a) = crate::analytics::compute_asset_analytics(&self.data, codigo, yahoo_df)
@@ -929,108 +862,284 @@ impl HistoricoTab {
             }
         }
 
-        if let Some(analytics) = self.analytics_cache.get(codigo) {
-            ui.columns(4, |cols| {
-                cols[0].vertical(|ui| {
-                    ui.label(RichText::new("PM Histórico (Compra)").size(9.0).color(tx));
-                    if analytics.avg_buy_price > 0.0 {
-                        ui.label(
-                            RichText::new(format!("R$ {:.2}", analytics.avg_buy_price))
-                                .size(13.0)
-                                .strong()
-                                .color(bl),
-                        );
-                    } else {
-                        ui.label(RichText::new("N/A").size(11.0).weak());
-                    }
-                });
-                cols[1].vertical(|ui| {
-                    ui.label(RichText::new("PM Histórico (Venda)").size(9.0).color(tx));
-                    if analytics.avg_sell_price > 0.0 {
-                        ui.label(
-                            RichText::new(format!("R$ {:.2}", analytics.avg_sell_price))
-                                .size(13.0)
-                                .strong()
-                                .color(rd),
-                        );
-                    } else {
-                        ui.label(RichText::new("N/A").size(11.0).weak());
-                    }
-                });
-                cols[2].vertical(|ui| {
-                    ui.label(
-                        RichText::new("Gatilho Take-Profit Estimado")
-                            .size(9.0)
-                            .color(tx),
-                    );
-                    if analytics.take_profit_trigger > 0.0 {
-                        ui.label(
-                            RichText::new(format!("{:.2}% PL", analytics.take_profit_trigger))
-                                .size(13.0)
-                                .strong()
-                                .color(vt),
-                        );
-                    } else {
-                        ui.label(RichText::new("Não detectado").size(11.0).weak());
-                    }
-                });
-                cols[3].vertical(|ui| {
-                    ui.label(RichText::new("Velocidade de Montagem").size(9.0).color(tx));
-                    if analytics.speed_to_peak > 0 {
-                        ui.label(
-                            RichText::new(format!("{} meses até o pico", analytics.speed_to_peak))
-                                .size(13.0)
-                                .strong()
-                                .color(gr),
-                        );
-                    } else {
-                        ui.label(RichText::new("N/A").size(11.0).weak());
-                    }
-                });
+        let yahoo_data: Option<(&DataFrame, f64, f64, f64)> = self
+            .get_asset_info(&self.selected_asset.clone().unwrap_or_default())
+            .and_then(|(_, _, _, vl_merc, vl_aquis, qt_pos)| {
+                self.yahoo_prices
+                    .get(codigo)
+                    .map(|prices| (prices, vl_merc, vl_aquis, qt_pos))
             });
 
-            // ── Extrapolação: qualidade do método vencedor ──────────────
-            if let Some(ref q) = analytics.extrapolation_quality {
-                if !analytics.hidden_qty_estimates.is_empty() {
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
+        Frame::NONE
+            .fill(bg)
+            .corner_radius(egui::CornerRadius::same(8))
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+
+                // ── Linha 1: Preço + cotas ─────────────────────────
+                ui.horizontal(|ui| {
+                    if let Some((prices, _, _, qt_pos)) = yahoo_data {
+                        let last_p = prices
+                            .column("adjclose")
+                            .ok()
+                            .and_then(|c| {
+                                let n = prices.height();
+                                if n > 0 {
+                                    c.get(n - 1).ok()
+                                } else {
+                                    None
+                                }
+                            })
+                            .and_then(|v| v.try_extract::<f64>().ok())
+                            .unwrap_or(0.0);
+
+                        let first_p = prices
+                            .column("adjclose")
+                            .ok()
+                            .and_then(|c| c.get(0).ok())
+                            .and_then(|v| v.try_extract::<f64>().ok())
+                            .unwrap_or(last_p);
+
+                        let change = if first_p > 0.0 {
+                            ((last_p - first_p) / first_p) * 100.0
+                        } else {
+                            0.0
+                        };
+                        let chg_color = if change > 0.0 {
+                            green
+                        } else if change < 0.0 {
+                            red
+                        } else {
+                            tx
+                        };
+
                         ui.label(
-                            RichText::new(format!("📈 {}", q.method))
-                                .size(9.0)
-                                .color(tx),
+                            RichText::new(format!("R$ {:.2}", last_p))
+                                .size(20.0)
+                                .strong()
+                                .color(hd),
                         );
-                        if let Some(r2) = q.r_squared {
-                            ui.label(RichText::new(format!("R²={:.3}", r2)).size(9.0).color(gr));
-                        }
-                        if let Some(mae) = q.mae {
-                            ui.label(RichText::new(format!("MAE={:.0}", mae)).size(9.0).weak());
-                        }
-                        if let Some((lo, hi)) = q.confidence_95 {
+                        ui.label(
+                            RichText::new(format!(
+                                "  {}{:.2}%",
+                                if change > 0.0 {
+                                    "▴ "
+                                } else if change < 0.0 {
+                                    "▾ "
+                                } else {
+                                    ""
+                                },
+                                change.abs()
+                            ))
+                            .size(14.0)
+                            .color(chg_color),
+                        );
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.label(
-                                RichText::new(format!("IC95=[{:.0}, {:.0}]", lo, hi))
-                                    .size(9.0)
-                                    .color(bl),
+                                RichText::new(format!("{:.0} cotas", qt_pos))
+                                    .size(12.0)
+                                    .color(tx),
                             );
-                        }
-                        if let Some(last) = analytics.hidden_qty_estimates.last() {
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        RichText::new(format!("{:.0} cotas", last.1))
-                                            .size(10.0)
-                                            .strong()
-                                            .color(vt),
-                                    );
+                        });
+                    }
+                });
+
+                // ── Linha 2: PM Compra ────────────────────────────
+                if let Some(analytics) = self.analytics_cache.get(codigo) {
+                    if analytics.avg_buy_price > 0.0 {
+                        ui.add_space(2.0);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("PM Compra").size(10.0).color(muted));
+                            ui.label(
+                                RichText::new(format!("R$ {:.2}", analytics.avg_buy_price))
+                                    .size(12.0)
+                                    .strong()
+                                    .color(accent),
+                            );
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if let Some((_, _, vl_aquis, _)) = yahoo_data {
+                                    if vl_aquis > 0.0 {
+                                        ui.label(
+                                            RichText::new(format!("Custo R$ {:.2}", vl_aquis))
+                                                .size(10.0)
+                                                .color(muted),
+                                        );
+                                    }
+                                }
+                            });
+                        });
+                    }
+                }
+
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // ── Extrapolação ──────────────────────────────────
+                if let Some(analytics) = self.analytics_cache.get(codigo) {
+                    if let Some(ref q) = analytics.extrapolation_quality {
+                        if let Some(last_est) = analytics.hidden_qty_estimates.last() {
+                            let max_qty = analytics
+                                .hidden_qty_estimates
+                                .first()
+                                .map(|e| e.1)
+                                .unwrap_or(last_est.1)
+                                .max(last_est.1)
+                                .max(1.0);
+                            let bar_pct = (last_est.1 / max_qty).clamp(0.0, 1.0) as f32;
+
+                            ui.label(
+                                RichText::new("📈 Posição Oculta Estimada")
+                                    .size(10.0)
+                                    .strong()
+                                    .color(tx),
+                            );
+                            ui.add_space(2.0);
+
+                            // Barra de progresso
+                            let bar_h = 10.0;
+                            let (bar_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), bar_h),
+                                Sense::hover(),
+                            );
+                            ui.painter().rect_filled(
+                                bar_rect,
+                                egui::CornerRadius::same(4),
+                                if dark {
+                                    Color32::from_rgb(40, 45, 55)
+                                } else {
+                                    Color32::from_rgb(230, 235, 245)
                                 },
                             );
+                            let fill = egui::Rect::from_min_size(
+                                bar_rect.min,
+                                egui::vec2(bar_rect.width() * bar_pct, bar_h),
+                            );
+                            ui.painter()
+                                .rect_filled(fill, egui::CornerRadius::same(4), accent);
+
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(format!("{:.0} cotas", last_est.1))
+                                        .size(11.0)
+                                        .strong()
+                                        .color(hd),
+                                );
+                                let val_fmt = crate::util::to_real(last_est.2)
+                                    .map(|r| r.format())
+                                    .unwrap_or_else(|_| format!("R$ {:.2}", last_est.2));
+                                ui.label(
+                                    RichText::new(format!("≈ {}", val_fmt)).size(11.0).color(tx),
+                                );
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{}  R²={:.2}",
+                                            q.method,
+                                            q.r_squared.unwrap_or(0.0)
+                                        ))
+                                        .size(9.0)
+                                        .color(muted),
+                                    );
+                                    if let Some((lo, hi)) = q.confidence_95 {
+                                        ui.label(
+                                            RichText::new(format!("IC95 [{:.0} – {:.0}]", lo, hi))
+                                                .size(9.0)
+                                                .color(muted),
+                                        );
+                                    }
+                                });
+                            });
                         }
+                    }
+                }
+
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // ── Estratégia ────────────────────────────────────
+                if let Some(analytics) = self.analytics_cache.get(codigo) {
+                    ui.label(
+                        RichText::new("⚡ Estratégia do Gestor")
+                            .size(10.0)
+                            .strong()
+                            .color(tx),
+                    );
+                    ui.add_space(2.0);
+
+                    ui.columns(3, |cols| {
+                        cols[0].vertical(|ui| {
+                            ui.label(RichText::new("Montagem").size(9.0).color(muted));
+                            if analytics.speed_to_peak > 0 {
+                                let speed_color = if analytics.speed_to_peak <= 2 {
+                                    purple
+                                } else {
+                                    tx
+                                };
+                                ui.label(
+                                    RichText::new(format!("{} meses", analytics.speed_to_peak))
+                                        .size(13.0)
+                                        .strong()
+                                        .color(speed_color),
+                                );
+                            } else {
+                                ui.label(RichText::new("N/D").size(11.0).weak());
+                            }
+                        });
+                        cols[1].vertical(|ui| {
+                            ui.label(RichText::new("Take-Profit").size(9.0).color(muted));
+                            if analytics.take_profit_trigger > 0.0 {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{:.1}% PL",
+                                        analytics.take_profit_trigger
+                                    ))
+                                    .size(13.0)
+                                    .strong()
+                                    .color(green),
+                                );
+                            } else {
+                                ui.label(RichText::new("Não detectado").size(11.0).weak());
+                            }
+                        });
+                        cols[2].vertical(|ui| {
+                            ui.label(RichText::new("Ganho Oculto").size(9.0).color(muted));
+                            if let Some((prices, _, vl_aquis, qt_pos)) = yahoo_data {
+                                let last_p = prices
+                                    .column("adjclose")
+                                    .ok()
+                                    .and_then(|c| {
+                                        let n = prices.height();
+                                        if n > 0 {
+                                            c.get(n - 1).ok()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .and_then(|v| v.try_extract::<f64>().ok())
+                                    .unwrap_or(0.0);
+                                let gain = qt_pos * last_p - vl_aquis;
+                                let gain_pct = if vl_aquis > 0.0 {
+                                    (gain / vl_aquis) * 100.0
+                                } else {
+                                    0.0
+                                };
+                                let gain_color = if gain > 0.0 { green } else { red };
+                                ui.label(
+                                    RichText::new(format!("{:+.1}%", gain_pct))
+                                        .size(13.0)
+                                        .strong()
+                                        .color(gain_color),
+                                );
+                            } else {
+                                ui.label(RichText::new("N/D").size(11.0).weak());
+                            }
+                        });
                     });
                 }
-            }
-        }
+            });
     }
 }
 
@@ -1201,7 +1310,7 @@ impl Tab for HistoricoTab {
             ui.vertical(|ui| {
                 if let Some(sel) = self.selected_asset.clone() {
                     // Auto-fetch Yahoo if eligible and not yet fetched
-                    if let Some((codigo, tp_ativo, ap, vl_merc, vl_aquis, qt_pos)) =
+                    if let Some((codigo, tp_ativo, ap, _vl_merc, _vl_aquis, _qt_pos)) =
                         self.get_asset_info(&sel)
                     {
                         if Self::is_yahoo_eligible(&tp_ativo)
@@ -1267,26 +1376,14 @@ impl Tab for HistoricoTab {
                         self.render_pct_stats(ui, &sel);
                         ui.add_space(6.0);
 
-                        // Behavioral Analytics (RF07/RF08)
-                        ui.separator();
-                        ui.add_space(4.0);
-                        ui.label(RichText::new("Análise Comportamental").size(11.0).strong());
-                        ui.add_space(3.0);
+                        // ── Card: Análise do Gestor ────────────────────
                         self.render_analytics_inline(ui, &codigo);
                         ui.add_space(6.0);
 
-                        // Yahoo section (only for eligible assets)
+                        // Yahoo sparkline (lite)
                         if Self::is_yahoo_eligible(&tp_ativo) {
-                            ui.separator();
+                            self.render_yahoo_inline(ui, &codigo);
                             ui.add_space(4.0);
-                            ui.label(
-                                RichText::new("Histórico de Preço — Yahoo Finance")
-                                    .size(11.0)
-                                    .strong(),
-                            );
-                            ui.add_space(3.0);
-                            self.render_yahoo_inline(ui, &codigo, vl_merc, vl_aquis, qt_pos);
-                            ui.add_space(6.0);
                         }
 
                         // Monthly detail table
