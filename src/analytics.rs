@@ -282,14 +282,20 @@ fn extrapolate_kalman(
     //   F = [[1, 1], [0, 1]]
     //   H = [1, 0]  (observamos apenas posição)
 
-    // Ruídos
-    let q_pos = 0.01; // variância do processo (posição)
-    let q_vel = 0.001; // variância do processo (velocidade)
-    let r_obs = 0.1; // variância da observação
+    // Ruídos — escalados pela magnitude dos dados para evitar colapso
+    let data_scale = historical_qtys
+        .iter()
+        .cloned()
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+    let q_pos = data_scale * data_scale * 0.01; // 1% da escala²
+    let q_vel = data_scale * data_scale * 0.001; // 0.1% da escala²
+    let r_obs = data_scale * data_scale * 0.05; // 5% da escala² (ruído de observação)
 
     // Estado inicial
     let mut x = [historical_qtys[0], 0.0_f64];
-    let mut p = [[1.0, 0.0], [0.0, 1.0]]; // covariância inicial
+    let init_var = data_scale * data_scale;
+    let mut p = [[init_var, 0.0], [0.0, init_var * 0.1]];
 
     let f = [[1.0, 1.0], [0.0, 1.0]];
     let h = [1.0, 0.0];
@@ -359,8 +365,15 @@ fn extrapolate_kalman(
     };
     let mae: f64 = residuals.iter().map(|r| r.abs()).sum::<f64>() / residuals.len().max(1) as f64;
 
-    // Intervalo de confiança 95% (baseado na covariância final)
-    let std_dev = p[0][0].sqrt();
+    // Intervalo de confiança 95% — usa resíduos históricos quando covariância colapsa
+    let std_dev = if p[0][0] > data_scale * 0.01 {
+        p[0][0].sqrt()
+    } else {
+        // Covariância colapsou, usa dispersão dos resíduos como fallback
+        let var_res: f64 =
+            residuals.iter().map(|r| r * r).sum::<f64>() / residuals.len().max(1) as f64;
+        var_res.sqrt().max(data_scale * 0.05)
+    };
     let ci_lower = (x[0] - 1.96 * std_dev).max(0.0);
     let ci_upper = x[0] + 1.96 * std_dev;
 
@@ -369,37 +382,21 @@ fn extrapolate_kalman(
         x[0], x[1], ci_lower, ci_upper, r_squared, mae
     );
 
-    // Projetar para frente usando o modelo de velocidade constante
+    // Projetar para frente com suavização (mesmo approach do RF)
     let mut estimates = Vec::new();
-    let mut future_x = x;
-    let mut future_p = p;
+    let mut prev_qty = x[0];
+    let vel = x[1]; // velocidade estimada pelo Kalman
+    let ema_alpha = 0.25;
     for q in quotes {
         if q.date.as_str() > last_known_dt {
-            // Predict one step
-            future_x = [
-                f[0][0] * future_x[0] + f[0][1] * future_x[1],
-                f[1][0] * future_x[0] + f[1][1] * future_x[1],
-            ];
-            future_p = [
-                [
-                    f[0][0] * (f[0][0] * future_p[0][0] + f[0][1] * future_p[1][0])
-                        + f[0][1] * (f[0][0] * future_p[0][1] + f[0][1] * future_p[1][1])
-                        + proc_noise[0][0],
-                    f[0][0] * (f[1][0] * future_p[0][0] + f[1][1] * future_p[1][0])
-                        + f[0][1] * (f[1][0] * future_p[0][1] + f[1][1] * future_p[1][1])
-                        + proc_noise[0][1],
-                ],
-                [
-                    f[1][0] * (f[0][0] * future_p[0][0] + f[0][1] * future_p[1][0])
-                        + f[1][1] * (f[0][0] * future_p[0][1] + f[0][1] * future_p[1][1])
-                        + proc_noise[1][0],
-                    f[1][0] * (f[1][0] * future_p[0][0] + f[1][1] * future_p[1][0])
-                        + f[1][1] * (f[1][0] * future_p[0][1] + f[1][1] * future_p[1][1])
-                        + proc_noise[1][1],
-                ],
-            ];
-            let pred_qty = future_x[0].max(0.0);
+            // Avança estado interno (modelo de velocidade constante)
+            let raw_qty = prev_qty + vel;
+            // Suavização + clamp: evita projeções explosivas
+            let max_change = prev_qty * 0.25;
+            let clamped = raw_qty.clamp(prev_qty - max_change, prev_qty + max_change);
+            let pred_qty = (ema_alpha * clamped + (1.0 - ema_alpha) * prev_qty).max(0.0);
             estimates.push((q.date.clone(), pred_qty, pred_qty * q.close_price));
+            prev_qty = pred_qty;
         }
     }
 
