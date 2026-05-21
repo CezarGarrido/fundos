@@ -108,7 +108,7 @@ pub fn show_kpis(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
             });
 }
 
-pub fn show_detailed(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
+pub fn show_detailed(assets: DataFrame, pl: DataFrame, fund_history: Option<DataFrame>, ui: &mut Ui) {
     if assets.height() == 0 { return; }
     
     let (heading_color, text_color, secondary_color, success_color, _card_bg) = if ui.visuals().dark_mode {
@@ -133,12 +133,9 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
     let (short_term_pct, long_term_pct) = get_duration_split(&assets);
 
     ui.vertical(|ui| {
-        // Grid Inferior: Insights Detalhados
-        ui.columns(2, |cols| {
-            // Coluna Esquerda: Posição de Convicção e PM
-            cols[0].group(|ui| {
-                    ui.set_min_height(320.0);
-                    ui.heading(
+        // Bloco Superior: Posição de Convicção e PM
+        ui.vertical(|ui| {
+            ui.heading(
                         egui::RichText::new(format!(
                             "{} Posição de Maior Convicção",
                             egui_phosphor::regular::TARGET
@@ -222,8 +219,10 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
                             });
 
                         ui.add_space(15.0);
+                        ui.separator();
+                        ui.add_space(15.0);
                         // Mensagem de análise de risco e regulação
-                        ui.group(|ui| {
+                        ui.vertical(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new(egui_phosphor::regular::SHIELD_CHECK.to_string()).color(success_color));
                                 ui.label(egui::RichText::new("Análise de Risco de Liquidez").strong().size(12.0).color(heading_color));
@@ -238,14 +237,74 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
                             };
                             ui.label(egui::RichText::new(msg).size(11.0).color(text_color));
                         });
+
+                        ui.add_space(15.0);
+                        ui.separator();
+                        ui.add_space(15.0);
+                        
+                        // RF11 & Analytics: Comportamento do Gestor
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(egui_phosphor::regular::BRAIN.to_string()).color(egui::Color32::from_rgb(155, 89, 182)));
+                                ui.label(egui::RichText::new("Comportamento do Gestor (Analytics)").strong().size(12.0).color(heading_color));
+                            });
+                            ui.separator();
+                            
+                            if let Some(history_df) = &fund_history {
+                                if let Some(analytics) = crate::analytics::compute_asset_analytics(history_df, &pos.codigo, None) {
+                                    egui::Grid::new("analytics_grid")
+                                        .striped(true)
+                                        .num_columns(2)
+                                        .show(ui, |ui| {
+                                            ui.label(egui::RichText::new("Inércia (Montagem):").color(text_color));
+                                            ui.label(egui::RichText::new(format!("{} meses", analytics.speed_to_peak)).strong().color(secondary_color));
+                                            ui.end_row();
+
+                                            ui.label(egui::RichText::new("PM Compra Estimado:").color(text_color));
+                                            if let Ok(formatted) = util::to_real(analytics.avg_buy_price) {
+                                                ui.label(egui::RichText::new(formatted.format()).color(success_color));
+                                            }
+                                            ui.end_row();
+                                            
+                                            ui.label(egui::RichText::new("Take-Profit Gatilho:").color(text_color));
+                                            let tp_color = if analytics.take_profit_trigger > 0.0 { success_color } else { secondary_color };
+                                            ui.label(egui::RichText::new(format!("{:.1}% do PL", analytics.take_profit_trigger)).color(tp_color));
+                                            ui.end_row();
+
+                                            if !analytics.hidden_qty_estimates.is_empty() {
+                                                ui.label(egui::RichText::new("Posição Oculta (Estimada):").color(text_color));
+                                                if let Some(last_est) = analytics.hidden_qty_estimates.last() {
+                                                    let warn_color = if ui.visuals().dark_mode { egui::Color32::from_rgb(230, 126, 34) } else { egui::Color32::from_rgb(190, 95, 10) };
+                                                    ui.label(egui::RichText::new(format!("{} cotas em {}", last_est.1, last_est.0)).strong().color(warn_color));
+                                                }
+                                                ui.end_row();
+                                            }
+                                        });
+                                } else {
+                                    let is_generic = pos.codigo.len() < 4 || pos.codigo.contains("Ações") || pos.codigo.contains("Operações");
+                                    if is_generic {
+                                        ui.label(egui::RichText::new(format!("A maior exposição ('{}') é uma classe genérica ou está sob sigilo recente da CVM. Não é possível traçar o perfil do ativo.", pos.name)).size(11.0).color(secondary_color));
+                                    } else {
+                                        ui.label(egui::RichText::new("Dados históricos insuficientes para calcular análise comportamental deste ativo.").size(11.0).color(secondary_color));
+                                    }
+                                }
+                            } else {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("Carregando base histórica do fundo para análise...").size(11.0).color(secondary_color));
+                                    ui.spinner();
+                                });
+                            }
+                        });
                     } else {
                         ui.label(egui::RichText::new("Sem dados específicos de ativos na carteira.").color(secondary_color));
                     }
                 });
 
-                // Coluna Direita: Análise de Prazo e Liquidez
-                cols[1].group(|ui| {
-                    ui.set_min_height(320.0);
+            // Bloco Inferior: Análise de Prazo e Liquidez
+            ui.add_space(15.0);
+            ui.separator();
+            ui.add_space(15.0);
+            ui.vertical(|ui| {
                     ui.heading(
                         egui::RichText::new(format!(
                             "{} Alocação de Prazo e Liquidez",
@@ -320,12 +379,12 @@ pub fn show_detailed(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
                     ui.label(egui::RichText::new(profile_msg).size(11.0).color(text_color));
             // Fim Coluna Direita
                 });
-        });
     });
 }
 
 struct LargestPos {
     name: String,
+    codigo: String,
     pct: f64,
     value: f64,
     cost: f64,
@@ -375,6 +434,14 @@ fn get_largest_position(assets: &DataFrame) -> Option<LargestPos> {
     .next()
     .unwrap_or_else(|| "Ativo Não Nomeado".to_string());
 
+    let codigo = assets
+        .column("CD_ATIVO")
+        .or_else(|_| assets.column("CD_ISIN"))
+        .ok()
+        .and_then(|c| c.get(max_idx).ok())
+        .and_then(|v| v.get_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| name.clone());
+
     let value = assets
         .column("VL_MERC_POS_FINAL")
         .ok()
@@ -408,6 +475,7 @@ fn get_largest_position(assets: &DataFrame) -> Option<LargestPos> {
 
     Some(LargestPos {
         name,
+        codigo,
         pct: max_val,
         value,
         cost,
@@ -517,7 +585,7 @@ fn draw_kpi_card(
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.set_height(70.0);
-            ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 // Barra vertical colorida
                 let (rect, _response) = ui.allocate_exact_size(egui::vec2(4.0, 54.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, egui::CornerRadius::same(2), accent_color);

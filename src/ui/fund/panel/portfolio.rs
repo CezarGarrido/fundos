@@ -27,6 +27,7 @@ pub struct PortfolioUI {
     pub loading: bool,
     pub asset_modal: AssetDetailModal,
     pub show_insights: bool,
+    pub fund_history: Option<DataFrame>,
 }
 
 impl Default for PortfolioUI {
@@ -52,6 +53,7 @@ impl Default for PortfolioUI {
             },
             show_insights: false,
             search_query: String::new(),
+            fund_history: None,
         }
     }
 }
@@ -85,14 +87,14 @@ impl PortfolioUI {
                             crate::ui::fund::panel::insights::show_kpis(self.assets.clone(), self.pl.clone(), ui);
                         });
 
-                    egui::Panel::bottom("insights_detailed_panel")
+                    egui::SidePanel::right("insights_detailed_panel")
                         .resizable(true)
-                        .min_size(50.0)
-                        .default_size(250.0)
-                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
+                        .min_width(320.0)
+                        .default_width(380.0)
+                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 4)))
                         .show_inside(ui, |ui| {
                             egui::ScrollArea::vertical().show(ui, |ui| {
-                                crate::ui::fund::panel::insights::show_detailed(self.assets.clone(), self.pl.clone(), ui);
+                                crate::ui::fund::panel::insights::show_detailed(self.assets.clone(), self.pl.clone(), self.fund_history.clone(), ui);
                             });
                         });
                         
@@ -229,17 +231,16 @@ impl PortfolioUI {
         }
 
         egui::Panel::left(ui.id().with("left_assets_panel"))
-            .resizable(true)
-            .default_size(280.0)
-            .size_range(180.0..=400.0)
-            .show_inside(ui, |ui| {
-                ui.add_space(10.0);
-                let nr_rows = self.top_assets.height();
-                let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
-                let colors = generate_colors(self.top_assets.height());
+                .resizable(true)
+                .default_size(280.0)
+                .size_range(180.0..=400.0)
+                .show_inside(ui, |ui| {
+                    ui.add_space(10.0);
+                    let nr_rows = self.top_assets.height();
+                    let cols: Vec<&str> = vec!["TP_APLIC", "VL_MERC_POS_FINAL", "VL_PORCENTAGEM_PL"];
+                    let colors = generate_colors(self.top_assets.height());
 
-                ui.push_id("top_assets", |ui| {
-                    ui.group(|ui| {
+                    ui.push_id("top_assets", |ui| {
                         ui.heading(
                             egui::RichText::new(format!(
                                 "{} Classes de Ativos",
@@ -251,11 +252,10 @@ impl PortfolioUI {
                         );
                         ui.separator();
                         ui.add_space(8.0);
-                            egui::ScrollArea::horizontal().show(ui, |ui| {
                         TableBuilder::new(ui)
                             .id_salt("portfolio_assets_table")
                             .column(Column::initial(100.0).resizable(true).clip(true))
-                            .column(Column::initial(90.0).at_most(120.0))
+                            .column(Column::initial(100.0).clip(true))
                             .column(Column::remainder().at_least(120.0))
                             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                             .striped(true)
@@ -322,13 +322,9 @@ impl PortfolioUI {
                                         &row.response(),
                                     );
                                 });
+                                });
                             });
-                    });
-
-                    //});
                 });
-            });
-        });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.push_id("filter_assets", |ui| {
@@ -384,7 +380,7 @@ impl PortfolioUI {
                     "VL_MERC_POS_FINAL",
                     "VL_PORCENTAGEM_PL",
                 ];
-                ui.group(|ui| {
+                {
                     ui.heading(
                         egui::RichText::new(format!(
                             "{} Detalhamento da Carteira",
@@ -403,23 +399,19 @@ impl PortfolioUI {
                     });
                     ui.add_space(8.0);
 
-                    ui.set_min_height(ui.available_height());
-
-                    egui::ScrollArea::horizontal().show(ui, |ui| {
-                        TableBuilder::new(ui)
-                            .column(Column::auto().at_least(300.0).resizable(true).clip(true))
-                            .column(Column::auto().at_least(400.0).resizable(true).clip(true))
-                            .column(
-                                Column::remainder()
-                                    .at_least(200.0)
-                                    .resizable(true)
-                                    .clip(true),
-                            )
-                            .column(Column::remainder().at_least(120.0))
-                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .striped(true)
-                            .resizable(false)
-                            .header(20.0, |mut header| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("detail_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                    TableBuilder::new(ui)
+                        .auto_shrink([false, false])
+                        .column(Column::initial(150.0).at_least(100.0).resizable(true).clip(true))
+                        .column(Column::remainder().at_least(100.0).clip(true))
+                        .column(Column::initial(150.0).at_least(150.0).resizable(true).clip(true))
+                        .column(Column::initial(140.0).at_least(140.0).resizable(false).clip(true))
+                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                        .striped(true)
+                        .header(20.0, |mut header| {
                                 header.col(|ui| {
                                     ui.label("Aplicação");
                                 });
@@ -427,7 +419,9 @@ impl PortfolioUI {
                                     ui.label("Detalhes");
                                 });
                                 header.col(|ui| {
-                                    ui.label("Valor");
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.label("Valor");
+                                    });
                                 });
                                 header.col(|ui| {
                                     ui.label("% Patrim. Liq");
@@ -597,15 +591,14 @@ impl PortfolioUI {
                                             }
                                         });
                                     }
-                                });
-                            });
-                    });
-                });
-            });
-        });
+                                }); // fechar body.rows
+                            }); // fechar .body
+                        }); // fechar ScrollArea
+                } // fechar bloco
+            }); // fechar push_id
+        }); // fechar CentralPanel
     }
 }
-
 fn toggle_row_selection(
     selection: &mut HashSet<usize>,
     row_index: usize,
