@@ -1,4 +1,4 @@
-use crate::{message, ui::fund::modal::asset_detail::AssetDetailModal, ui::loading, util};
+use crate::{message, ui::fund::modal::asset_detail::{AssetDetailModal, AssetModalContext}, ui::loading, util};
 use chrono::{Datelike, Duration, NaiveDate};
 use egui::{epaint::Hsva, Color32, ComboBox, Layout, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
@@ -16,6 +16,7 @@ pub struct PortfolioUI {
     pub filter_year: String,
     pub filter_month: String,
     pub tp_aplic_selected: std::collections::HashSet<usize>,
+    pub search_query: String,
 
     pub start_date: String,
     pub pl: DataFrame,
@@ -45,8 +46,12 @@ impl Default for PortfolioUI {
             start_date: "".to_string(),
             filter_date: now_str,
             loading: false,
-            asset_modal: AssetDetailModal::default(),
+            asset_modal: AssetDetailModal {
+                context: AssetModalContext::FundPortfolio,
+                ..Default::default()
+            },
             show_insights: false,
+            search_query: String::new(),
         }
     }
 }
@@ -172,6 +177,24 @@ impl PortfolioUI {
     }
 
     pub fn show_assets_panel(&mut self, ui: &mut Ui) {
+        let card_bg = if ui.visuals().dark_mode {
+            egui::Color32::from_rgb(30, 35, 45)
+        } else {
+            egui::Color32::from_rgb(245, 247, 250)
+        };
+        
+        let heading_color = if ui.visuals().dark_mode {
+            egui::Color32::from_rgb(220, 230, 245)
+        } else {
+            egui::Color32::from_rgb(30, 40, 60)
+        };
+
+        let progress_text_color = if ui.visuals().dark_mode {
+            egui::Color32::from_rgb(250, 250, 250)
+        } else {
+            egui::Color32::from_rgb(40, 50, 60)
+        };
+
         if self.top_assets.height() == 0 {
             ui.vertical_centered(|ui| {
                 ui.add_space(40.0);
@@ -181,12 +204,6 @@ impl PortfolioUI {
                         .size(48.0),
                 );
                 ui.add_space(15.0);
-                let heading_color = if ui.visuals().dark_mode {
-                    egui::Color32::from_rgb(220, 230, 245)
-                } else {
-                    egui::Color32::from_rgb(30, 40, 60)
-                };
-
                 let desc_color = if ui.visuals().dark_mode {
                     egui::Color32::from_rgb(160, 175, 195)
                 } else {
@@ -222,37 +239,24 @@ impl PortfolioUI {
                 let colors = generate_colors(self.top_assets.height());
 
                 ui.push_id("top_assets", |ui| {
-                    egui::Panel::top(ui.id().with("bottom_pl_panel")).show_inside(
-                        ui,
-                        |ui: &mut Ui| {
-                            ui.horizontal(|ui| {
-                                ui.weak("Patrimonio Líquido");
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        self.pl
-                                            .column("VL_PATRIM_LIQ")
-                                            .ok()
-                                            .and_then(|col| col.get(0).ok())
-                                            .and_then(|val| val.get_str().map(|s| s.to_string()))
-                                            .and_then(|value_str| value_str.parse::<f64>().ok())
-                                            .and_then(|parsed_value| {
-                                                util::to_real(parsed_value).ok()
-                                            })
-                                            .map(|v| ui.heading(v.format()))
-                                            .unwrap_or_else(|| ui.label("-"));
-                                    },
-                                );
-                            });
-                            ui.add_space(5.0);
-                        },
-                    );
-                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.group(|ui| {
+                        ui.heading(
+                            egui::RichText::new(format!(
+                                "{} Classes de Ativos",
+                                egui_phosphor::regular::CHART_PIE_SLICE
+                            ))
+                            .size(14.0)
+                            .strong()
+                            .color(heading_color)
+                        );
+                        ui.separator();
+                        ui.add_space(8.0);
+                            egui::ScrollArea::horizontal().show(ui, |ui| {
                         TableBuilder::new(ui)
                             .id_salt("portfolio_assets_table")
                             .column(Column::initial(100.0).resizable(true).clip(true))
                             .column(Column::initial(90.0).at_most(120.0))
-                            .column(Column::remainder())
+                            .column(Column::remainder().at_least(120.0))
                             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                             .striped(true)
                             .resizable(false)
@@ -281,16 +285,8 @@ impl PortfolioUI {
                                                             .try_extract::<f64>()
                                                             .unwrap_or_else(|_| value.to_string().parse::<f64>().unwrap_or(0.0));
                                                         
-                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                            let progress = (a / 100.0).clamp(0.0, 1.0) as f32;
-                                                            let mut bar = egui::ProgressBar::new(progress)
-                                                                .text(egui::RichText::new(format!("{:.2}%", a)).size(11.0));
-                                                            if a < 0.0 {
-                                                                bar = bar.fill(Color32::from_rgb(200, 80, 80));
-                                                            } else {
-                                                                bar = bar.fill(Color32::from_rgb(60, 160, 100));
-                                                            }
-                                                            ui.add(bar);
+                                                        ui.centered_and_justified(|ui| {
+                                                            draw_custom_progress_bar(ui, a);
                                                         });
                                                     } else if col.contains("VL_MERC_POS_FINAL") {
                                                         let a = value
@@ -332,6 +328,7 @@ impl PortfolioUI {
                     //});
                 });
             });
+        });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.push_id("filter_assets", |ui| {
@@ -362,7 +359,24 @@ impl PortfolioUI {
                     self.assets.clone().lazy()
                 };
 
-                let filtered_df = lf.collect().unwrap();
+                let mut filtered_df = lf.collect().unwrap();
+                
+                let query = crate::util::normalize_string(&self.search_query);
+                if !query.is_empty() {
+                    let mut mask_vec = Vec::with_capacity(filtered_df.height());
+                    for i in 0..filtered_df.height() {
+                        let a = crate::util::normalize_string(&get_value_from_column("DS_ATIVO", &filtered_df, i).unwrap_or_default());
+                        let b = crate::util::normalize_string(&get_value_from_column("NM_FUNDO_COTA", &filtered_df, i).unwrap_or_default());
+                        let c = crate::util::normalize_string(&get_value_from_column("TP_APLIC", &filtered_df, i).unwrap_or_default());
+                        mask_vec.push(a.contains(&query) || b.contains(&query) || c.contains(&query));
+                    }
+                    if let Ok(mask_series) = Series::new("mask", mask_vec).bool() {
+                        if let Ok(f_df) = filtered_df.filter(mask_series) {
+                            filtered_df = f_df;
+                        }
+                    }
+                }
+
                 let nr_rows = filtered_df.height();
                 let cols: Vec<&str> = vec![
                     "TP_APLIC",
@@ -371,6 +385,24 @@ impl PortfolioUI {
                     "VL_PORCENTAGEM_PL",
                 ];
                 ui.group(|ui| {
+                    ui.heading(
+                        egui::RichText::new(format!(
+                            "{} Detalhamento da Carteira",
+                            egui_phosphor::regular::LIST_DASHES
+                        ))
+                        .size(14.0)
+                        .strong()
+                        .color(heading_color)
+                    );
+                    ui.separator();
+                    ui.add_space(8.0);
+                    
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS.to_string()).size(14.0));
+                        ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text("Pesquisar ativo, fundo ou aplicação..."));
+                    });
+                    ui.add_space(8.0);
+
                     ui.set_min_height(ui.available_height());
 
                     egui::ScrollArea::horizontal().show(ui, |ui| {
@@ -383,7 +415,7 @@ impl PortfolioUI {
                                     .resizable(true)
                                     .clip(true),
                             )
-                            .column(Column::remainder())
+                            .column(Column::remainder().at_least(120.0))
                             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                             .striped(true)
                             .resizable(false)
@@ -407,24 +439,31 @@ impl PortfolioUI {
                                     for (i, col_name) in cols.iter().enumerate() {
                                         row.col(|ui| {
                                             if i == 1 {
-                                                let details_label = [
-                                                    "CD_ATIVO",
+                                                let cd_ativo = get_value_from_column("CD_ATIVO", &filtered_df, row_index).unwrap_or_default();
+                                                let isin = get_value_from_column("CD_ISIN", &filtered_df, row_index).unwrap_or_default();
+                                                let sigla = if !cd_ativo.is_empty() { cd_ativo } else { isin };
+                                                
+                                                let mut name_part = [
                                                     "DS_ATIVO",
                                                     "NM_FUNDO_COTA",
                                                     "TP_TITPUB",
-                                                    "CD_SELIC",
                                                     "TP_APLIC",
                                                 ]
                                                 .iter()
                                                 .filter_map(|&col| {
-                                                    get_value_from_column(
-                                                        col,
-                                                        &filtered_df,
-                                                        row_index,
-                                                    )
+                                                    let v = get_value_from_column(col, &filtered_df, row_index).unwrap_or_default();
+                                                    if !v.is_empty() { Some(v) } else { None }
                                                 })
                                                 .next()
                                                 .unwrap_or_else(|| "N/A".to_string());
+                                                
+                                                let details_label = if !sigla.is_empty() && name_part != sigla {
+                                                    format!("{} - {}", sigla, name_part)
+                                                } else if !sigla.is_empty() {
+                                                    sigla
+                                                } else {
+                                                    name_part
+                                                };
                                                 if ui.link(details_label.clone()).clicked() {
                                                     // Populate AssetDetailModal from the clicked row
                                                     let aplic = get_value_from_column(
@@ -536,16 +575,8 @@ impl PortfolioUI {
                                                             .try_extract::<f64>()
                                                             .unwrap_or_else(|_| value.to_string().parse::<f64>().unwrap_or(0.0));
                                                         
-                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                            let progress = (a / 100.0).clamp(0.0, 1.0) as f32;
-                                                            let mut bar = egui::ProgressBar::new(progress)
-                                                                .text(egui::RichText::new(format!("{:.2}%", a)));
-                                                            if a < 0.0 {
-                                                                bar = bar.fill(Color32::from_rgb(200, 80, 80));
-                                                            } else {
-                                                                bar = bar.fill(Color32::from_rgb(60, 160, 100));
-                                                            }
-                                                            ui.add(bar);
+                                                        ui.centered_and_justified(|ui| {
+                                                            draw_custom_progress_bar(ui, a);
                                                         });
                                                     } else if let Some(value_str) = value.get_str()
                                                     {
@@ -649,4 +680,36 @@ fn month_name(month: i32) -> String {
         12 => "Dezembro".to_string(),
         _ => unreachable!(),
     }
+}
+
+fn draw_custom_progress_bar(ui: &mut egui::Ui, percentage: f64) {
+    let desired_width = ui.available_width().max(60.0);
+    let height = 18.0;
+    let (rect, _response) = ui.allocate_exact_size(egui::vec2(desired_width, height), egui::Sense::hover());
+
+    let track_color = if ui.visuals().dark_mode { egui::Color32::from_rgb(45, 50, 60) } else { egui::Color32::from_rgb(245, 247, 250) };
+    ui.painter().rect_filled(rect, egui::CornerRadius::same(9), track_color);
+
+    let progress = (percentage / 100.0).clamp(0.0, 1.0) as f32;
+    let text = format!("{:.2}%", percentage);
+    let text_color = egui::Color32::WHITE;
+    
+    let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(11.0), text_color);
+    let text_width = galley.rect.width();
+
+    let mut fill_width = rect.width() * progress;
+    let min_fill_width = text_width + 12.0;
+    if fill_width < min_fill_width {
+        fill_width = min_fill_width;
+    }
+    if fill_width > rect.width() {
+        fill_width = rect.width();
+    }
+
+    let fill_color = if percentage < 0.0 { egui::Color32::from_rgb(200, 80, 80) } else { egui::Color32::from_rgb(60, 160, 100) };
+    let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(fill_width, height));
+    ui.painter().rect_filled(fill_rect, egui::CornerRadius::same(9), fill_color);
+
+    let text_pos = egui::pos2(fill_rect.left() + 6.0, fill_rect.center().y - galley.rect.height() / 2.0);
+    ui.painter().galley(text_pos, galley, text_color);
 }

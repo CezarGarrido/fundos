@@ -99,7 +99,7 @@ impl ProfitUI {
                             .and_then(|col| col.get(self.profit.height() - 1).ok())
                             .and_then(|val| val.to_string().into())
                             .and_then(|value_str| value_str.parse::<f64>().ok())
-                            .map(|v| ui.heading(format!("%{}", v)))
+                            .map(|v| ui.heading(format!("{:.2}%", v)))
                             .unwrap_or_else(|| ui.label("-"));
                     } else {
                         ui.label("-");

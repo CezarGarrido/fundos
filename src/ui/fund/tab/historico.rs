@@ -148,9 +148,9 @@ impl HistoricoTab {
                 .map(|c| get_str(c, i))
                 .unwrap_or_default();
             let key = if !cd_ativo.is_empty() {
-                cd_ativo
+                cd_ativo.clone()
             } else if !cd_isin.is_empty() {
-                cd_isin
+                cd_isin.clone()
             } else {
                 continue;
             }; // skip if no identifier
@@ -172,7 +172,7 @@ impl HistoricoTab {
                 .map(|c| get_str(c, i))
                 .unwrap_or_default();
 
-            let name = if !titpub.is_empty() {
+            let mut name = if !titpub.is_empty() {
                 titpub
             } else if !ds_ativo.is_empty() {
                 ds_ativo
@@ -183,6 +183,11 @@ impl HistoricoTab {
             } else {
                 key.clone()
             };
+
+            // Coloca a sigla (CD_ATIVO) na frente do nome
+            if !cd_ativo.is_empty() && name != cd_ativo && !name.starts_with(&cd_ativo) {
+                name = format!("{} - {}", cd_ativo, name);
+            }
 
             if !asset_keys.iter().any(|(k, _)| k == &key) {
                 asset_keys.push((key, name));
@@ -391,12 +396,16 @@ impl HistoricoTab {
         let cd_isin_col  = self.data.column("CD_ISIN").ok();
         let merc_col     = match self.data.column("VL_MERC_POS_FINAL") { Ok(c) => c, Err(_) => return };
         let pct_col      = self.data.column("VL_PORCENTAGEM_PL").ok();
+        let qt_col       = self.data.column("QT_REGIS").ok();
+        let aquis_col    = self.data.column("VL_AQUIS_NEGOC").ok();
         let height = self.data.height();
 
-        // Build month → (merc, pct) map for the selected asset
-        let mut month_data: Vec<(String, f64, f64)> = months.iter().map(|m| {
+        // Build month → (merc, pct, qt, aquis) map for the selected asset
+        let mut chronological_data: Vec<(String, f64, f64, f64, f64)> = months.iter().map(|m| {
             let mut total_merc = 0.0_f64;
             let mut total_pct  = 0.0_f64;
+            let mut total_qt   = 0.0_f64;
+            let mut total_aquis= 0.0_f64;
             for i in 0..height {
                 let d = get_str(dt_col, i);
                 let mp = if d.len() >= 7 { &d[..7] } else { &d };
@@ -408,10 +417,38 @@ impl HistoricoTab {
                 if row_key == asset_key {
                     total_merc += get_f64(merc_col, i);
                     if let Some(ref pc) = pct_col { total_pct += get_f64(pc, i); }
+                    if let Some(ref qc) = qt_col { total_qt += get_f64(qc, i); }
+                    if let Some(ref ac) = aquis_col { total_aquis += get_f64(ac, i); }
                 }
             }
-            (m.clone(), total_merc, total_pct)
+            (m.clone(), total_merc, total_pct, total_qt, total_aquis)
         }).collect();
+
+        // Calculate Deltas and PM while in chronological order
+        // month_data will hold: (month, merc, pct, delta_qt, pm_transacao)
+        let mut month_data: Vec<(String, f64, f64, f64, f64)> = Vec::new();
+        let mut last_qt = 0.0;
+        let mut last_aquis = 0.0;
+        
+        for (m, merc, pct, qt, aquis) in chronological_data {
+            let delta_qt = qt - last_qt;
+            let delta_aquis = aquis - last_aquis;
+            let est_price = if qt > 0.0 { merc / qt } else { 0.0 };
+            
+            let mut pm_transacao = 0.0;
+            if delta_qt > 0.0 {
+                // Bought
+                pm_transacao = if delta_aquis > 0.0 { delta_aquis / delta_qt } else { est_price };
+            } else if delta_qt < 0.0 {
+                // Sold
+                pm_transacao = est_price;
+            }
+
+            month_data.push((m, merc, pct, delta_qt, pm_transacao));
+            last_qt = qt;
+            last_aquis = aquis;
+        }
+
         month_data.reverse(); // most recent first
 
         let dark = ui.visuals().dark_mode;
@@ -421,38 +458,36 @@ impl HistoricoTab {
             .striped(true)
             .resizable(false)
             .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::exact(70.0))   // Mês
-            .column(Column::initial(90.0)) // %PL
-            .column(Column::initial(110.0)) // Valor
-            .column(Column::remainder())   // Var
+            .column(Column::exact(60.0))   // Mês
+            .column(Column::initial(70.0)) // %PL
+            .column(Column::initial(90.0)) // Valor
+            .column(Column::initial(85.0)) // Delta Qtde
+            .column(Column::remainder())   // PM Transação
             .header(22.0, |mut h| {
-                for label in &["Mês", "%PL", "Valor Merc.", "Variação"] {
-                    h.col(|ui| { ui.label(RichText::new(*label).size(10.5).strong().color(header_color)); });
+                for label in &["Mês", "%PL", "Valor Merc.", "Mov. Qtde", "PM Transação"] {
+                    h.col(|ui| { ui.label(RichText::new(*label).size(10.0).strong().color(header_color)); });
                 }
             })
             .body(|body| {
                 body.rows(20.0, month_data.len(), |mut row| {
                     let idx = row.index();
-                    let (month, merc, pct) = &month_data[idx];
+                    let (month, merc, pct, delta_qt, pm) = &month_data[idx];
                     let parts: Vec<&str> = month.split('-').collect();
                     let m_label = if parts.len() >= 2 { format!("{}/{}", parts[1], &parts[0][2..]) } else { month.clone() };
-
-                    // Variation vs previous row
-                    let prev_pct = if idx + 1 < month_data.len() { month_data[idx + 1].2 } else { *pct };
-                    let var = pct - prev_pct;
-                    let (var_color, var_prefix) = if var > 0.0 {
-                        (Color32::from_rgb(34, 197, 94), "+")
-                    } else if var < 0.0 {
-                        (Color32::from_rgb(239, 68, 68), "")
-                    } else {
-                        (Color32::GRAY, "")
-                    };
 
                     let fmt_merc = if *merc >= 1_000_000_000.0 { format!("R$ {:.2} Bi", merc / 1e9) }
                         else if *merc >= 1_000_000.0 { format!("R$ {:.2} Mi", merc / 1e6) }
                         else if *merc >= 1_000.0     { format!("R$ {:.1} K",  merc / 1e3) }
                         else if *merc == 0.0         { "-".to_string() }
                         else                          { format!("R$ {:.2}", merc) };
+
+                    let (qt_color, qt_prefix) = if *delta_qt > 0.0 {
+                        (Color32::from_rgb(34, 197, 94), "+")
+                    } else if *delta_qt < 0.0 {
+                        (Color32::from_rgb(239, 68, 68), "")
+                    } else {
+                        (Color32::GRAY, "")
+                    };
 
                     row.col(|ui| { ui.label(RichText::new(&m_label).size(10.5).monospace()); });
                     row.col(|ui| {
@@ -461,8 +496,17 @@ impl HistoricoTab {
                     });
                     row.col(|ui| { ui.label(RichText::new(&fmt_merc).size(10.5)); });
                     row.col(|ui| {
-                        if idx + 1 < month_data.len() && *pct != 0.0 {
-                            ui.label(RichText::new(format!("{}{:.2}%", var_prefix, var)).size(10.0).color(var_color));
+                        if *delta_qt != 0.0 {
+                            ui.label(RichText::new(format!("{}{:.0}", qt_prefix, delta_qt)).size(10.5).color(qt_color));
+                        } else {
+                            ui.label(RichText::new("-").size(10.5).weak());
+                        }
+                    });
+                    row.col(|ui| {
+                        if *delta_qt != 0.0 && *pm > 0.0 {
+                            ui.label(RichText::new(format!("R$ {:.2}", pm)).size(10.5).strong().color(qt_color));
+                        } else {
+                            ui.label(RichText::new("-").size(10.5).weak());
                         }
                     });
                 });
@@ -488,9 +532,9 @@ impl HistoricoTab {
                 .map(|c| get_str(c, i))
                 .unwrap_or_default();
             let key = if !cd_ativo.is_empty() {
-                cd_ativo
+                cd_ativo.clone()
             } else if !cd_isin.is_empty() {
-                cd_isin
+                cd_isin.clone()
             } else {
                 continue;
             };
@@ -512,7 +556,7 @@ impl HistoricoTab {
                 .map(|c| get_str(c, i))
                 .unwrap_or_default();
 
-            let name = if !titpub.is_empty() {
+            let mut name = if !titpub.is_empty() {
                 titpub
             } else if !ds_ativo.is_empty() {
                 ds_ativo
@@ -524,6 +568,11 @@ impl HistoricoTab {
                 key.clone()
             };
 
+            // Coloca a sigla (CD_ATIVO) na frente do nome
+            if !cd_ativo.is_empty() && name != cd_ativo && !name.starts_with(&cd_ativo) {
+                name = format!("{} - {}", cd_ativo, name);
+            }
+
             if !result.iter().any(|(k, _)| k == &key) {
                 result.push((key, name));
             }
@@ -533,7 +582,7 @@ impl HistoricoTab {
 
 
     /// Extract first-row info for the selected asset from raw data
-    fn get_asset_info(&self, selected_name: &str) -> Option<(String, String, String, f64, f64)> {
+    fn get_asset_info(&self, selected_name: &str) -> Option<(String, String, String, f64, f64, f64)> {
         let name_to_key: HashMap<String, String> = self
             .collect_asset_keys()
             .into_iter()
@@ -546,6 +595,8 @@ impl HistoricoTab {
         let tp_aplic_col = self.data.column("TP_APLIC").ok();
         let merc_col     = self.data.column("VL_MERC_POS_FINAL").ok();
         let aquis_col    = self.data.column("VL_AQUIS_NEGOC").ok();
+        let qt_col       = self.data.column("QT_POS_FINAL").ok().or_else(|| self.data.column("QT_REGIS").ok());
+        
         for i in 0..self.data.height() {
             let ca = cd_ativo_col.as_ref().map(|c| get_str(c, i)).unwrap_or_default();
             let ci = cd_isin_col.as_ref().map(|c| get_str(c, i)).unwrap_or_default();
@@ -555,7 +606,8 @@ impl HistoricoTab {
                 let ap = tp_aplic_col.as_ref().map(|c| get_str(c, i)).unwrap_or_default();
                 let merc  = merc_col.as_ref().map(|c| get_f64(c, i)).unwrap_or(0.0);
                 let aquis = aquis_col.as_ref().map(|c| get_f64(c, i)).unwrap_or(0.0);
-                return Some((asset_key, tp, ap, merc, aquis));
+                let qt    = qt_col.as_ref().map(|c| get_f64(c, i)).unwrap_or(0.0);
+                return Some((asset_key, tp, ap, merc, aquis, qt));
             }
         }
         None
@@ -567,7 +619,7 @@ impl HistoricoTab {
             || u == "BDR" || u == "FII" || u.contains("FUNDO DE INVESTIMENTO IMOBILIÁRIO")
     }
 
-    fn render_yahoo_inline(&self, ui: &mut Ui, codigo: &str, vl_merc: f64, vl_aquis: f64) {
+    fn render_yahoo_inline(&self, ui: &mut Ui, codigo: &str, vl_merc: f64, vl_aquis: f64, qt_pos: f64) {
         let dark = ui.visuals().dark_mode;
         let tx = if dark { Color32::from_rgb(140, 155, 175) } else { Color32::from_rgb(90, 100, 120) };
 
@@ -606,17 +658,24 @@ impl HistoricoTab {
                 p.line(Line::new(codigo, pts).color(Color32::from_rgb(37, 99, 235)).width(2.0));
             });
 
-        // Estimated qty + avg price
-        let qty = if last_p > 0.0 { vl_merc / last_p } else { 0.0 };
-        let avg = if qty > 0.0 { vl_aquis / qty } else { 0.0 };
+        // Extrapolação de Posições (RF11)
+        let extrapolated_value = qt_pos * last_p;
+        let diff_value = extrapolated_value - vl_aquis;
+        let diff_pct = if vl_aquis > 0.0 { (diff_value / vl_aquis) * 100.0 } else { 0.0 };
+        
+        let tx_color = if dark { Color32::from_rgb(140, 155, 175) } else { Color32::from_rgb(90, 100, 120) };
+        let hd_color = if dark { Color32::WHITE } else { Color32::from_rgb(20, 30, 50) };
+        
         ui.columns(3, |cols| {
-            for (i, (lbl, val)) in [
-                ("Qtde. Estimada", format!("{:.0}", qty)),
-                ("Valor Posição",  fmt_val(vl_merc)),
-                ("PM Compra",       if avg > 0.0 { format!("R$ {:.2}", avg) } else { "N/A".into() }),
+            for (i, (lbl, val, color)) in [
+                ("Qtde. Oculta (Últ. Mês CVM)", format!("{:.0}", qt_pos), hd_color),
+                ("Extrapolação a Mercado (Hoje)",  fmt_val(extrapolated_value), hd_color),
+                ("Lucro/Prejuízo Oculto (Estimado)", 
+                 if diff_value != 0.0 { format!("R$ {:.2} ({:+.2}%)", diff_value, diff_pct) } else { "N/A".into() },
+                 if diff_value > 0.0 { Color32::from_rgb(34, 197, 94) } else if diff_value < 0.0 { Color32::from_rgb(239, 68, 68) } else { tx_color }),
             ].iter().enumerate() {
                 cols[i].label(RichText::new(*lbl).size(9.0).color(tx));
-                cols[i].label(RichText::new(val).size(12.0).strong());
+                cols[i].label(RichText::new(val).size(12.0).strong().color(*color));
             }
         });
     }
@@ -625,11 +684,29 @@ impl HistoricoTab {
         let dark = ui.visuals().dark_mode;
         let tx = if dark { Color32::from_rgb(140, 155, 175) } else { Color32::from_rgb(90, 100, 120) };
         let gr = Color32::from_rgb(34, 197, 94);
+        let rd = Color32::from_rgb(239, 68, 68);
         let vt = Color32::from_rgb(139, 92, 246);
+        let bl = Color32::from_rgb(59, 130, 246);
         
         if let Some(analytics) = crate::analytics::compute_asset_analytics(&self.data, codigo) {
-            ui.columns(2, |cols| {
+            ui.columns(4, |cols| {
                 cols[0].vertical(|ui| {
+                    ui.label(RichText::new("PM Histórico (Compra)").size(9.0).color(tx));
+                    if analytics.avg_buy_price > 0.0 {
+                        ui.label(RichText::new(format!("R$ {:.2}", analytics.avg_buy_price)).size(13.0).strong().color(bl));
+                    } else {
+                        ui.label(RichText::new("N/A").size(11.0).weak());
+                    }
+                });
+                cols[1].vertical(|ui| {
+                    ui.label(RichText::new("PM Histórico (Venda)").size(9.0).color(tx));
+                    if analytics.avg_sell_price > 0.0 {
+                        ui.label(RichText::new(format!("R$ {:.2}", analytics.avg_sell_price)).size(13.0).strong().color(rd));
+                    } else {
+                        ui.label(RichText::new("N/A").size(11.0).weak());
+                    }
+                });
+                cols[2].vertical(|ui| {
                     ui.label(RichText::new("Gatilho Take-Profit Estimado").size(9.0).color(tx));
                     if analytics.take_profit_trigger > 0.0 {
                         ui.label(RichText::new(format!("{:.2}% PL", analytics.take_profit_trigger)).size(13.0).strong().color(vt));
@@ -637,7 +714,7 @@ impl HistoricoTab {
                         ui.label(RichText::new("Não detectado").size(11.0).weak());
                     }
                 });
-                cols[1].vertical(|ui| {
+                cols[3].vertical(|ui| {
                     ui.label(RichText::new("Velocidade de Montagem").size(9.0).color(tx));
                     if analytics.speed_to_peak > 0 {
                         ui.label(RichText::new(format!("{} meses até o pico", analytics.speed_to_peak)).size(13.0).strong().color(gr));
@@ -758,7 +835,7 @@ impl Tab for HistoricoTab {
             ui.vertical(|ui| {
                 if let Some(sel) = self.selected_asset.clone() {
                     // Auto-fetch Yahoo if eligible and not yet fetched
-                    if let Some((codigo, tp_ativo, ap, vl_merc, vl_aquis)) = self.get_asset_info(&sel) {
+                    if let Some((codigo, tp_ativo, ap, vl_merc, vl_aquis, qt_pos)) = self.get_asset_info(&sel) {
                         if Self::is_yahoo_eligible(&tp_ativo)
                             && !self.yahoo_prices.contains_key(&codigo)
                             && !self.yahoo_loading
@@ -814,7 +891,7 @@ impl Tab for HistoricoTab {
                             ui.add_space(4.0);
                             ui.label(RichText::new("Histórico de Preço — Yahoo Finance").size(11.0).strong());
                             ui.add_space(3.0);
-                            self.render_yahoo_inline(ui, &codigo, vl_merc, vl_aquis);
+                            self.render_yahoo_inline(ui, &codigo, vl_merc, vl_aquis, qt_pos);
                             ui.add_space(6.0);
                         }
 

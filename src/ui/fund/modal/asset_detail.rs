@@ -7,6 +7,13 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::message::Message;
 
+#[derive(Clone, PartialEq, Default)]
+pub enum AssetModalContext {
+    #[default]
+    GlobalMarket,
+    FundPortfolio,
+}
+
 /// Unified asset detail modal — rico em informações, usado em ativos.rs, historico.rs, etc.
 pub struct AssetDetailModal {
     pub open: bool,
@@ -18,6 +25,7 @@ pub struct AssetDetailModal {
     pub dt_venc: String,
     pub nm_fundo: String,
     pub cnpj: String,
+    pub context: AssetModalContext,
     pub sender: Option<UnboundedSender<Message>>,
     // KPIs
     pub n_fundos: u64,
@@ -59,6 +67,7 @@ impl Default for AssetDetailModal {
             dt_venc: String::new(),
             nm_fundo: String::new(),
             cnpj: String::new(),
+            context: AssetModalContext::default(),
             sender: None,
             n_fundos: 0,
             n_compradores: 0,
@@ -291,159 +300,195 @@ impl AssetDetailModal {
                         ui.separator();
                         ui.add_space(6.0);
 
-                        // ── KPIs ───────────────────────────────────
-                        section(ui, hd, "Presença no Mercado");
-                        ui.columns(3, |cols| {
-                            cols[0].vertical(|ui| {
-                                ui.label(egui::RichText::new("Fundos").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(format!("{}", n_fd))
-                                        .size(18.0)
-                                        .strong()
-                                        .color(az),
-                                );
+                        // ── KPIs (Apenas para Global Market) ───────────────────────────────────
+                        if self.context == AssetModalContext::GlobalMarket {
+                            section(ui, hd, "Presença no Mercado");
+                            ui.columns(3, |cols| {
+                                cols[0].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Fundos").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(format!("{}", n_fd))
+                                            .size(18.0)
+                                            .strong()
+                                            .color(az),
+                                    );
+                                });
+                                cols[1].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Compradores").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(format!("{}", n_cp))
+                                            .size(18.0)
+                                            .strong()
+                                            .color(gr),
+                                    );
+                                });
+                                cols[2].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Vendedores").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(format!("{}", n_vd))
+                                            .size(18.0)
+                                            .strong()
+                                            .color(rd),
+                                    );
+                                });
                             });
-                            cols[1].vertical(|ui| {
-                                ui.label(egui::RichText::new("Compradores").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(format!("{}", n_cp))
-                                        .size(18.0)
-                                        .strong()
-                                        .color(gr),
-                                );
-                            });
-                            cols[2].vertical(|ui| {
-                                ui.label(egui::RichText::new("Vendedores").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(format!("{}", n_vd))
-                                        .size(18.0)
-                                        .strong()
-                                        .color(rd),
-                                );
-                            });
-                        });
-                        ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(6.0);
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
 
-                        // ── Position distribution ──────────────────
-                        section(ui, hd, "Valor da Posição (por Fundo)");
-                        ui.columns(3, |cols| {
-                            cols[0].vertical(|ui| {
-                                kv(ui, tx, "Mínimo", fmt(vmin), None);
+                            // ── Position distribution ──────────────────
+                            section(ui, hd, "Valor da Posição (por Fundo)");
+                            ui.columns(3, |cols| {
+                                cols[0].vertical(|ui| {
+                                    kv(ui, tx, "Mínimo", fmt(vmin), None);
+                                });
+                                cols[1].vertical(|ui| {
+                                    kv(ui, tx, "Médio", fmt(vmed), None);
+                                });
+                                cols[2].vertical(|ui| {
+                                    kv(ui, tx, "Máximo", fmt(vmax), None);
+                                });
                             });
-                            cols[1].vertical(|ui| {
-                                kv(ui, tx, "Médio", fmt(vmed), None);
-                            });
-                            cols[2].vertical(|ui| {
-                                kv(ui, tx, "Máximo", fmt(vmax), None);
-                            });
-                        });
-                        ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(6.0);
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
 
-                        // ── Buy per transaction ────────────────────
-                        section(ui, hd, "Valor de Compra (por transação)");
-                        ui.columns(3, |cols| {
-                            cols[0].vertical(|ui| {
-                                ui.label(egui::RichText::new("Mínimo").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(if vcmin == 0.0 {
-                                        "-".to_string()
+                            // ── Buy per transaction ────────────────────
+                            section(ui, hd, "Valor de Compra (por transação)");
+                            ui.columns(3, |cols| {
+                                cols[0].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Mínimo").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(if vcmin == 0.0 {
+                                            "-".to_string()
+                                        } else {
+                                            fmt(vcmin)
+                                        })
+                                        .size(12.0)
+                                        .strong(),
+                                    );
+                                });
+                                cols[1].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Médio").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(if vcmed == 0.0 {
+                                            "-".to_string()
+                                        } else {
+                                            fmt(vcmed)
+                                        })
+                                        .size(12.0)
+                                        .strong(),
+                                    );
+                                });
+                                cols[2].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Máximo").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(if vcmax == 0.0 {
+                                            "-".to_string()
+                                        } else {
+                                            fmt(vcmax)
+                                        })
+                                        .size(12.0)
+                                        .strong(),
+                                    );
+                                });
+                            });
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
+
+                            // ── Volume / PL / Fluxo ────────────────────
+                            section(ui, hd, "Volume e Exposição");
+                            ui.columns(3, |cols| {
+                                cols[0].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Volume Total").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(fmt(vl_md))
+                                            .size(13.0)
+                                            .strong()
+                                            .color(vt),
+                                    );
+                                });
+                                cols[1].vertical(|ui| {
+                                    ui.label(egui::RichText::new("PL Médio").size(9.0).color(tx));
+                                    ui.label(egui::RichText::new(fmt(pl_md)).size(13.0).strong());
+                                });
+                                cols[2].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Fluxo Líquido").size(9.0).color(tx));
+                                    let flx_color = if flx > 0.0 {
+                                        gr
+                                    } else if flx < 0.0 {
+                                        rd
                                     } else {
-                                        fmt(vcmin)
-                                    })
-                                    .size(12.0)
-                                    .strong(),
-                                );
+                                        tx
+                                    };
+                                    let prefix = if flx > 0.0 { "+" } else { "" };
+                                    ui.label(
+                                        egui::RichText::new(format!("{}{}", prefix, fmt(flx.abs())))
+                                            .size(13.0)
+                                            .strong()
+                                            .color(flx_color),
+                                    );
+                                });
                             });
-                            cols[1].vertical(|ui| {
-                                ui.label(egui::RichText::new("Médio").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(if vcmed == 0.0 {
-                                        "-".to_string()
-                                    } else {
-                                        fmt(vcmed)
-                                    })
-                                    .size(12.0)
-                                    .strong(),
-                                );
-                            });
-                            cols[2].vertical(|ui| {
-                                ui.label(egui::RichText::new("Máximo").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(if vcmax == 0.0 {
-                                        "-".to_string()
-                                    } else {
-                                        fmt(vcmax)
-                                    })
-                                    .size(12.0)
-                                    .strong(),
-                                );
-                            });
-                        });
-                        ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(6.0);
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
 
-                        // ── Volume / PL / Fluxo ────────────────────
-                        section(ui, hd, "Volume e Exposição");
-                        ui.columns(3, |cols| {
-                            cols[0].vertical(|ui| {
-                                ui.label(egui::RichText::new("Volume Total").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(fmt(vl_md))
-                                        .size(13.0)
-                                        .strong()
-                                        .color(vt),
-                                );
+                            // ── Trading summary ────────────────────────
+                            section(ui, hd, "Resumo de Negociação (período)");
+                            ui.columns(2, |cols| {
+                                cols[0].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Total Comprado").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(fmt(vcp)).size(13.0).strong().color(gr),
+                                    );
+                                });
+                                cols[1].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Total Vendido").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(fmt(vvd)).size(13.0).strong().color(rd),
+                                    );
+                                });
                             });
-                            cols[1].vertical(|ui| {
-                                ui.label(egui::RichText::new("PL Médio").size(9.0).color(tx));
-                                ui.label(egui::RichText::new(fmt(pl_md)).size(13.0).strong());
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
+                        } else {
+                            // Contexto de Portfólio (FundPortfolio)
+                            section(ui, hd, "Posição do Fundo");
+                            ui.columns(3, |cols| {
+                                cols[0].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Valor da Posição").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(fmt(vl_md))
+                                            .size(13.0)
+                                            .strong()
+                                            .color(vt),
+                                    );
+                                });
+                                cols[1].vertical(|ui| {
+                                    ui.label(egui::RichText::new("Custo de Aquisição").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(fmt(vl_aq))
+                                            .size(13.0)
+                                            .strong()
+                                            .color(tx),
+                                    );
+                                });
+                                cols[2].vertical(|ui| {
+                                    ui.label(egui::RichText::new("% no PL").size(9.0).color(tx));
+                                    ui.label(
+                                        egui::RichText::new(format!("{:.2}%", self.pct_pl))
+                                            .size(13.0)
+                                            .strong(),
+                                    );
+                                });
                             });
-                            cols[2].vertical(|ui| {
-                                ui.label(egui::RichText::new("Fluxo Líquido").size(9.0).color(tx));
-                                let flx_color = if flx > 0.0 {
-                                    gr
-                                } else if flx < 0.0 {
-                                    rd
-                                } else {
-                                    tx
-                                };
-                                let prefix = if flx > 0.0 { "+" } else { "" };
-                                ui.label(
-                                    egui::RichText::new(format!("{}{}", prefix, fmt(flx.abs())))
-                                        .size(13.0)
-                                        .strong()
-                                        .color(flx_color),
-                                );
-                            });
-                        });
-                        ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(6.0);
-
-                        // ── Trading summary ────────────────────────
-                        section(ui, hd, "Resumo de Negociação (período)");
-                        ui.columns(2, |cols| {
-                            cols[0].vertical(|ui| {
-                                ui.label(egui::RichText::new("Total Comprado").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(fmt(vcp)).size(13.0).strong().color(gr),
-                                );
-                            });
-                            cols[1].vertical(|ui| {
-                                ui.label(egui::RichText::new("Total Vendido").size(9.0).color(tx));
-                                ui.label(
-                                    egui::RichText::new(fmt(vvd)).size(13.0).strong().color(rd),
-                                );
-                            });
-                        });
-                        ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(6.0);
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(6.0);
+                        }
 
                         // ── Yahoo ──────────────────────────────────
                         if elegivel && !codigo.is_empty() {

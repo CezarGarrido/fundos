@@ -22,3 +22,16 @@ static TOASTS: once_cell::sync::Lazy<egui::mutex::Mutex<Toasts>> =
 pub fn toaster() -> egui::mutex::MutexGuard<'static, Toasts> {
     TOASTS.lock()
 }
+
+pub fn normalize_string(s: &str) -> String {
+    s.chars().map(|c| match c {
+        'á' | 'à' | 'â' | 'ã' | 'ä' | 'Á' | 'À' | 'Â' | 'Ã' | 'Ä' => 'a',
+        'é' | 'è' | 'ê' | 'ë' | 'É' | 'È' | 'Ê' | 'Ë' => 'e',
+        'í' | 'ì' | 'î' | 'ï' | 'Í' | 'Ì' | 'Î' | 'Ï' => 'i',
+        'ó' | 'ò' | 'ô' | 'õ' | 'ö' | 'Ó' | 'Ò' | 'Ô' | 'Õ' | 'Ö' => 'o',
+        'ú' | 'ù' | 'û' | 'ü' | 'Ú' | 'Ù' | 'Û' | 'Ü' => 'u',
+        'ç' | 'Ç' => 'c',
+        'ñ' | 'Ñ' => 'n',
+        _ => c.to_ascii_lowercase(),
+    }).collect()
+}

@@ -9,7 +9,7 @@ pub struct AssetAnalytics {
 
 /// Calculate behavioral analytics for a specific asset using the fund's historical DataFrame.
 /// df must contain: CD_ATIVO (or CD_ISIN), QT_VENDA, VL_AQUIS_NEGOC, VL_VENDA_NEGOC, VL_PORCENTAGEM_PL, DT_COMPTC
-pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str) -> Option<AssetAnalytics> {
+pub fn compute_asset_analytics_v1(df: &DataFrame, asset_code: &str) -> Option<AssetAnalytics> {
     // Filter the dataframe for the specific asset and sort by date
     let filtered_df = df
         .clone()
@@ -80,6 +80,122 @@ pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str) -> Option<Asset
         avg_sell_price: 0.0,
         take_profit_trigger: take_profit,
         speed_to_peak: months_to_peak,
+    })
+}
+
+// Se o CSV for o bruto da CVM, use essa abordagem baseada em saldo (Delta)
+pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str) -> Option<AssetAnalytics> {
+    let filtered_df = df
+        .clone()
+        .lazy()
+        .filter(
+            col("CD_ISIN").eq(lit(asset_code))
+                .or(col("CD_ATIVO").eq(lit(asset_code)))
+        )
+        .sort("DT_COMPTC", SortOptions { descending: false, ..Default::default() })
+        .collect()
+        .ok()?;
+
+    if filtered_df.height() == 0 {
+        return None;
+    }
+
+    // Usando as colunas oficiais da carteira mensal da CVM
+    let qt_regis_col = filtered_df.column("QT_POS_FINAL").ok()
+        .or_else(|| filtered_df.column("QT_REGIS").ok())
+        .or_else(|| filtered_df.column("QT_VENDA").ok())?;
+    let pct_pl_col = filtered_df.column("VL_PORCENTAGEM_PL").ok()?;
+    let vl_aquis_col = filtered_df.column("VL_AQUIS_NEGOC").ok();
+    let vl_merc_col = filtered_df.column("VL_MERC_POS_FINAL").ok();
+    
+    let mut absolute_max_pct = 0.0;
+    let mut index_of_peak = 0;
+    let mut active_buying_months = 0;
+    let mut months_counting_to_peak = 0;
+
+    let height = filtered_df.height();
+    let mut last_qty = 0.0;
+    let mut last_aquis = 0.0;
+    
+    let mut total_buy_value = 0.0;
+    let mut total_buy_qty = 0.0;
+    let mut total_sell_value = 0.0;
+    let mut total_sell_qty = 0.0;
+
+    for i in 0..height {
+        let current_qty = get_f64(qt_regis_col, i);
+        let pct = get_f64(pct_pl_col, i);
+        let current_aquis = vl_aquis_col.map(|c| get_f64(c, i)).unwrap_or(0.0);
+        let current_merc = vl_merc_col.map(|c| get_f64(c, i)).unwrap_or(0.0);
+        
+        let est_price = if current_qty > 0.0 { current_merc / current_qty } else { 0.0 };
+
+        if i == 0 {
+            if current_qty > 0.0 {
+                active_buying_months += 1;
+                total_buy_qty += current_qty;
+                if current_aquis > 0.0 {
+                    total_buy_value += current_aquis;
+                } else {
+                    total_buy_value += current_qty * est_price;
+                }
+            }
+        } else {
+            let delta_qty = current_qty - last_qty;
+            let delta_aquis = current_aquis - last_aquis;
+
+            if delta_qty > 0.0 {
+                // Compra (RF09)
+                active_buying_months += 1;
+                total_buy_qty += delta_qty;
+                if delta_aquis > 0.0 {
+                    total_buy_value += delta_aquis;
+                } else {
+                    total_buy_value += delta_qty * est_price;
+                }
+            } else if delta_qty < 0.0 {
+                // Venda (RF10)
+                total_sell_qty += delta_qty.abs();
+                total_sell_value += delta_qty.abs() * est_price;
+            }
+        }
+
+        if pct > absolute_max_pct {
+            absolute_max_pct = pct;
+            index_of_peak = i;
+            months_counting_to_peak = active_buying_months;
+        }
+
+        last_qty = current_qty;
+        last_aquis = current_aquis;
+    }
+
+    // Verificar realização de lucro (Venda) pós-pico
+    let mut take_profit = 0.0;
+    if index_of_peak < height - 1 {
+        let peak_qty = get_f64(qt_regis_col, index_of_peak);
+        let mut last_qty_post = peak_qty;
+
+        for i in (index_of_peak + 1)..height {
+            let current_qty = get_f64(qt_regis_col, i);
+            
+            // Se a quantidade de papéis caiu, ele realizou lucro
+            if current_qty < last_qty_post {
+                take_profit = absolute_max_pct;
+                break;
+            }
+            last_qty_post = current_qty;
+        }
+    }
+    
+    let avg_buy_price = if total_buy_qty > 0.0 { total_buy_value / total_buy_qty } else { 0.0 };
+    let avg_sell_price = if total_sell_qty > 0.0 { total_sell_value / total_sell_qty } else { 0.0 };
+
+    Some(AssetAnalytics {
+        avg_buy_price,
+        avg_sell_price,
+        take_profit_trigger: take_profit,
+        speed_to_peak: months_counting_to_peak,
     })
 }
 

@@ -15,7 +15,9 @@ pub struct Indice {
 pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
     let color = ui.visuals().selection.bg_fill;
 
-    let green = Color32::from_rgb(46, 204, 113); // Lindo verde esmeralda/menta premium para o Fundo
+    let line_color = ui.visuals().text_color();
+    let mut last_point: Option<[f64; 2]> = None;
+
     let chart = match (dataframe.column("DT_COMPTC"), dataframe.column("RENT_ACUM")) {
         (Ok(dates), Ok(rentabilidade)) => {
             let mut line_data = Vec::new();
@@ -30,17 +32,19 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                             .and_utc()
                             .timestamp() as f64;
                         line_data.push([timestamp, rent]);
+                        last_point = Some([timestamp, rent]);
                     }
                 }
             }
 
-            Line::new("Fundo", line_data).color(green).width(2.5).fill(0.0)
+            Line::new("Fundo", line_data).color(line_color).width(1.5).fill(0.0)
         }
-        _ => Line::new("Fundo", Vec::new()).color(color).width(2.5),
+        _ => Line::new("Fundo", Vec::new()).color(color).width(1.5),
     };
 
-    let mut charts = Vec::new();
+    let mut charts_data = Vec::new();
     for indice in indices.iter() {
+        let mut last_idx_point = None;
         let chart = match (
             indice.dataframe.column("date"),
             indice.dataframe.column("value"),
@@ -58,7 +62,15 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                                 .unwrap()
                                 .and_utc()
                                 .timestamp() as f64;
+
+                            if let Some(last) = last_point {
+                                if timestamp > last[0] {
+                                    continue;
+                                }
+                            }
+
                             line_data.push([timestamp, rent]);
+                            last_idx_point = Some([timestamp, rent]);
                         }
                     }
                 }
@@ -69,7 +81,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
             _ => Line::new("", Vec::new()).width(1.2),
         };
 
-        charts.push(chart);
+        charts_data.push((chart, last_idx_point, indice.color));
     }
 
     let x_formatter = |mark: GridMark, _range: &RangeInclusive<f64>| {
@@ -77,24 +89,29 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
         if timestamp <= 0 {
             "".to_owned()
         } else if let Some(datetime) = DateTime::from_timestamp(timestamp, 0) {
-            format!("{}", datetime.format("%d/%m/%Y")) // Assume timezone offset of 0 for simplicity
+            format!("{}", datetime.format("%d/%m/%Y"))
         } else {
             "".to_owned()
         }
     };
 
     let y_formatter =
-        |mark: GridMark, _range: &RangeInclusive<f64>| format!("{}%", mark.value);
+        |mark: GridMark, _range: &RangeInclusive<f64>| format!("{:.2}%", mark.value);
 
     let x_axes = vec![AxisHints::new_x().label("").formatter(x_formatter)];
+    let y_axes = vec![AxisHints::new_y()
+        .label("")
+        .formatter(y_formatter)
+        .placement(egui_plot::Placement::RightTop)];
 
-    let y_axes = vec![AxisHints::new_y().label("").formatter(y_formatter)];
+    let strong_text_color = ui.visuals().strong_text_color();
+    let window_fill = ui.visuals().window_fill();
 
     Plot::new("plot::funds::profit")
         .legend(Legend::default())
         .show_background(false)
         .set_margin_fraction(egui::Vec2::new(0.0, 0.15))
-        .y_axis_position(egui_plot::HPlacement::Left)
+        .y_axis_position(egui_plot::HPlacement::Right)
         .y_axis_min_width(0.0)
         .custom_x_axes(x_axes)
         .custom_y_axes(y_axes)
@@ -102,7 +119,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
         .label_formatter(|name, value| {
             if !name.is_empty() {
                 if let Some(datetime) = DateTime::from_timestamp(value.x as i64, 0) {
-                    let dt = format!("{}", datetime.format("%d/%m/%Y")); // Assume timezone offset of 0 for simplicity
+                    let dt = format!("{}", datetime.format("%d/%m/%Y"));
                     format!("{}: ({}, {:.*}%)", name, dt, 2, value.y)
                 } else {
                     "".to_owned()
@@ -111,11 +128,49 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 "".to_owned()
             }
         })
-        //.height(400.0)
         .show(ui, |plot_ui| {
             plot_ui.line(chart);
-            for chart in charts {
-                plot_ui.line(chart)
+            for (chart, last_idx_point, color) in charts_data {
+                plot_ui.line(chart);
+                if let Some(last) = last_idx_point {
+                    plot_ui.hline(
+                        egui_plot::HLine::new("", last[1])
+                            .color(color)
+                            .style(egui_plot::LineStyle::Dotted { spacing: 4.0 }),
+                    );
+                    let text = egui_plot::Text::new(
+                        "",
+                        egui_plot::PlotPoint::new(last[0], last[1]),
+                        egui::RichText::new(format!(" {:.2}% ", last[1]))
+                            .background_color(color)
+                            .color(window_fill)
+                            .size(11.0)
+                            .strong(),
+                    )
+                    .anchor(egui::Align2::RIGHT_CENTER);
+                    plot_ui.text(text);
+                }
+            }
+
+            if let Some(last) = last_point {
+                // Add a dotted horizontal line at the last value
+                plot_ui.hline(
+                    egui_plot::HLine::new("", last[1])
+                        .color(line_color)
+                        .style(egui_plot::LineStyle::Dotted { spacing: 4.0 }),
+                );
+                // Draw a text label slightly to the right of the last point
+                let text = egui_plot::Text::new(
+                    "",
+                    egui_plot::PlotPoint::new(last[0], last[1]),
+                    egui::RichText::new(format!(" {:.2}% ", last[1]))
+                        .background_color(strong_text_color)
+                        .color(window_fill)
+                        .size(13.0)
+                        .strong(),
+                )
+                .anchor(egui::Align2::RIGHT_CENTER);
+                plot_ui.text(text);
             }
         });
 }
