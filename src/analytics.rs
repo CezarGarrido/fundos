@@ -91,6 +91,13 @@ pub fn extrapolate_best(
     }
 
     if let Some((ref estimates, ref quality)) = best_result {
+        if best_r2 < 0.0 {
+            info!(
+                "Extrapolação: nenhum método aprendeu (melhor R²={:.4}) — usando baseline",
+                best_r2
+            );
+            return extrapolate_baseline(quotes, last_known_dt, last_qty);
+        }
         info!(
             "Extrapolação: vencedor = {} (R²={:.4}, {} estimativas)",
             quality.method,
@@ -220,6 +227,22 @@ fn extrapolate_linear(
         "Regressão Linear: intercept={:.2}, slope={:.4}, R²={:.4}, MAE={:.2}",
         intercept, slope, r_squared, mae
     );
+
+    // Se R² for muito baixo, regressão é ruído — usa baseline para as estimativas
+    if r_squared < 0.1 {
+        debug!(
+            "Regressão Linear: R² muito baixo ({:.4}), usando baseline",
+            r_squared
+        );
+        let (estimates, _) = extrapolate_baseline(quotes, last_known_dt, last_qty);
+        let quality = ExtrapolationQuality {
+            method: ExtrapolationMethod::LinearRegression,
+            r_squared: Some(r_squared),
+            mae: Some(mae),
+            confidence_95: None,
+        };
+        return (estimates, quality);
+    }
 
     // Projetar para os meses ocultos
     let mut estimates = Vec::new();
@@ -412,9 +435,14 @@ fn extrapolate_random_forest(
     }
     let m = features.len();
 
-    // Hiperparâmetros
-    let n_trees = 50_usize;
-    let max_depth = 5_usize;
+    // Hiperparâmetros adaptativos: datasets pequenos precisam de menos complexidade
+    let (n_trees, max_depth) = if m < 20 {
+        (15_usize, 3_usize)
+    } else if m < 40 {
+        (30_usize, 4_usize)
+    } else {
+        (50_usize, 5_usize)
+    };
 
     // Treinar ensemble
     let forest = train_random_forest(&features, &targets, n_trees, max_depth);
@@ -448,13 +476,18 @@ fn extrapolate_random_forest(
         n_trees, max_depth, m, r_squared, mae
     );
 
-    // Projeção recursiva: cada mês futuro usa a predição do mês anterior como lag
+    // Projeção recursiva com suavização: evita que predições explodam
     let mut estimates = Vec::new();
     let mut prev_qty = historical_qtys[n - 1];
+    let ema_alpha = 0.3; // peso da nova predição no moving average
     for (j, q) in quotes.iter().enumerate() {
         if q.date.as_str() > last_known_dt {
             let feat = [(n + j) as f64, prev_qty];
-            let pred_qty = forest_predict(&forest, feat).max(0.0);
+            let raw_pred = forest_predict(&forest, feat).max(0.0);
+            // Suavização exponencial + clamp: não deixa variar mais de 30% por mês
+            let max_change = prev_qty * 0.30;
+            let clamped = raw_pred.clamp(prev_qty - max_change, prev_qty + max_change);
+            let pred_qty = ema_alpha * clamped + (1.0 - ema_alpha) * prev_qty;
             estimates.push((q.date.clone(), pred_qty, pred_qty * q.close_price));
             prev_qty = pred_qty;
         }
