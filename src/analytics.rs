@@ -265,7 +265,6 @@ fn extrapolate_linear(
 
 // ── Filtro de Kalman (1D posição + velocidade) ─────────────────────────
 
-#[allow(clippy::needless_range_loop)]
 fn extrapolate_kalman(
     historical_qtys: &[f64],
     last_qty: f64,
@@ -277,80 +276,44 @@ fn extrapolate_kalman(
         return extrapolate_baseline(quotes, last_known_dt, last_qty);
     }
 
-    // Estado: x = [posição, velocidade]
-    // Modelo de velocidade constante:
-    //   F = [[1, 1], [0, 1]]
-    //   H = [1, 0]  (observamos apenas posição)
-
-    // Ruídos — escalados pela magnitude dos dados para evitar colapso
     let data_scale = historical_qtys
         .iter()
         .cloned()
         .fold(0.0_f64, f64::max)
         .max(1.0);
-    let q_pos = data_scale * data_scale * 0.01; // 1% da escala²
-    let q_vel = data_scale * data_scale * 0.001; // 0.1% da escala²
-    let r_obs = data_scale * data_scale * 0.05; // 5% da escala² (ruído de observação)
-
-    // Estado inicial
-    let mut x = [historical_qtys[0], 0.0_f64];
+    let q_pos = data_scale * data_scale * 0.01;
+    let q_vel = data_scale * data_scale * 0.001;
+    let r_obs = data_scale * data_scale * 0.05;
     let init_var = data_scale * data_scale;
-    let mut p = [[init_var, 0.0], [0.0, init_var * 0.1]];
 
-    let f = [[1.0, 1.0], [0.0, 1.0]];
-    let h = [1.0, 0.0];
-    let proc_noise = [[q_pos, 0.0], [0.0, q_vel]];
+    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, 1)
+        .initial_state(vec![historical_qtys[0], 0.0])
+        .initial_covariance(vec![init_var, 0.0, 0.0, init_var * 0.1])
+        .transition_matrix(vec![1.0, 1.0, 0.0, 1.0]) // F = [[1,1],[0,1]]
+        .process_noise(vec![q_pos, 0.0, 0.0, q_vel])
+        .observation_matrix(vec![1.0, 0.0]) // H = [1, 0]
+        .measurement_noise(vec![r_obs])
+        .build()
+        .expect("KalmanFilter build failed");
 
-    let mut predictions: Vec<f64> = vec![x[0]];
+    let mut predictions: Vec<f64> = vec![historical_qtys[0]];
     let mut residuals: Vec<f64> = Vec::new();
 
-    for i in 1..n {
-        // Predict
-        let x_pred = [
-            f[0][0] * x[0] + f[0][1] * x[1],
-            f[1][0] * x[0] + f[1][1] * x[1],
-        ];
-        let p_pred_00 = f[0][0] * (f[0][0] * p[0][0] + f[0][1] * p[1][0])
-            + f[0][1] * (f[0][0] * p[0][1] + f[0][1] * p[1][1])
-            + proc_noise[0][0];
-        let p_pred_01 = f[0][0] * (f[1][0] * p[0][0] + f[1][1] * p[1][0])
-            + f[0][1] * (f[1][0] * p[0][1] + f[1][1] * p[1][1])
-            + proc_noise[0][1];
-        let p_pred_10 = f[1][0] * (f[0][0] * p[0][0] + f[0][1] * p[1][0])
-            + f[1][1] * (f[0][0] * p[0][1] + f[0][1] * p[1][1])
-            + proc_noise[1][0];
-        let p_pred_11 = f[1][0] * (f[1][0] * p[0][0] + f[1][1] * p[1][0])
-            + f[1][1] * (f[1][0] * p[0][1] + f[1][1] * p[1][1])
-            + proc_noise[1][1];
+    for &y_obs in historical_qtys.iter().skip(1) {
+        kf.predict();
+        let pred_state = kf.state().to_vec();
+        predictions.push(pred_state[0]);
 
-        // Update
-        let y_obs = historical_qtys[i];
-        let y_pred = h[0] * x_pred[0] + h[1] * x_pred[1];
-        let residual = y_obs - y_pred;
+        let residual = y_obs - pred_state[0];
         residuals.push(residual);
 
-        let s = h[0] * (h[0] * p_pred_00 + h[1] * p_pred_10)
-            + h[1] * (h[0] * p_pred_01 + h[1] * p_pred_11)
-            + r_obs;
-        let k0 = (p_pred_00 * h[0] + p_pred_01 * h[1]) / s;
-        let k1 = (p_pred_10 * h[0] + p_pred_11 * h[1]) / s;
-
-        x = [x_pred[0] + k0 * residual, x_pred[1] + k1 * residual];
-        p = [
-            [
-                (1.0 - k0 * h[0]) * p_pred_00 - k0 * h[1] * p_pred_10,
-                (1.0 - k0 * h[0]) * p_pred_01 - k0 * h[1] * p_pred_11,
-            ],
-            [
-                -k1 * h[0] * p_pred_00 + (1.0 - k1 * h[1]) * p_pred_10,
-                -k1 * h[0] * p_pred_01 + (1.0 - k1 * h[1]) * p_pred_11,
-            ],
-        ];
-
-        predictions.push(x[0]);
+        kf.update(&[y_obs]).expect("Kalman update failed");
     }
 
-    // R² e MAE nos dados históricos
+    let final_state = kf.state().to_vec();
+    let final_cov = kf.covariance().to_vec();
+
+    // R² e MAE
     let y_mean: f64 = historical_qtys.iter().sum::<f64>() / n as f64;
     let ss_res: f64 = historical_qtys
         .iter()
@@ -365,33 +328,29 @@ fn extrapolate_kalman(
     };
     let mae: f64 = residuals.iter().map(|r| r.abs()).sum::<f64>() / residuals.len().max(1) as f64;
 
-    // Intervalo de confiança 95% — usa resíduos históricos quando covariância colapsa
-    let std_dev = if p[0][0] > data_scale * 0.01 {
-        p[0][0].sqrt()
+    let std_dev = if final_cov[0] > data_scale * 0.01 {
+        final_cov[0].sqrt()
     } else {
-        // Covariância colapsou, usa dispersão dos resíduos como fallback
         let var_res: f64 =
             residuals.iter().map(|r| r * r).sum::<f64>() / residuals.len().max(1) as f64;
         var_res.sqrt().max(data_scale * 0.05)
     };
-    let ci_lower = (x[0] - 1.96 * std_dev).max(0.0);
-    let ci_upper = x[0] + 1.96 * std_dev;
+    let ci_lower = (final_state[0] - 1.96 * std_dev).max(0.0);
+    let ci_upper = final_state[0] + 1.96 * std_dev;
 
     debug!(
         "Kalman: estado_final=[pos={:.2}, vel={:.4}], IC95=[{:.0}, {:.0}], R²={:.4}, MAE={:.2}",
-        x[0], x[1], ci_lower, ci_upper, r_squared, mae
+        final_state[0], final_state[1], ci_lower, ci_upper, r_squared, mae
     );
 
-    // Projetar para frente com suavização (mesmo approach do RF)
+    // Projeção com suavização
     let mut estimates = Vec::new();
-    let mut prev_qty = x[0];
-    let vel = x[1]; // velocidade estimada pelo Kalman
+    let mut prev_qty = final_state[0];
+    let vel = final_state[1];
     let ema_alpha = 0.25;
     for q in quotes {
         if q.date.as_str() > last_known_dt {
-            // Avança estado interno (modelo de velocidade constante)
             let raw_qty = prev_qty + vel;
-            // Suavização + clamp: evita projeções explosivas
             let max_change = prev_qty * 0.25;
             let clamped = raw_qty.clamp(prev_qty - max_change, prev_qty + max_change);
             let pred_qty = (ema_alpha * clamped + (1.0 - ema_alpha) * prev_qty).max(0.0);
