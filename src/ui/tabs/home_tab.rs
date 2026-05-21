@@ -1,7 +1,9 @@
 use super::Tab;
 use crate::{history::History, message::Message};
+use chrono::{Duration, Local, Months};
 use egui::{CentralPanel, Ui, WidgetText};
 use tokio::sync::mpsc;
+
 
 pub struct HomeTab {
     pub title: String,
@@ -68,6 +70,16 @@ impl Tab for HomeTab {
                 
                 if draw_menu_item(ui, "Painel Geral", &["Ctrl", "D"]) {
                     let _ = self.sender.send(Message::OpenDashboardTab);
+                }
+                
+                ui.add_space(6.0);
+                
+                if draw_menu_item(ui, "Ativos do Mercado", &["Ctrl", "A"]) {
+                    let end = Local::now().naive_local().date();
+                    let start = end
+                        .checked_sub_months(Months::new(6))
+                        .unwrap_or(end - Duration::days(183));
+                    let _ = self.sender.send(Message::OpenAtivosTab(start, end));
                 }
                 
                 // 4. Seção Visto Recentemente

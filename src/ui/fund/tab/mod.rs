@@ -1,7 +1,9 @@
 use crate::{message, ui::tabs::Tab};
+pub mod ativos;
 pub mod dashboard;
+pub mod historico;
 use super::panel::{self, portfolio::PortfolioUI, profit::ProfitUI};
-use egui::{Frame, Ui, WidgetText};
+use egui::{Ui, WidgetText};
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -10,6 +12,7 @@ pub enum Panel {
     Details,
     Profit,
     Assets,
+    Historico,
 }
 
 impl Default for Panel {
@@ -25,6 +28,7 @@ pub struct FundTab {
     pub sender: Option<UnboundedSender<message::Message>>,
     pub profit_ui: ProfitUI,
     pub portfolio_ui: PortfolioUI,
+    pub historico_tab: Option<historico::HistoricoTab>,
 }
 
 impl Default for FundTab {
@@ -36,6 +40,7 @@ impl Default for FundTab {
             sender: None,
             profit_ui: ProfitUI::default(),
             portfolio_ui: PortfolioUI::default(),
+            historico_tab: None,
         }
     }
 }
@@ -65,6 +70,8 @@ impl FundTab {
             .unwrap_or_else(|| {
                 portfolio_ui.start_date = "".to_string();
             });
+
+        portfolio_ui.send_assets_message();
 
         FundTab {
             title,
@@ -126,7 +133,10 @@ impl Tab for FundTab {
         let _sender = self.sender().clone();
         egui::Panel::top(ui.id().with("fund_tab_bottom_panel")).show_inside(ui, |ui| {
             let heading_text = if let Ok(s) = self.fund.column("DENOM_SOCIAL") {
-                s.get(0).ok().and_then(|v| v.get_str().map(|s| s.to_string())).unwrap_or_else(|| self.title.clone())
+                s.get(0)
+                    .ok()
+                    .and_then(|v| v.get_str().map(|s| s.to_string()))
+                    .unwrap_or_else(|| self.title.clone())
             } else {
                 self.title.clone()
             };
@@ -159,12 +169,14 @@ impl Tab for FundTab {
                     self.profit_ui.profit_filter_start_date.year() as i32,
                     self.profit_ui.profit_filter_start_date.month() as u32,
                     self.profit_ui.profit_filter_start_date.day() as u32,
-                ).unwrap();
+                )
+                .unwrap();
                 let end_chrono = chrono::NaiveDate::from_ymd_opt(
                     self.profit_ui.profit_filter_end_date.year() as i32,
                     self.profit_ui.profit_filter_end_date.month() as u32,
                     self.profit_ui.profit_filter_end_date.day() as u32,
-                ).unwrap();
+                )
+                .unwrap();
                 self.profit_ui.send_profit_message(
                     self.title().text().to_string().as_str(),
                     start_chrono,
@@ -183,6 +195,22 @@ impl Tab for FundTab {
             {
                 self.portfolio_ui.send_assets_message();
             }
+
+            if ui
+                .selectable_value(
+                    &mut self.open_panel,
+                    Panel::Historico,
+                    format!(
+                        "{} Histórico",
+                        egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE
+                    ),
+                )
+                .clicked()
+                && self.historico_tab.is_none()
+            {
+                let sender = self.sender();
+                self.historico_tab = Some(historico::HistoricoTab::new(self.title.clone(), sender));
+            }
         });
 
         ui.painter().rect_filled(
@@ -194,23 +222,27 @@ impl Tab for FundTab {
             ui.visuals().selection.bg_fill,
         );
 
-        Frame::NONE.inner_margin(30.0).show(ui, |ui| {
-            let h = ui.available_height();
-            //  ui.set_min_height(h);
-            ui.set_max_height(h);
-
-            match self.open_panel {
-                Panel::Details => {
-                    panel::detail::show_ui(self.fund.clone(), ui);
+        match self.open_panel {
+            Panel::Details => {
+                panel::detail::show_ui(self.fund.clone(), ui);
+            }
+            Panel::Profit => {
+                self.profit_ui.show(ui);
+            }
+            Panel::Assets => {
+                self.portfolio_ui.show(ui);
+            }
+            Panel::Historico => {
+                if self.historico_tab.is_none() {
+                    let sender = self.sender();
+                    self.historico_tab =
+                        Some(historico::HistoricoTab::new(self.title.clone(), sender));
                 }
-                Panel::Profit => {
-                    self.profit_ui.show(ui);
+                if let Some(ref mut tab) = self.historico_tab {
+                    tab.ui(ui);
                 }
-                Panel::Assets => {
-                    self.portfolio_ui.show(ui);
-                }
-            };
-        });
+            }
+        };
     }
 }
 

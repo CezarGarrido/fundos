@@ -1,6 +1,6 @@
 use crate::ui::{charts::stats, tabs::Tab};
 use egui::{Frame, Ui, WidgetText};
-use egui_extras::{Size, StripBuilder};
+
 use polars::frame::DataFrame;
 
 pub struct DashboardTab {
@@ -75,54 +75,45 @@ impl Tab for DashboardTab {
 
     fn ui(&mut self, ui: &mut Ui) {
         Frame::NONE.inner_margin(10.0).show(ui, |ui| {
-            StripBuilder::new(ui)
-                .size(Size::exact(62.0))
-                .size(Size::relative(0.38)) // proporção para os primeiros gráficos
-                .size(Size::remainder())    // restante para o gráfico de classes
-                .vertical(|mut strip| {
-                    // Linha 1: Cards de KPIs
-                    strip.cell(|ui| {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        // Linha 1: Cards de KPIs
                         self.render_kpi_cards(ui);
-                    });
+                        ui.add_space(8.0);
 
-                    // Linha 2: Gráficos de Ano e Situação
-                    strip.strip(|builder| {
-                        builder
-                            .sizes(Size::remainder().at_least(50.0), 2)
-                            .horizontal(|mut strip| {
-                                strip.cell(|ui| {
-                                    ui.group(|ui| {
-                                        ui.heading(
-                                            egui::RichText::new("Quantidade x Ano").size(11.0),
-                                        );
-                                        ui.separator();
-                                        stats::by_year_bar(&self.by_year, ui);
-                                    });
-                                });
-
-                                strip.cell(|ui| {
-                                    ui.group(|ui| {
-                                        ui.heading(
-                                            egui::RichText::new("Quantidade x Situação").size(11.0),
-                                        );
-
-                                        ui.separator();
-                                        stats::by_category_bar(
-                                            &self.by_situation,
-                                            "SIT",
-                                            "TP_FUNDO",
-                                            "Situação",
-                                            ui,
-                                        );
-                                    });
-                                });
+                        // Linha 2: Gráficos de Ano e Situação
+                        ui.columns(2, |cols| {
+                            cols[0].group(|ui| {
+                                ui.set_min_height(200.0);
+                                ui.heading(
+                                    egui::RichText::new("Quantidade x Ano").size(11.0),
+                                );
+                                ui.separator();
+                                stats::by_year_bar(&self.by_year, ui);
                             });
-                    });
 
-                    // Linha 3: Gráfico de Classes
-                    strip.cell(|ui| {
-                        ui.add_space(5.0);
+                            cols[1].group(|ui| {
+                                ui.set_min_height(200.0);
+                                ui.heading(
+                                    egui::RichText::new("Quantidade x Situação").size(11.0),
+                                );
+                                ui.separator();
+                                stats::by_category_bar(
+                                    &self.by_situation,
+                                    "SIT",
+                                    "TP_FUNDO",
+                                    "Situação",
+                                    ui,
+                                );
+                            });
+                        });
+                        ui.add_space(8.0);
+
+                        // Linha 3: Gráfico de Classes
                         ui.group(|ui| {
+                            ui.set_min_height(160.0);
                             ui.heading(egui::RichText::new("Quantidade x Classe").size(11.0));
                             ui.separator();
                             stats::by_category_bar(
@@ -206,3 +197,4 @@ fn draw_kpi_card(
             });
         });
 }
+

@@ -8,4 +8,5 @@ mod provider;
 mod statusbar;
 mod ui;
 mod util;
+pub mod analytics;
 pub use app::TemplateApp;

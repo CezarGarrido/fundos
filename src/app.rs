@@ -1,9 +1,11 @@
 use crate::{provider::cvm::fund, util};
 
+use chrono::{Datelike, NaiveDate};
 use egui::FontId;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabAddAlign};
 use egui_toast::{Toast, ToastOptions};
 use polars::frame::DataFrame;
+use polars::prelude::NamedFrom;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::time::{timeout, Duration};
@@ -19,7 +21,7 @@ use crate::{
     ui::{
         fund::{
             modal::{asset::AssetDetail, search::Search},
-            tab::{dashboard::DashboardTab, FundTab},
+            tab::{ativos::AssetsMarketTab, dashboard::DashboardTab, FundTab},
         },
         modal::about::About,
         tabs::{home_tab::HomeTab, Tab, TabType, TabViewer},
@@ -129,7 +131,7 @@ impl TemplateApp {
 
         cc.egui_ctx.set_fonts(fonts);
         cc.egui_ctx.set_theme(egui::Theme::Light);
-        
+
         cc.egui_ctx.options_mut(|opt| {
             opt.warn_on_id_clash = false;
         });
@@ -137,7 +139,7 @@ impl TemplateApp {
         let mut app: Self = Default::default();
         app.current_theme_dark = Some(false);
         cc.egui_ctx.set_visuals(get_premium_visuals(false));
-        
+
         app
     }
 
@@ -161,12 +163,16 @@ impl TemplateApp {
             main_surface.push_to_focused_leaf(TabType::Fund(new_fund_tab));
         }
 
-        if let Ok(s) = df.column("DENOM_SOCIAL") {
-            let value = s.get(0).unwrap();
-            let name = value.get_str().unwrap();
-            self.history.add(cnpj.clone(), name.to_string());
-            let _ = self.history.save();
-            let _ = self.history.load();
+        if df.height() > 0 {
+            if let Ok(s) = df.column("DENOM_SOCIAL") {
+                if let Ok(value) = s.get(0) {
+                    if let Some(name) = value.get_str() {
+                        self.history.add(cnpj.clone(), name.to_string());
+                        let _ = self.history.save();
+                        let _ = self.history.load();
+                    }
+                }
+            }
         }
     }
 
@@ -196,6 +202,27 @@ impl TemplateApp {
         }
     }
 
+    pub fn add_ativos_tab(&mut self) {
+        let tabs: Vec<_> = self
+            .tree
+            .iter_all_tabs()
+            .map(|(_, tab)| tab.to_owned())
+            .collect();
+
+        if let Some(index) = tabs
+            .iter()
+            .position(|tb| tb.title().text().contains("Ativos"))
+        {
+            let main_surface = self.tree.main_surface_mut();
+            let _ = main_surface.set_active_tab(NodeIndex(0), egui_dock::TabIndex(index));
+        } else {
+            let main_surface = self.tree.main_surface_mut();
+            main_surface.set_focused_node(egui_dock::NodeIndex(2));
+            let ativos_tab = AssetsMarketTab::new(self.channel.0.clone());
+            main_surface.push_to_focused_leaf(TabType::Ativos(ativos_tab));
+        }
+    }
+
     fn handle_update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let ctxc = ctx.clone();
         let sender = self.channel.0.clone();
@@ -221,7 +248,11 @@ impl TemplateApp {
                         {
                             util::toaster().add(Toast {
                                 kind: egui_toast::ToastKind::Info,
-                                text: format!("CNPJ {} não cadastrado localmente. Baixando dados online...", cnpj).into(),
+                                text: format!(
+                                    "CNPJ {} não cadastrado localmente. Baixando dados online...",
+                                    cnpj
+                                )
+                                .into(),
                                 options: ToastOptions::default().duration_in_seconds(4.0),
                                 ..Default::default()
                             });
@@ -231,10 +262,18 @@ impl TemplateApp {
                                 handle_fund_data(cnpj.clone(), false, r.clone(), &sender, &ctxc)
                                     .await
                             {
-                                log::error!("Erro ao obter dados online do fundo {}: {}", cnpj, online_err);
+                                log::error!(
+                                    "Erro ao obter dados online do fundo {}: {}",
+                                    cnpj,
+                                    online_err
+                                );
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Error,
-                                    text: format!("Erro ao obter dados online do fundo (CNPJ: {})", cnpj).into(),
+                                    text: format!(
+                                        "Erro ao obter dados online do fundo (CNPJ: {})",
+                                        cnpj
+                                    )
+                                    .into(),
                                     options: ToastOptions::default().duration_in_seconds(4.0),
                                     ..Default::default()
                                 });
@@ -271,7 +310,8 @@ impl TemplateApp {
                                 log::warn!("Dados do CDI indisponíveis: {}", e);
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: "Dados históricos do CDI indisponíveis para o período.".into(),
+                                    text: "Dados históricos do CDI indisponíveis para o período."
+                                        .into(),
                                     options: ToastOptions::default().duration_in_seconds(4.0),
                                     ..Default::default()
                                 });
@@ -292,17 +332,28 @@ impl TemplateApp {
                         let profitability_dataframe = match profitability_result {
                             Ok(Ok(df)) => df,
                             Ok(Err(e)) => {
-                                log::warn!("Rentabilidade indisponível para o CNPJ {}: {}", cnpj, e);
+                                log::warn!(
+                                    "Rentabilidade indisponível para o CNPJ {}: {}",
+                                    cnpj,
+                                    e
+                                );
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: format!("Rentabilidade do fundo indisponível no período (CNPJ: {})", cnpj).into(),
+                                    text: format!(
+                                        "Rentabilidade do fundo indisponível no período (CNPJ: {})",
+                                        cnpj
+                                    )
+                                    .into(),
                                     options: ToastOptions::default().duration_in_seconds(4.0),
                                     ..Default::default()
                                 });
                                 DataFrame::empty()
                             }
                             Err(_) => {
-                                log::error!("Timeout ao obter rentabilidade do fundo (CNPJ: {})", cnpj);
+                                log::error!(
+                                    "Timeout ao obter rentabilidade do fundo (CNPJ: {})",
+                                    cnpj
+                                );
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
                                     text: format!("Tempo limite atingido ao carregar rentabilidade do fundo (CNPJ: {})", cnpj).into(),
@@ -319,7 +370,9 @@ impl TemplateApp {
                                 log::warn!("Dados do IBOV indisponíveis: {}", e);
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: "Dados históricos do IBOVESPA indisponíveis para o período.".into(),
+                                    text:
+                                        "Dados históricos do IBOVESPA indisponíveis para o período."
+                                            .into(),
                                     options: ToastOptions::default().duration_in_seconds(4.0),
                                     ..Default::default()
                                 });
@@ -329,7 +382,8 @@ impl TemplateApp {
                                 log::error!("Timeout ao obter dados do IBOV");
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Warning,
-                                    text: "Tempo limite atingido ao carregar dados do IBOVESPA.".into(),
+                                    text: "Tempo limite atingido ao carregar dados do IBOVESPA."
+                                        .into(),
                                     options: ToastOptions::default().duration_in_seconds(4.0),
                                     ..Default::default()
                                 });
@@ -368,81 +422,113 @@ impl TemplateApp {
                     let ctx_clone = ctxc.clone();
 
                     tokio::spawn(async move {
-                        // Envelopa a chamada assíncrona com timeout de 15 segundos
-                        let result = timeout(
-                            Duration::from_secs(15),
-                            portfolio.async_assets(cnpj.clone(), year.clone(), month.clone(), true),
-                        )
-                        .await;
+                        let mut current_year: i32 = year.parse().unwrap_or(2026);
+                        let mut current_month: u32 = month.parse().unwrap_or(5);
 
-                        let (pl, assets, top_assets) = match result {
-                            // Caso a chamada tenha sido concluída dentro do timeout
-                            Ok(Ok(dfs)) => {
-                                let (pl, assets, top_assets) = dfs.clone();
-                                if pl.is_empty() {
-                                    util::toaster().add(Toast {
-                                        kind: egui_toast::ToastKind::Warning,
-                                        text: format!("Nenhum Patrimônio Líquido encontrado para {}/{} (CNPJ: {})", month, year, cnpj).into(),
-                                        options: ToastOptions::default().duration_in_seconds(4.0),
-                                        ..Default::default()
-                                    });
+                        let mut pl = DataFrame::empty();
+                        let mut assets = DataFrame::empty();
+                        let mut top_assets = DataFrame::empty();
+                        let mut loaded_year = year.clone();
+                        let mut loaded_month = month.clone();
+                        let mut success = false;
+
+                        for _ in 0..6 {
+                            let y_str = current_year.to_string();
+                            let m_str = format!("{:02}", current_month);
+
+                            // Envelopa a chamada assíncrona com timeout de 15 segundos
+                            let result = timeout(
+                                Duration::from_secs(15),
+                                portfolio.async_assets(
+                                    cnpj.clone(),
+                                    y_str.clone(),
+                                    m_str.clone(),
+                                    true,
+                                ),
+                            )
+                            .await;
+
+                            if let Ok(Ok((res_pl, res_assets, res_top_assets))) = result {
+                                if !res_assets.is_empty() {
+                                    pl = res_pl;
+                                    assets = res_assets;
+                                    top_assets = res_top_assets;
+                                    loaded_year = y_str;
+                                    loaded_month = m_str;
+                                    success = true;
+                                    break;
                                 }
-                                if assets.is_empty() {
-                                    util::toaster().add(Toast {
-                                        kind: egui_toast::ToastKind::Warning,
-                                        text: format!("Nenhum ativo de carteira registrado para {}/{} (CNPJ: {})", month, year, cnpj).into(),
-                                        options: ToastOptions::default().duration_in_seconds(4.0),
-                                        ..Default::default()
-                                    });
-                                }
-                                if top_assets.is_empty() {
-                                    util::toaster().add(Toast {
-                                        kind: egui_toast::ToastKind::Warning,
-                                        text: "Não foi possível agrupar os ativos por aplicação.".into(),
-                                        options: ToastOptions::default().duration_in_seconds(4.0),
-                                        ..Default::default()
-                                    });
-                                }
-                                dfs
                             }
-                            // Caso a chamada tenha retornado um erro dentro do timeout
-                            Ok(Err(e)) => {
-                                log::error!("Erro ao obter ativos para {}: {:?}", cnpj, e);
-                                util::toaster().add(Toast {
-                                    kind: egui_toast::ToastKind::Warning,
-                                    text: format!("Ativos da carteira indisponíveis para {}/{} (CNPJ: {})", month, year, cnpj).into(),
-                                    options: ToastOptions::default().duration_in_seconds(4.0),
-                                    ..Default::default()
-                                });
-                                (DataFrame::empty(), DataFrame::empty(), DataFrame::empty())
+
+                            // Subtrai um mês
+                            if current_month == 1 {
+                                current_month = 12;
+                                current_year -= 1;
+                            } else {
+                                current_month -= 1;
                             }
-                            // Timeout atingido
-                            Err(_) => {
-                                log::error!(
-                                    "Timeout ao obter ativos da carteira para CNPJ: {} em {}/{}",
-                                    cnpj, month, year
-                                );
-                                util::toaster().add(Toast {
-                                    kind: egui_toast::ToastKind::Warning,
-                                    text: format!("Tempo limite atingido ao obter ativos para {}/{} (CNPJ: {})", month, year, cnpj).into(),
-                                    options: ToastOptions::default().duration_in_seconds(4.0),
-                                    ..Default::default()
-                                });
-                                (DataFrame::empty(), DataFrame::empty(), DataFrame::empty())
-                            }
-                        };
+                        }
+
+                        if success {
+                            let m_num: i32 = loaded_month.parse().unwrap_or(1);
+                            let m_name = match m_num {
+                                1 => "Janeiro",
+                                2 => "Fevereiro",
+                                3 => "Março",
+                                4 => "Abril",
+                                5 => "Maio",
+                                6 => "Junho",
+                                7 => "Julho",
+                                8 => "Agosto",
+                                9 => "Setembro",
+                                10 => "Outubro",
+                                11 => "Novembro",
+                                12 => "Dezembro",
+                                _ => "Janeiro",
+                            };
+                            util::toaster().add(Toast {
+                                kind: egui_toast::ToastKind::Success,
+                                text: format!(
+                                    "Carteira mais recente disponível carregada (Ref: {}/{})",
+                                    m_name, loaded_year
+                                )
+                                .into(),
+                                options: ToastOptions::default().duration_in_seconds(4.0),
+                                ..Default::default()
+                            });
+                        } else {
+                            util::toaster().add(Toast {
+                                kind: egui_toast::ToastKind::Warning,
+                                text: format!(
+                                    "Nenhuma carteira encontrada nos últimos 6 meses (CNPJ: {})",
+                                    cnpj
+                                )
+                                .into(),
+                                options: ToastOptions::default().duration_in_seconds(4.0),
+                                ..Default::default()
+                            });
+                        }
 
                         let _ = sender_clone.send(Message::AssetsResult(
                             cnpj.clone(),
                             assets,
                             top_assets,
                             pl,
+                            loaded_year,
+                            loaded_month,
                         ));
                         ctx_clone.request_repaint();
                     });
                 }
 
-                Message::AssetsResult(cnpj, assets, top_assets, patrimonio_liquido) => {
+                Message::AssetsResult(
+                    cnpj,
+                    assets,
+                    top_assets,
+                    patrimonio_liquido,
+                    loaded_year,
+                    loaded_month,
+                ) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
                         if let TabType::Fund(tab) = tb {
@@ -450,6 +536,30 @@ impl TemplateApp {
                                 tab.set_assets_dataframe(assets.clone());
                                 tab.set_top_assets_dataframe(top_assets.clone());
                                 tab.set_pl_dataframe(patrimonio_liquido.clone());
+
+                                // Sincronizar o estado da data selecionada na interface com a carteira encontrada
+                                tab.portfolio_ui.filter_year = loaded_year.clone();
+                                tab.portfolio_ui.filter_month = loaded_month.clone();
+
+                                let m_num: i32 = loaded_month.parse().unwrap_or(1);
+                                let m_name = match m_num {
+                                    1 => "Janeiro",
+                                    2 => "Fevereiro",
+                                    3 => "Março",
+                                    4 => "Abril",
+                                    5 => "Maio",
+                                    6 => "Junho",
+                                    7 => "Julho",
+                                    8 => "Agosto",
+                                    9 => "Setembro",
+                                    10 => "Outubro",
+                                    11 => "Novembro",
+                                    12 => "Dezembro",
+                                    _ => "Janeiro",
+                                };
+                                tab.portfolio_ui.filter_date =
+                                    format!("{}/{}", m_name, loaded_year);
+
                                 tab.set_assets_loading(false);
                                 ctxc.request_repaint();
                                 break;
@@ -522,6 +632,199 @@ impl TemplateApp {
                         self.downloading = true;
                     }
                 }
+                Message::OpenAtivosTab(start, end) => {
+                    self.add_ativos_tab();
+                    let portfolio = self.portfolio.clone();
+                    let s = sender.clone();
+                    tokio::spawn(async move {
+                        match portfolio.async_market_assets(start, end).await {
+                            Ok(df) => {
+                                let _ = s.send(Message::AtivosTabResult(df));
+                                ctxc.request_repaint();
+                            }
+                            Err(err) => {
+                                log::error!("Erro ao calcular ativos de mercado: {}", err);
+                            }
+                        }
+                    });
+                }
+                Message::AtivosTabResult(df) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Ativos(tab) = tb {
+                            tab.set_data(df.clone());
+                            ctxc.request_repaint();
+                            break;
+                        }
+                    }
+                }
+                Message::OpenHistoricoTab(cnpj, start, end) => {
+                    let portfolio = self.portfolio.clone();
+                    let s = sender.clone();
+                    tokio::spawn(async move {
+                        match portfolio
+                            .async_historical_assets(cnpj.clone(), start, end)
+                            .await
+                        {
+                            Ok(df) => {
+                                let _ = s.send(Message::HistoricoTabResult(cnpj, df));
+                                ctxc.request_repaint();
+                            }
+                            Err(err) => {
+                                log::error!("Erro ao carregar histórico: {}", err);
+                            }
+                        }
+                    });
+                }
+                Message::HistoricoTabResult(cnpj, df) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Historico(tab) = tb {
+                            if tab.cnpj == cnpj {
+                                tab.set_data(df.clone());
+                                ctxc.request_repaint();
+                                break;
+                            }
+                        }
+                        // Also check inside FundTab's historico_tab
+                        if let TabType::Fund(tab) = tb {
+                            if let Some(ref mut htab) = tab.historico_tab {
+                                if htab.cnpj == cnpj {
+                                    htab.set_data(df.clone());
+                                    ctxc.request_repaint();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                Message::FetchYahooPrice(codigo, _cnpj, start, end) => {
+                    let s = sender.clone();
+                    tokio::spawn(async move {
+                        let ticker = format!("{}.SA", codigo);
+                        match yahoo_finance_api::YahooConnector::new() {
+                            Ok(provider) => {
+                                let start_ts =
+                                    yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(
+                                        NaiveDate::from_ymd_opt(
+                                            start.year(),
+                                            start.month(),
+                                            start.day(),
+                                        )
+                                        .unwrap()
+                                        .and_hms_opt(0, 0, 0)
+                                        .unwrap()
+                                        .and_utc()
+                                        .timestamp(),
+                                    )
+                                    .unwrap();
+                                let end_ts =
+                                    yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(
+                                        NaiveDate::from_ymd_opt(end.year(), end.month(), end.day())
+                                            .unwrap()
+                                            .and_hms_opt(23, 59, 59)
+                                            .unwrap()
+                                            .and_utc()
+                                            .timestamp(),
+                                    )
+                                    .unwrap();
+                                match provider.get_quote_history(&ticker, start_ts, end_ts).await {
+                                    Ok(resp) => {
+                                        if let Ok(quotes) = resp.quotes() {
+                                            let prices: Vec<f64> =
+                                                quotes.iter().map(|q| q.adjclose).collect();
+                                            let dates: Vec<String> = quotes
+                                                .iter()
+                                                .map(|q| {
+                                                    chrono::DateTime::from_timestamp(
+                                                        q.timestamp as i64,
+                                                        0,
+                                                    )
+                                                    .unwrap()
+                                                    .naive_utc()
+                                                    .format("%Y-%m-%d")
+                                                    .to_string()
+                                                })
+                                                .collect();
+                                            let df = polars::frame::DataFrame::new(vec![
+                                                polars::prelude::Series::new("date", dates),
+                                                polars::prelude::Series::new("adjclose", prices),
+                                            ])
+                                            .unwrap_or_default();
+                                            let _ = s.send(Message::YahooPriceResult(codigo, df));
+                                            ctxc.request_repaint();
+                                        }
+                                    }
+                                    Err(err) => {
+                                        log::error!("Yahoo price error for {}: {}", ticker, err);
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("YahooConnector error: {}", err);
+                            }
+                        }
+                    });
+                }
+                Message::YahooPriceResult(codigo, df) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Fund(tab) = tb {
+                            // Route to historico tab inside FundTab
+                            if let Some(ref mut htab) = tab.historico_tab {
+                                htab.set_yahoo_prices(codigo.clone(), df.clone());
+                                ctxc.request_repaint();
+                            }
+                            // Route to portfolio modal inside FundTab
+                            tab.portfolio_ui
+                                .asset_modal
+                                .yahoo_prices
+                                .insert(codigo.clone(), df.clone());
+                            tab.portfolio_ui.asset_modal.yahoo_loading = false;
+                            ctxc.request_repaint();
+                        }
+                        if let TabType::Historico(tab) = tb {
+                            tab.set_yahoo_prices(codigo.clone(), df.clone());
+                            ctxc.request_repaint();
+                        }
+                        if let TabType::Ativos(tab) = tb {
+                            tab.asset_modal
+                                .yahoo_prices
+                                .insert(codigo.clone(), df.clone());
+                            tab.asset_modal.yahoo_loading = false;
+                            ctxc.request_repaint();
+                        }
+                    }
+                }
+                Message::FetchAssetHolders(asset_id, start_date, end_date) => {
+                    let portfolio = self.portfolio.clone();
+                    let s = sender.clone();
+                    tokio::spawn(async move {
+                        match portfolio
+                            .async_asset_holders(asset_id.clone(), start_date, end_date)
+                            .await
+                        {
+                            Ok(df) => {
+                                let _ = s.send(Message::AssetHoldersResult(asset_id, df));
+                                ctxc.request_repaint();
+                            }
+                            Err(e) => {
+                                log::error!("Erro FetchAssetHolders: {}", e);
+                            }
+                        }
+                    });
+                }
+                Message::AssetHoldersResult(_asset_id, df) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Ativos(tab) = tb {
+                            tab.asset_modal.holders_data = Some(df.clone());
+                            tab.asset_modal.holders_loading = false;
+                            ctxc.request_repaint();
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
@@ -586,7 +889,7 @@ impl TemplateApp {
                 self.channel.0.clone(),
                 self.history.clone(),
             ));
-            
+
             if self.tree.iter_all_tabs().count() == 0 {
                 self.tree = DockState::new(vec![home_tab]);
             } else {
@@ -611,7 +914,7 @@ impl TemplateApp {
 impl eframe::App for TemplateApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx();
-        
+
         // Reativamente aplica e monitora o tema selecionado
         let current_dark = ctx.theme() == egui::Theme::Dark;
         if self.current_theme_dark != Some(current_dark) {
@@ -626,7 +929,6 @@ impl eframe::App for TemplateApp {
         util::toaster().show(ui);
     }
 }
-
 
 async fn handle_fund_data(
     cnpj: String,
@@ -649,73 +951,73 @@ async fn handle_fund_data(
 fn get_premium_visuals(dark_mode: bool) -> egui::Visuals {
     if dark_mode {
         let mut visuals = egui::Visuals::dark();
-        
+
         // Cores premium da paleta moderna (Dark Mode)
         visuals.panel_fill = egui::Color32::from_rgb(18, 19, 23); // Fundo escuro profundo premium (Slate)
         visuals.window_fill = egui::Color32::from_rgb(26, 27, 32); // Cinza escuro para janelas/modais
         visuals.faint_bg_color = egui::Color32::from_rgb(26, 27, 32); // Listras de tabelas e separadores
         visuals.extreme_bg_color = egui::Color32::from_rgb(13, 14, 16); // Caixa de texto escura
-        
+
         // Cores de bordas e elementos não-interativos
         visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(24, 25, 29);
         visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(18, 19, 23);
         visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::from_rgb(226, 232, 240); // Texto claro
         visuals.widgets.noninteractive.bg_stroke.color = egui::Color32::from_rgb(38, 41, 49); // Bordas super sutis e finas
-        
+
         // Botões (Inativos/Normais)
         visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(33, 35, 41);
         visuals.widgets.inactive.fg_stroke.color = egui::Color32::from_rgb(203, 213, 224);
         visuals.widgets.inactive.bg_stroke.color = egui::Color32::from_rgb(45, 48, 56);
         visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(5);
-        
+
         // Botões (Hovered / Selecionados)
         visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(45, 48, 56);
         visuals.widgets.hovered.fg_stroke.color = egui::Color32::WHITE;
         visuals.widgets.hovered.bg_stroke.color = egui::Color32::from_rgb(59, 130, 246);
-        
+
         // Botões (Active / Clicados)
         visuals.widgets.active.bg_fill = egui::Color32::from_rgb(59, 130, 246);
         visuals.widgets.active.fg_stroke.color = egui::Color32::WHITE;
-        
+
         // Destaque ativo (Azul elétrico premium)
         visuals.selection.bg_fill = egui::Color32::from_rgb(59, 130, 246);
         visuals.selection.stroke.color = egui::Color32::WHITE;
-        
+
         visuals
     } else {
         let mut visuals = egui::Visuals::light();
-        
+
         // Cores premium da paleta moderna (Light Mode: Branco Puro + Cinza Claro)
         visuals.panel_fill = egui::Color32::from_rgb(255, 255, 255); // Branco puro para abas e painéis principais
         visuals.window_fill = egui::Color32::from_rgb(255, 255, 255); // Branco puro para janelas/modais
         visuals.faint_bg_color = egui::Color32::from_rgb(245, 246, 248); // Cinza muito claro para listras de tabelas/zebra e separadores
         visuals.extreme_bg_color = egui::Color32::from_rgb(248, 249, 250); // Caixa de texto muito limpa
-        
+
         // Cores de bordas e elementos não-interativos
         visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(245, 246, 248); // Fundo cinza suave secundário
         visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(250, 251, 252);
         visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::from_rgb(44, 55, 72); // Texto cinza escuro/azul elegante
         visuals.widgets.noninteractive.bg_stroke.color = egui::Color32::from_rgb(222, 226, 230); // Bordas super sutis e finas
-        
+
         // Botões (Inativos/Normais)
         visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(248, 249, 250);
         visuals.widgets.inactive.fg_stroke.color = egui::Color32::from_rgb(74, 85, 104);
         visuals.widgets.inactive.bg_stroke.color = egui::Color32::from_rgb(226, 232, 240);
         visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(5);
-        
+
         // Botões (Hovered / Selecionados)
         visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(237, 242, 247);
         visuals.widgets.hovered.fg_stroke.color = egui::Color32::from_rgb(26, 32, 44);
         visuals.widgets.hovered.bg_stroke.color = egui::Color32::from_rgb(26, 115, 232); // Bordas azuis no hover
-        
+
         // Botões (Active / Clicados)
         visuals.widgets.active.bg_fill = egui::Color32::from_rgb(226, 232, 240);
         visuals.widgets.active.fg_stroke.color = egui::Color32::from_rgb(26, 32, 44);
-        
+
         // Destaque ativo (Azul corporativo limpo)
         visuals.selection.bg_fill = egui::Color32::from_rgb(26, 115, 232);
         visuals.selection.stroke.color = egui::Color32::WHITE;
-        
+
         visuals
     }
 }

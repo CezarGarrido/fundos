@@ -58,11 +58,19 @@ impl Options {
             handles.push(handle);
         }
 
-        // Aguarda todas as tarefas serem concluídas
+        // Aguarda todas as tarefas serem concluídas — meses indisponíveis são ignorados
         let mut paths = Vec::new();
         for handle in handles {
-            let path = handle.await.unwrap()?;
-            paths.push(path);
+            match handle.await {
+                Ok(Ok(path)) => paths.push(path),
+                Ok(Err(e)) => {
+                    // Mês ainda não publicado na CVM (ex: mês corrente) — ignorar
+                    log::debug!("Mês de carteira indisponível, ignorando: {}", e);
+                }
+                Err(join_err) => {
+                    log::warn!("Tarefa de download cancelada: {}", join_err);
+                }
+            }
         }
         Ok(paths)
     }

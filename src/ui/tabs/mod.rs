@@ -6,7 +6,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::message::Message;
 
-use super::fund::tab::{dashboard::DashboardTab, FundTab};
+use super::fund::tab::{
+    ativos::AssetsMarketTab, dashboard::DashboardTab, historico::HistoricoTab, FundTab,
+};
 
 pub trait Tab {
     fn title(&self) -> WidgetText;
@@ -18,6 +20,8 @@ pub enum TabType {
     Fund(FundTab),
     Home(HomeTab),
     Dashboard(DashboardTab),
+    Ativos(AssetsMarketTab),
+    Historico(HistoricoTab),
 }
 
 impl Tab for TabType {
@@ -26,7 +30,8 @@ impl Tab for TabType {
             TabType::Fund(tab) => tab.title(),
             TabType::Home(tab) => tab.title(),
             TabType::Dashboard(tab) => tab.title(),
-            // Adicione outros tipos de tabs aqui
+            TabType::Ativos(tab) => tab.title(),
+            TabType::Historico(tab) => tab.title(),
         }
     }
 
@@ -36,13 +41,12 @@ impl Tab for TabType {
                 .fill(ui.style().visuals.panel_fill)
                 .inner_margin(-2.0)
                 .outer_margin(0.0)
-                .show(ui, |ui| {
-                    match self {
-                        TabType::Fund(tab) => tab.ui(ui),
-                        TabType::Home(tab) => tab.ui(ui),
-                        TabType::Dashboard(tab) => tab.ui(ui),
-                        // Adicione outros tipos de tabs aqui
-                    }
+                .show(ui, |ui| match self {
+                    TabType::Fund(tab) => tab.ui(ui),
+                    TabType::Home(tab) => tab.ui(ui),
+                    TabType::Dashboard(tab) => tab.ui(ui),
+                    TabType::Ativos(tab) => tab.ui(ui),
+                    TabType::Historico(tab) => tab.ui(ui),
                 });
         });
     }
@@ -52,7 +56,8 @@ impl Tab for TabType {
             TabType::Fund(tab) => tab.closeable(),
             TabType::Home(tab) => tab.closeable(),
             TabType::Dashboard(tab) => tab.closeable(),
-            // Adicione outros tipos de tabs aqui
+            TabType::Ativos(tab) => tab.closeable(),
+            TabType::Historico(tab) => tab.closeable(),
         }
     }
 }
