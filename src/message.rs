@@ -24,4 +24,5 @@ pub enum Message {
     YahooPriceResult(String, DataFrame),
     FetchAssetHolders(String, NaiveDate, NaiveDate),
     AssetHoldersResult(String, DataFrame),
+    HistoricoSeriesResult(String, Vec<crate::ui::fund::tab::historico::MonthlySeries>),
 }

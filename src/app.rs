@@ -709,7 +709,6 @@ impl TemplateApp {
                                 break;
                             }
                         }
-                        // Also check inside FundTab's historico_tab
                         if let TabType::Fund(tab) = tb {
                             if let Some(ref mut htab) = tab.historico_tab {
                                 if htab.cnpj == cnpj {
@@ -719,7 +718,19 @@ impl TemplateApp {
                             if tab.portfolio_ui.cnpj == cnpj {
                                 tab.portfolio_ui.fund_history = Some(df.clone());
                             }
-                            ctxc.request_repaint();
+                        }
+                    }
+                }
+                Message::HistoricoSeriesResult(cnpj, series) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Historico(tab) = tb {
+                            if tab.cnpj == cnpj {
+                                tab.monthly_series = series.clone();
+                                tab.loading = false;
+                                ctxc.request_repaint();
+                                break;
+                            }
                         }
                     }
                 }

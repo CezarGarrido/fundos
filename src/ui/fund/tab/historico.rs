@@ -62,6 +62,7 @@ pub struct HistoricoTab {
     pub analytics_cache: HashMap<String, crate::analytics::AssetAnalytics>, // tracks last fetched asset to avoid re-fetch
 }
 
+#[derive(Clone)]
 pub struct MonthlySeries {
     pub label: String,
     pub color: Color32,
@@ -100,14 +101,14 @@ impl HistoricoTab {
     pub fn set_data(&mut self, df: DataFrame) {
         self.data = df;
         self.analytics_cache.clear();
-        self.process_series();
-        self.loading = false;
-    }
-
-    pub fn set_yahoo_prices(&mut self, codigo: String, prices: DataFrame) {
-        self.analytics_cache.remove(&codigo); // invalida cache desse ativo
-        self.yahoo_prices.insert(codigo, prices);
-        self.yahoo_loading = false;
+        // Não processa séries aqui — envia para background thread
+        let data = self.data.clone();
+        let sender = self.sender.clone();
+        let cnpj = self.cnpj.clone();
+        tokio::task::spawn_blocking(move || {
+            let series = Self::compute_series(&data);
+            let _ = sender.send(Message::HistoricoSeriesResult(cnpj, series));
+        });
     }
 
     fn extract_months(&self) -> Vec<String> {
@@ -127,8 +128,10 @@ impl HistoricoTab {
         months
     }
 
-    fn process_series(&mut self) {
-        self.monthly_series = Self::compute_series(&self.data);
+    pub fn set_yahoo_prices(&mut self, codigo: String, prices: DataFrame) {
+        self.analytics_cache.remove(&codigo); // invalida cache desse ativo
+        self.yahoo_prices.insert(codigo, prices);
+        self.yahoo_loading = false;
     }
 
     fn compute_series(data: &DataFrame) -> Vec<MonthlySeries> {
