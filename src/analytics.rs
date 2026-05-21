@@ -41,7 +41,7 @@ pub fn compute_asset_analytics_v1(df: &DataFrame, asset_code: &str) -> Option<As
     let vl_venda_col = filtered_df.column("VL_VENDA_NEGOC").ok();
     // VL_PORCENTAGEM_PL must exist
     let pct_pl_col = filtered_df.column("VL_PORCENTAGEM_PL").ok()?;
-    
+
     let mut max_pct_pl = 0.0;
     let mut months_to_peak = 0;
     let mut current_streak = 0;
@@ -72,7 +72,7 @@ pub fn compute_asset_analytics_v1(df: &DataFrame, asset_code: &str) -> Option<As
     // Since quantity deltas in CVM can be messy or zeroed out, we use a heuristic based on total volume
     // Or we just return the averages if possible.
     // As per user "Sinceramente não sei oque seria o correto, então, tanto faz", I'll provide a simplified version.
-    
+
     // Average price = Value / Qty at the end? No, Average Buy Price is total_buy_value / total_buy_qty.
     // If we can't get reliable quantities, we just return the total buy value as a placeholder.
 
@@ -86,15 +86,26 @@ pub fn compute_asset_analytics_v1(df: &DataFrame, asset_code: &str) -> Option<As
 }
 
 // Se o CSV for o bruto da CVM, use essa abordagem baseada em saldo (Delta)
-pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str, quotes: Option<&[crate::provider::yahoo::MonthlyQuote]>) -> Option<AssetAnalytics> {
+pub fn compute_asset_analytics(
+    df: &DataFrame,
+    asset_code: &str,
+    quotes: Option<&[crate::provider::yahoo::MonthlyQuote]>,
+) -> Option<AssetAnalytics> {
     let filtered_df = df
         .clone()
         .lazy()
         .filter(
-            col("CD_ISIN").eq(lit(asset_code))
-                .or(col("CD_ATIVO").eq(lit(asset_code)))
+            col("CD_ISIN")
+                .eq(lit(asset_code))
+                .or(col("CD_ATIVO").eq(lit(asset_code))),
         )
-        .sort("DT_COMPTC", SortOptions { descending: false, ..Default::default() })
+        .sort(
+            "DT_COMPTC",
+            SortOptions {
+                descending: false,
+                ..Default::default()
+            },
+        )
         .collect()
         .ok()?;
 
@@ -103,13 +114,15 @@ pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str, quotes: Option<
     }
 
     // Usando as colunas oficiais da carteira mensal da CVM
-    let qt_regis_col = filtered_df.column("QT_POS_FINAL").ok()
+    let qt_regis_col = filtered_df
+        .column("QT_POS_FINAL")
+        .ok()
         .or_else(|| filtered_df.column("QT_REGIS").ok())
         .or_else(|| filtered_df.column("QT_VENDA").ok())?;
     let pct_pl_col = filtered_df.column("VL_PORCENTAGEM_PL").ok()?;
     let vl_aquis_col = filtered_df.column("VL_AQUIS_NEGOC").ok();
     let vl_merc_col = filtered_df.column("VL_MERC_POS_FINAL").ok();
-    
+
     let mut absolute_max_pct = 0.0;
     let mut index_of_peak = 0;
     let mut active_buying_months = 0;
@@ -118,7 +131,7 @@ pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str, quotes: Option<
     let height = filtered_df.height();
     let mut last_qty = 0.0;
     let mut last_aquis = 0.0;
-    
+
     let mut total_buy_value = 0.0;
     let mut total_buy_qty = 0.0;
     let mut total_sell_value = 0.0;
@@ -129,8 +142,12 @@ pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str, quotes: Option<
         let pct = get_f64(pct_pl_col, i);
         let current_aquis = vl_aquis_col.map(|c| get_f64(c, i)).unwrap_or(0.0);
         let current_merc = vl_merc_col.map(|c| get_f64(c, i)).unwrap_or(0.0);
-        
-        let est_price = if current_qty > 0.0 { current_merc / current_qty } else { 0.0 };
+
+        let est_price = if current_qty > 0.0 {
+            current_merc / current_qty
+        } else {
+            0.0
+        };
 
         if i == 0 {
             if current_qty > 0.0 {
@@ -180,7 +197,7 @@ pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str, quotes: Option<
 
         for i in (index_of_peak + 1)..height {
             let current_qty = get_f64(qt_regis_col, i);
-            
+
             // Se a quantidade de papéis caiu, ele realizou lucro
             if current_qty < last_qty_post {
                 take_profit = absolute_max_pct;
@@ -189,16 +206,28 @@ pub fn compute_asset_analytics(df: &DataFrame, asset_code: &str, quotes: Option<
             last_qty_post = current_qty;
         }
     }
-    
-    let avg_buy_price = if total_buy_qty > 0.0 { total_buy_value / total_buy_qty } else { 0.0 };
-    let avg_sell_price = if total_sell_qty > 0.0 { total_sell_value / total_sell_qty } else { 0.0 };
+
+    let avg_buy_price = if total_buy_qty > 0.0 {
+        total_buy_value / total_buy_qty
+    } else {
+        0.0
+    };
+    let avg_sell_price = if total_sell_qty > 0.0 {
+        total_sell_value / total_sell_qty
+    } else {
+        0.0
+    };
 
     let mut hidden_qty_estimates = Vec::new();
 
     // RF11: Extrapolar para os meses ocultos
     if let Some(quotes) = quotes {
         if let Some(dt_col) = filtered_df.column("DT_COMPTC").ok() {
-            if let Some(last_known_dt) = dt_col.get(height - 1).ok().and_then(|v| v.get_str().map(|s| s.to_string())) {
+            if let Some(last_known_dt) = dt_col
+                .get(height - 1)
+                .ok()
+                .and_then(|v| v.get_str().map(|s| s.to_string()))
+            {
                 // Procurar cotações após a last_known_dt
                 for q in quotes {
                     if q.date > last_known_dt && last_qty > 0.0 {

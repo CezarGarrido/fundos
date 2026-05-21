@@ -482,21 +482,21 @@ impl Portfolio {
         }
 
         // Group by CNPJ_FUNDO to get the latest position for each fund in this period
-        let holders = filtered
-            .groupby(vec![col("CNPJ_FUNDO")])
-            .agg(agg_exprs);
+        let holders = filtered.groupby(vec![col("CNPJ_FUNDO")]).agg(agg_exprs);
 
         // If PL is available, join to calculate percentage
-        let final_lf = if pl_lf.schema().map(|s| s.contains("VL_PATRIM_LIQ")).unwrap_or(false) {
+        let final_lf = if pl_lf
+            .schema()
+            .map(|s| s.contains("VL_PATRIM_LIQ"))
+            .unwrap_or(false)
+        {
             let pl_grouped = pl_lf
                 .groupby(vec![col("CNPJ_FUNDO")])
-                .agg(vec![
-                    col("VL_PATRIM_LIQ")
-                        .cast(DataType::Float64)
-                        .last()
-                        .alias("VL_PATRIM_LIQ"),
-                ]);
-            
+                .agg(vec![col("VL_PATRIM_LIQ")
+                    .cast(DataType::Float64)
+                    .last()
+                    .alias("VL_PATRIM_LIQ")]);
+
             holders
                 .left_join(pl_grouped, col("CNPJ_FUNDO"), col("CNPJ_FUNDO"))
                 .with_column(

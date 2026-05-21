@@ -37,7 +37,10 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                 }
             }
 
-            Line::new("Fundo", line_data).color(line_color).width(1.5).fill(0.0)
+            Line::new("Fundo", line_data)
+                .color(line_color)
+                .width(1.5)
+                .fill(0.0)
         }
         _ => Line::new("Fundo", Vec::new()).color(color).width(1.5),
     };
@@ -95,8 +98,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
         }
     };
 
-    let y_formatter =
-        |mark: GridMark, _range: &RangeInclusive<f64>| format!("{:.2}%", mark.value);
+    let y_formatter = |mark: GridMark, _range: &RangeInclusive<f64>| format!("{:.2}%", mark.value);
 
     let x_axes = vec![AxisHints::new_x().label("").formatter(x_formatter)];
     let y_axes = vec![AxisHints::new_y()

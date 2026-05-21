@@ -8,9 +8,9 @@ use crate::{
 use chrono::Datelike;
 use egui::{Align2, Color32, Frame, Layout, Vec2, Widget};
 use egui_extras::DatePickerButton;
+use jiff::civil::{date as jiff_date, Date as JiffDate};
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
-use jiff::civil::{Date as JiffDate, date as jiff_date};
 
 #[derive(Debug, PartialEq)]
 pub enum FilterMonth {
@@ -170,9 +170,8 @@ impl ProfitUI {
                 let now = chrono::offset::Utc::now().date_naive();
                 match self.profit_filter_date {
                     FilterMonth::OneMonth => {
-                        let start_date = now
-                            .checked_sub_signed(chrono::Duration::days(30))
-                            .unwrap();
+                        let start_date =
+                            now.checked_sub_signed(chrono::Duration::days(30)).unwrap();
                         self.send_profit_message(cnpj, start_date, now);
                     }
                     FilterMonth::SixMonth => {
@@ -194,7 +193,8 @@ impl ProfitUI {
                         self.send_profit_message(cnpj, start_date, now);
                     }
                     FilterMonth::Ytd => {
-                        let start_date = chrono::NaiveDate::from_ymd_opt(now.year() as i32, 1, 1).unwrap();
+                        let start_date =
+                            chrono::NaiveDate::from_ymd_opt(now.year() as i32, 1, 1).unwrap();
                         self.send_profit_message(cnpj, start_date, now);
                     }
                     FilterMonth::Custom => {}
@@ -254,17 +254,15 @@ impl ProfitUI {
                             self.profit_filter_start_date.year() as i32,
                             self.profit_filter_start_date.month() as u32,
                             self.profit_filter_start_date.day() as u32,
-                        ).unwrap();
+                        )
+                        .unwrap();
                         let end_chrono = chrono::NaiveDate::from_ymd_opt(
                             self.profit_filter_end_date.year() as i32,
                             self.profit_filter_end_date.month() as u32,
                             self.profit_filter_end_date.day() as u32,
-                        ).unwrap();
-                        self.send_profit_message(
-                            cnpj,
-                            start_chrono,
-                            end_chrono,
-                        );
+                        )
+                        .unwrap();
+                        self.send_profit_message(cnpj, start_chrono, end_chrono);
                         other = false;
                     }
                 });

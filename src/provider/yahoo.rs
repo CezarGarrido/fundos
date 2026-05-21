@@ -25,7 +25,11 @@ impl YahooProvider {
 
     /// Busca as cotações históricas de um ativo, retornando o preço de fechamento no último dia de cada mês.
     #[allow(dead_code)]
-    pub async fn get_monthly_quotes(&self, ticker: &str, months_back: i64) -> Result<Vec<MonthlyQuote>, String> {
+    pub async fn get_monthly_quotes(
+        &self,
+        ticker: &str,
+        months_back: i64,
+    ) -> Result<Vec<MonthlyQuote>, String> {
         let mut cache = self.cache.lock().await;
         if let Some(cached) = cache.get(ticker) {
             return Ok(cached.clone());
@@ -36,8 +40,11 @@ impl YahooProvider {
         let end = Utc::now();
         let start = end - chrono::Duration::days(months_back * 30);
 
-        let start_ts = yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(start.timestamp()).unwrap();
-        let end_ts = yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(end.timestamp()).unwrap();
+        let start_ts =
+            yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(start.timestamp())
+                .unwrap();
+        let end_ts =
+            yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(end.timestamp()).unwrap();
 
         // Ensure .SA for brazilian stocks if not provided
         let mut symbol = ticker.to_string();
@@ -45,10 +52,14 @@ impl YahooProvider {
             symbol = format!("{}.SA", symbol);
         }
 
-        let response = provider.get_quote_history(&symbol, start_ts, end_ts).await.map_err(|e| e.to_string())?;
+        let response = provider
+            .get_quote_history(&symbol, start_ts, end_ts)
+            .await
+            .map_err(|e| e.to_string())?;
         let quotes = response.quotes().map_err(|e| e.to_string())?;
 
-        let mut monthly_quotes: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut monthly_quotes: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
 
         for q in quotes {
             if let Some(dt) = DateTime::from_timestamp(q.timestamp as i64, 0) {

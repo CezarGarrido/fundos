@@ -78,7 +78,10 @@ impl Options {
         {
             // Arquivo zip: extrair e converter para UTF-8
             let utf8_dir = path.parent().unwrap().join("extracted_utf8");
-            if !(utf8_dir.exists() && utf8_dir.join("registro_classe.csv").exists() && utf8_dir.join("registro_fundo.csv").exists()) {
+            if !(utf8_dir.exists()
+                && utf8_dir.join("registro_classe.csv").exists()
+                && utf8_dir.join("registro_fundo.csv").exists())
+            {
                 Self::extract_and_convert_zip(&path, &utf8_dir).await?;
             }
             utf8_dir
@@ -271,7 +274,10 @@ impl Options {
             dir.file_name().unwrap().to_string_lossy()
         ));
 
-        if utf8_dir.exists() && utf8_dir.join("registro_classe.csv").exists() && utf8_dir.join("registro_fundo.csv").exists() {
+        if utf8_dir.exists()
+            && utf8_dir.join("registro_classe.csv").exists()
+            && utf8_dir.join("registro_fundo.csv").exists()
+        {
             return Ok(utf8_dir);
         }
 

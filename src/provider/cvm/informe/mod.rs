@@ -43,7 +43,10 @@ impl Informe {
                     let pattern = format!("{}/*", path.display());
                     for path in glob(&pattern).unwrap().filter_map(Result::ok) {
                         let file = path.display().to_string();
-                        crate::provider::cvm::fund::set_status(&format!("Carregando informe diário: {}", path.file_name().unwrap().to_string_lossy()));
+                        crate::provider::cvm::fund::set_status(&format!(
+                            "Carregando informe diário: {}",
+                            path.file_name().unwrap().to_string_lossy()
+                        ));
                         let res = read_csv_lazy(&file);
                         match res {
                             Ok(mut lf) => {
@@ -59,11 +62,7 @@ impl Informe {
                                 } else {
                                     col("CNPJ_FUNDO")
                                 };
-                                lf = lf.select(&[
-                                    cnpj_col,
-                                    col("DT_COMPTC"),
-                                    col("VL_QUOTA"),
-                                ]);
+                                lf = lf.select(&[cnpj_col, col("DT_COMPTC"), col("VL_QUOTA")]);
 
                                 let lf = lf
                                     .with_column(

@@ -919,7 +919,8 @@ fn get_u64(col: &Option<&polars::series::Series>, row: usize) -> u64 {
     col.as_ref()
         .and_then(|c| c.get(row).ok())
         .and_then(|v| {
-            v.try_extract::<u64>().ok()
+            v.try_extract::<u64>()
+                .ok()
                 .or_else(|| v.try_extract::<u32>().ok().map(|x| x as u64))
         })
         .unwrap_or(0)
