@@ -179,17 +179,30 @@ pub fn extrapolate(
 pub struct KalmanParams {
     pub q_pos: f64,
     pub r_obs: f64,
+    pub r_obs_aux: f64,
     pub gamma: f64,
 }
 
-fn compute_log_likelihood(log_historical: &[f64], p: &KalmanParams) -> f64 {
-    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, 1)
+fn compute_log_likelihood(log_historical: &[f64], p: &KalmanParams, has_aux: bool) -> f64 {
+    let meas_dim = if has_aux { 2 } else { 1 };
+    let obs_matrix = if has_aux {
+        vec![1.0, 0.0, 1.0, 0.0]
+    } else {
+        vec![1.0, 0.0]
+    };
+    let meas_noise = if has_aux {
+        vec![p.r_obs, 0.0, 0.0, p.r_obs_aux]
+    } else {
+        vec![p.r_obs]
+    };
+
+    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, meas_dim)
         .initial_state(vec![log_historical[0], 0.0])
         .initial_covariance(vec![0.5, 0.0, 0.0, 0.1])
         .transition_matrix(vec![1.0, 1.0, 0.0, p.gamma])
         .process_noise(vec![p.q_pos, 0.0, 0.0, 0.01])
-        .observation_matrix(vec![1.0, 0.0])
-        .measurement_noise(vec![p.r_obs])
+        .observation_matrix(obs_matrix)
+        .measurement_noise(meas_noise)
         .build()
         .unwrap_or_else(|_| panic!("MLE build failed: {:?}", p));
 
@@ -209,14 +222,16 @@ fn compute_log_likelihood(log_historical: &[f64], p: &KalmanParams) -> f64 {
     log_likelihood
 }
 
-fn optimize_kalman_parameters(log_historical: &[f64]) -> KalmanParams {
+fn optimize_kalman_parameters(log_historical: &[f64], has_aux: bool) -> KalmanParams {
     let q_grid = [0.01, 0.05, 0.10, 0.15, 0.25];
     let r_grid = [0.01, 0.05, 0.10, 0.20, 0.40];
+    let r_aux_grid = [0.10, 0.20, 0.30, 0.50];
     let gamma_grid = [0.50, 0.70, 0.85, 0.95];
 
     let mut best = KalmanParams {
         q_pos: 0.15,
         r_obs: 0.10,
+        r_obs_aux: 0.30,
         gamma: 0.85,
     };
     let mut max_ll = f64::NEG_INFINITY;
@@ -224,15 +239,32 @@ fn optimize_kalman_parameters(log_historical: &[f64]) -> KalmanParams {
     for &q in &q_grid {
         for &r in &r_grid {
             for &g in &gamma_grid {
-                let p = KalmanParams {
-                    q_pos: q,
-                    r_obs: r,
-                    gamma: g,
-                };
-                let ll = compute_log_likelihood(log_historical, &p);
-                if ll > max_ll {
-                    max_ll = ll;
-                    best = p;
+                if has_aux {
+                    for &ra in &r_aux_grid {
+                        let p = KalmanParams {
+                            q_pos: q,
+                            r_obs: r,
+                            r_obs_aux: ra,
+                            gamma: g,
+                        };
+                        let ll = compute_log_likelihood(log_historical, &p, true);
+                        if ll > max_ll {
+                            max_ll = ll;
+                            best = p;
+                        }
+                    }
+                } else {
+                    let p = KalmanParams {
+                        q_pos: q,
+                        r_obs: r,
+                        r_obs_aux: 0.30,
+                        gamma: g,
+                    };
+                    let ll = compute_log_likelihood(log_historical, &p, false);
+                    if ll > max_ll {
+                        max_ll = ll;
+                        best = p;
+                    }
                 }
             }
         }
@@ -249,6 +281,8 @@ fn optimize_kalman_parameters(log_historical: &[f64]) -> KalmanParams {
 
 pub fn infer_portfolio_state(
     historical_qtys: &[f64],
+    _historical_pcts: &[f64],
+    _historical_prices: &[f64],
     quotes: &[crate::provider::yahoo::MonthlyQuote],
     last_known_dt: &str,
 ) -> PortfolioInference {
@@ -268,34 +302,58 @@ pub fn infer_portfolio_state(
     // 1. Log-Transform
     let log_historical: Vec<f64> = historical_qtys.iter().map(|&q| q.max(1.0).ln()).collect();
 
-    // MLE: descobre parâmetros ótimos do próprio histórico do fundo
-    let optimal = optimize_kalman_parameters(&log_historical);
+    // Observação implícita: q_implied = %PL × PL_Total / Price (requer alinhamento Yahoo)
+    // Por enquanto, usamos apenas o canal direto até termos PL_Total por mês
+    let has_aux = false;
+    #[allow(unused)]
+    let log_implied: Vec<f64> = vec![];
 
-    // Filtro 2D [posição, velocidade] com γ amortecendo o drift
-    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, 1)
+    // MLE: descobre parâmetros ótimos
+    let optimal = optimize_kalman_parameters(&log_historical, has_aux);
+
+    // Filtro 2D [pos, vel] com 1 ou 2 canais de observação
+    let meas_dim = if has_aux { 2_usize } else { 1_usize };
+    let obs_matrix = if has_aux {
+        vec![1.0, 0.0, 1.0, 0.0]
+    } else {
+        vec![1.0, 0.0]
+    };
+    let meas_noise = if has_aux {
+        vec![optimal.r_obs, 0.0, 0.0, optimal.r_obs_aux]
+    } else {
+        vec![optimal.r_obs]
+    };
+
+    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, meas_dim)
         .initial_state(vec![log_historical[0], 0.0])
         .initial_covariance(vec![0.5, 0.0, 0.0, 0.1])
         .transition_matrix(vec![1.0, 1.0, 0.0, optimal.gamma])
         .process_noise(vec![optimal.q_pos, 0.0, 0.0, 0.01])
-        .observation_matrix(vec![1.0, 0.0])
-        .measurement_noise(vec![optimal.r_obs])
+        .observation_matrix(obs_matrix)
+        .measurement_noise(meas_noise)
         .build()
-        .expect("Inference Kalman 2D build failed");
+        .expect("Inference Kalman build failed");
 
     let mut log_predictions = Vec::with_capacity(n - 1);
     let mut log_actuals = Vec::with_capacity(n - 1);
 
-    // Assimilação do histórico
-    for &y_log_obs in log_historical.iter().skip(1) {
+    for i in 1..n {
         kf.predict();
         log_predictions.push(kf.state()[0]);
-        log_actuals.push(y_log_obs);
-        kf.update(&[y_log_obs]).expect("Kalman update failed");
+        log_actuals.push(log_historical[i]);
+
+        let y_direct = log_historical[i];
+        if has_aux && !log_implied[i].is_nan() {
+            kf.update(&[y_direct, log_implied[i]])
+                .expect("Kalman update dual failed");
+        } else {
+            kf.update(&[y_direct]).expect("Kalman update failed");
+        }
     }
 
     let filtered_log_qty = kf.state()[0];
 
-    // 2. Stability Score (Suavização Exponencial)
+    // 2. Stability Score
     let m = log_actuals.len();
     let mut relative_error_sum = 0.0;
     for i in 0..m {
@@ -306,11 +364,10 @@ pub fn infer_portfolio_state(
     let discrepancy = relative_error_sum / m as f64;
     let stability_score = (-2.0 * discrepancy).exp();
 
-    // 3. Multi-Horizon Forecast no Escuro
+    // 3. Multi-Horizon Forecast
     let mut forward_trajectory = Vec::new();
-    let inflation_factor = 1.5; // Compensa caudas pesadas de rebalanceamento
+    let inflation_factor = 1.5;
 
-    // Z-Score no primeiro passo oculto
     kf.predict();
     let t1_log_qty = kf.state()[0];
     let t1_cov = kf.covariance()[0];
@@ -330,7 +387,6 @@ pub fn infer_portfolio_state(
         TradeBias::Consistente
     };
 
-    // Gera trajetória prospectiva com incerteza crescente
     for q in quotes {
         if q.date.as_str() > last_known_dt {
             let pred_nat = kf.state()[0].exp();
@@ -343,15 +399,9 @@ pub fn infer_portfolio_state(
             let ci_lower = (kf.state()[0] - 1.96 * current_std).exp().max(0.0);
             let ci_upper = (kf.state()[0] + 1.96 * current_std).exp();
             forward_trajectory.push((q.date.clone(), pred_nat, ci_lower, ci_upper));
-            kf.predict(); // Avança no escuro — estado constante, incerteza cresce
+            kf.predict();
         }
     }
-
-    debug!(
-        "Portfolio Inference: baseline={:.0}, filtrado={:.0}, estab={:.2}, viés={:?}, MLE(Q={:.3},R={:.3},γ={:.3})",
-        baseline_qty, filtered_log_qty.exp(), stability_score, bias_direction,
-        optimal.q_pos, optimal.r_obs, optimal.gamma
-    );
 
     PortfolioInference {
         baseline_qty,
@@ -894,6 +944,8 @@ pub fn compute_asset_analytics(
     let mut total_sell_qty = 0.0;
 
     let mut historical_qtys: Vec<f64> = Vec::with_capacity(height);
+    let mut historical_pcts: Vec<f64> = Vec::with_capacity(height);
+    let mut historical_prices: Vec<f64> = Vec::with_capacity(height);
 
     for i in 0..height {
         let current_qty = get_f64(qt_regis_col, i);
@@ -902,12 +954,13 @@ pub fn compute_asset_analytics(
         let current_merc = vl_merc_col.as_ref().map(|c| get_f64(c, i)).unwrap_or(0.0);
 
         historical_qtys.push(current_qty);
-
+        historical_pcts.push(pct);
         let est_price = if current_qty > 0.0 {
             current_merc / current_qty
         } else {
             0.0
         };
+        historical_prices.push(est_price);
 
         if i == 0 {
             if current_qty > 0.0 {
@@ -994,7 +1047,13 @@ pub fn compute_asset_analytics(
                         }
                     }
                     // Inferência de estado (Holding Persistence Estimator)
-                    let inference = infer_portfolio_state(&historical_qtys, quotes, &last_known_dt);
+                    let inference = infer_portfolio_state(
+                        &historical_qtys,
+                        &historical_pcts,
+                        &historical_prices,
+                        quotes,
+                        &last_known_dt,
+                    );
                     debug!(
                         "Portfolio Inference: estabilidade={:.2}, viés={:?}",
                         inference.stability_score, inference.bias_direction

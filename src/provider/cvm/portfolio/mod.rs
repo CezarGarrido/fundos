@@ -297,6 +297,7 @@ impl Portfolio {
                         let result = lf
                             .clone()
                             .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
+                            .with_column(lit(pl_value).alias("VL_PATRIM_LIQ"))
                             .with_column(
                                 (col("VL_MERC_POS_FINAL").cast(DataType::Float64) / lit(pl_value)
                                     * lit(100.0))
