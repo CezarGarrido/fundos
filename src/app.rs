@@ -836,14 +836,11 @@ impl TemplateApp {
                                             let dates: Vec<String> = quotes
                                                 .iter()
                                                 .map(|q| {
-                                                    chrono::DateTime::from_timestamp(
-                                                        q.timestamp as i64,
-                                                        0,
-                                                    )
-                                                    .unwrap()
-                                                    .naive_utc()
-                                                    .format("%Y-%m-%d")
-                                                    .to_string()
+                                                    chrono::DateTime::from_timestamp(q.timestamp, 0)
+                                                        .unwrap()
+                                                        .naive_utc()
+                                                        .format("%Y-%m-%d")
+                                                        .to_string()
                                                 })
                                                 .collect();
                                             let df = polars::frame::DataFrame::new(vec![

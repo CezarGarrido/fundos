@@ -52,7 +52,7 @@ impl Options {
             let quotes: Vec<yahoo_finance_api::Quote> = resp.quotes()?;
             let mut ibovs = Vec::new();
             for q in quotes.into_iter() {
-                let dt = DateTime::from_timestamp(q.timestamp as i64, 0).unwrap();
+                let dt = DateTime::from_timestamp(q.timestamp, 0).unwrap();
                 let date_str = dt.naive_utc().format("%d/%m/%Y").to_string();
 
                 let ibov = Ibov {
@@ -62,7 +62,7 @@ impl Options {
                     open: q.open,
                     high: q.high,
                     low: q.low,
-                    volume: q.volume as u64,
+                    volume: q.volume,
                     close: q.close,
                 };
                 ibovs.push(ibov);

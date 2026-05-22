@@ -2,11 +2,12 @@ use crate::{
     message,
     ui::{
         charts::{self, profit::Indice},
+        design::{Components, Typography},
         loading,
     },
 };
 use chrono::Datelike;
-use egui::{Align2, Color32, Frame, Layout, Vec2, Widget};
+use egui::{Align2, Color32, Layout, Vec2, Widget};
 use egui_extras::DatePickerButton;
 use jiff::civil::{date as jiff_date, Date as JiffDate};
 use polars::frame::DataFrame;
@@ -67,12 +68,13 @@ impl Default for ProfitUI {
 
 impl ProfitUI {
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        let dark = ui.visuals().dark_mode;
         ui.group(|ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.horizontal_centered(|ui| {
-                            ui.heading(egui::RichText::new("Gráfico de Rentabilidade").size(16.0));
+                            ui.label(Typography::heading_3("Gráfico de Rentabilidade", dark));
                         });
                     });
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -112,7 +114,8 @@ impl ProfitUI {
                 let cdi_color = Color32::from_rgb(230, 126, 34); // Âmbar / Laranja terracota premium para o CDI
                 let ibov_color = Color32::from_rgb(52, 152, 219); // Azul Royal / Celeste premium para o IBOV
 
-                Frame::NONE.inner_margin(5.0).show(ui, |ui| {
+                let dark = ui.visuals().dark_mode;
+                Components::card(ui, dark, 5, |ui| {
                     charts::profit::chart(
                         &self.profit,
                         vec![
@@ -245,24 +248,29 @@ impl ProfitUI {
                 });
 
                 ui.vertical_centered(|ui| {
-                    if ui
-                        .add_enabled(!self.loading, egui::Button::new("Aplicar"))
-                        .clicked()
-                    {
-                        let start_chrono = chrono::NaiveDate::from_ymd_opt(
-                            self.profit_filter_start_date.year() as i32,
-                            self.profit_filter_start_date.month() as u32,
-                            self.profit_filter_start_date.day() as u32,
-                        )
-                        .unwrap();
-                        let end_chrono = chrono::NaiveDate::from_ymd_opt(
-                            self.profit_filter_end_date.year() as i32,
-                            self.profit_filter_end_date.month() as u32,
-                            self.profit_filter_end_date.day() as u32,
-                        )
-                        .unwrap();
-                        self.send_profit_message(cnpj, start_chrono, end_chrono);
-                        other = false;
+                    if ui.is_enabled() {
+                        let mut clicked = false;
+                        ui.add_enabled_ui(!self.loading, |ui| {
+                            if Components::primary_button(ui, "Aplicar").clicked() {
+                                clicked = true;
+                            }
+                        });
+                        if clicked {
+                            let start_chrono = chrono::NaiveDate::from_ymd_opt(
+                                self.profit_filter_start_date.year() as i32,
+                                self.profit_filter_start_date.month() as u32,
+                                self.profit_filter_start_date.day() as u32,
+                            )
+                            .unwrap();
+                            let end_chrono = chrono::NaiveDate::from_ymd_opt(
+                                self.profit_filter_end_date.year() as i32,
+                                self.profit_filter_end_date.month() as u32,
+                                self.profit_filter_end_date.day() as u32,
+                            )
+                            .unwrap();
+                            self.send_profit_message(cnpj, start_chrono, end_chrono);
+                            other = false;
+                        }
                     }
                 });
             });

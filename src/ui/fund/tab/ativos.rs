@@ -1,12 +1,15 @@
 use chrono::{Datelike, Local, NaiveDate};
 
-use egui::{Frame, Sense, Ui, Widget, WidgetText};
+use egui::{Sense, Ui, Widget, WidgetText};
 use egui_extras::{Column, DatePickerButton, TableBuilder};
 use jiff::civil::{date as jiff_date, Date as JiffDate};
 use polars::frame::DataFrame;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{message::Message, ui::fund::modal::asset_detail::AssetDetailModal, ui::tabs::Tab};
+use crate::{
+    message::Message,
+    ui::{design::Components, fund::modal::asset_detail::AssetDetailModal, tabs::Tab},
+};
 
 // ─── State ───────────────────────────────────────────────────────────────────
 pub struct AssetsMarketTab {
@@ -225,14 +228,9 @@ impl AssetsMarketTab {
                 ui.add_space(4.0);
 
                 // Preset buttons styled as pills
+                let dark = ui.visuals().dark_mode;
                 for (label, months) in &[("3M", 3u32), ("6M", 6), ("1A", 12), ("2A", 24)] {
-                    if ui
-                        .add(
-                            egui::Button::new(egui::RichText::new(*label).size(11.0).strong())
-                                .min_size(egui::vec2(32.0, 22.0)),
-                        )
-                        .clicked()
-                    {
+                    if Components::ghost_button(ui, label, dark).clicked() {
                         self.apply_preset(*months);
                     }
                 }
@@ -258,14 +256,7 @@ impl AssetsMarketTab {
                 } else {
                     format!("{} Atualizar", egui_phosphor::regular::ARROW_CLOCKWISE)
                 };
-                let load_btn = egui::Button::new(
-                    egui::RichText::new(&load_text)
-                        .size(11.5)
-                        .color(egui::Color32::WHITE),
-                )
-                .fill(egui::Color32::from_rgb(37, 99, 235))
-                .min_size(egui::vec2(100.0, 24.0));
-                if ui.add(load_btn).clicked() && !self.loading {
+                if Components::primary_button(ui, &load_text).clicked() && !self.loading {
                     self.trigger_load();
                 }
             });
@@ -328,6 +319,7 @@ impl AssetsMarketTab {
             egui::Color32::from_rgb(176, 96, 0),   // amber
         ];
 
+        let dark = ui.visuals().dark_mode;
         ui.columns(top_rows.len().max(1), |cols| {
             for (card_idx, &row) in top_rows.iter().enumerate() {
                 let col_ui = &mut cols[card_idx];
@@ -377,58 +369,51 @@ impl AssetsMarketTab {
                     .and_then(|v| v.try_extract::<f64>().ok())
                     .unwrap_or(0.0);
 
-                Frame::group(col_ui.style())
-                    .corner_radius(egui::CornerRadius::same(8))
-                    .inner_margin(egui::Margin::symmetric(10, 8))
-                    .show(col_ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.set_height(120.0);
-                        ui.vertical(|ui| {
-                            // Rank + title row
-                            ui.horizontal(|ui| {
-                                let (rect, _) = ui.allocate_exact_size(
-                                    egui::vec2(6.0, 16.0),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter()
-                                    .rect_filled(rect, egui::CornerRadius::same(3), accent);
-                                ui.add_space(4.0);
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{}º {}",
-                                        card_idx + 1,
-                                        &display_nome[..display_nome.len().min(28)]
-                                    ))
-                                    .size(11.0)
-                                    .strong(),
-                                );
-                            });
-                            ui.add_space(2.0);
-                            if !codigo.is_empty() {
-                                ui.label(
-                                    egui::RichText::new(format!("ISIN: {}", codigo)).size(10.0),
-                                );
-                            }
-                            if !venc.is_empty() {
-                                ui.label(egui::RichText::new(format!("Venc: {}", venc)).size(10.0));
-                            }
-                            ui.separator();
-
-                            kv_row(ui, "Consenso:", &format!("{} fundos", n_fundos), accent);
-                            kv_row(
-                                ui,
-                                "Volume:",
-                                &fmt_currency(vl_merc),
-                                egui::Color32::PLACEHOLDER,
-                            );
-                            kv_row(
-                                ui,
-                                "PL Médio:",
-                                &fmt_currency(pl_medio),
-                                egui::Color32::PLACEHOLDER,
+                Components::card(col_ui, dark, 8, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.set_height(120.0);
+                    ui.vertical(|ui| {
+                        // Rank + title row
+                        ui.horizontal(|ui| {
+                            let (rect, _) =
+                                ui.allocate_exact_size(egui::vec2(6.0, 16.0), egui::Sense::hover());
+                            ui.painter()
+                                .rect_filled(rect, egui::CornerRadius::same(3), accent);
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{}º {}",
+                                    card_idx + 1,
+                                    &display_nome[..display_nome.len().min(28)]
+                                ))
+                                .size(11.0)
+                                .strong(),
                             );
                         });
+                        ui.add_space(2.0);
+                        if !codigo.is_empty() {
+                            ui.label(egui::RichText::new(format!("ISIN: {}", codigo)).size(10.0));
+                        }
+                        if !venc.is_empty() {
+                            ui.label(egui::RichText::new(format!("Venc: {}", venc)).size(10.0));
+                        }
+                        ui.separator();
+
+                        kv_row(ui, "Consenso:", &format!("{} fundos", n_fundos), accent);
+                        kv_row(
+                            ui,
+                            "Volume:",
+                            &fmt_currency(vl_merc),
+                            egui::Color32::PLACEHOLDER,
+                        );
+                        kv_row(
+                            ui,
+                            "PL Médio:",
+                            &fmt_currency(pl_medio),
+                            egui::Color32::PLACEHOLDER,
+                        );
                     });
+                });
             }
         });
     }
@@ -498,11 +483,9 @@ impl AssetsMarketTab {
         let vl_max_col = self.data.column("VL_MAX").ok();
         let vl_medio_col = self.data.column("VL_MEDIO").ok();
 
-        TableBuilder::new(ui)
-            .striped(true)
+        Components::configure_table(TableBuilder::new(ui))
             .resizable(true)
             .sense(Sense::click())
-            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .column(Column::exact(36.0))
             .column(Column::initial(130.0).at_least(90.0))
             .column(Column::initial(200.0).at_least(100.0))
@@ -719,39 +702,19 @@ impl Tab for AssetsMarketTab {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        Frame::NONE.inner_margin(8.0).show(ui, |ui| {
+        let dark = ui.visuals().dark_mode;
+        Components::card(ui, dark, 8, |ui| {
             ui.vertical(|ui| {
                 // Toolbar
                 self.render_toolbar(ui);
                 ui.add_space(6.0);
 
                 if self.loading {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(80.0);
-                        ui.label(
-                            egui::RichText::new(
-                                egui_phosphor::regular::CHART_BAR.to_string(),
-                            )
-                            .size(40.0)
-                            .color(egui::Color32::from_rgb(37, 99, 235)),
-                        );
-                        ui.add_space(12.0);
-                        ui.label(
-                            egui::RichText::new("Analisando carteiras do mercado...")
-                                .size(15.0)
-                                .strong(),
-                        );
-                        ui.add_space(6.0);
-                        ui.label(
-                            egui::RichText::new(
-                                "Agregando dados de todos os fundos no período selecionado.",
-                            )
-                            .size(11.0)
-                            .weak(),
-                        );
-                        ui.add_space(10.0);
-                        ui.spinner();
-                    });
+                    crate::ui::loading::show_custom(
+                        ui,
+                        "Analisando carteiras do mercado...\nAgregando dados de todos os fundos no período selecionado.",
+                        egui_phosphor::regular::CHART_BAR
+                    );
                     return;
                 }
 

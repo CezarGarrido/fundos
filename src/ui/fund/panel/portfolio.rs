@@ -1,5 +1,6 @@
 use crate::{
     message,
+    ui::design::{Components, Typography},
     ui::fund::modal::asset_detail::{AssetDetailModal, AssetModalContext},
     ui::loading,
     util,
@@ -71,7 +72,8 @@ impl PortfolioUI {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.horizontal_centered(|ui| {
-                            ui.heading(egui::RichText::new("Composição da Carteira").size(16.0));
+                            let dark = ui.visuals().dark_mode;
+                            ui.label(Typography::heading_3("Composição da Carteira", dark));
                         });
                     });
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -196,7 +198,7 @@ impl PortfolioUI {
             egui::Color32::from_rgb(245, 247, 250)
         };
 
-        let heading_color = if ui.visuals().dark_mode {
+        let _heading_color = if ui.visuals().dark_mode {
             egui::Color32::from_rgb(220, 230, 245)
         } else {
             egui::Color32::from_rgb(30, 40, 60)
@@ -223,11 +225,8 @@ impl PortfolioUI {
                     egui::Color32::from_rgb(75, 85, 100)
                 };
 
-                ui.heading(
-                    egui::RichText::new("Nenhuma Carteira Encontrada")
-                        .color(heading_color)
-                        .size(18.0)
-                );
+                let dark = ui.visuals().dark_mode;
+                ui.label(Typography::heading_2("Nenhuma Carteira Encontrada", dark));
                 ui.add_space(8.0);
                 ui.label(
                     egui::RichText::new("Não há registros de composição de ativos para a data selecionada.")
@@ -252,24 +251,21 @@ impl PortfolioUI {
                 let colors = generate_colors(self.top_assets.height());
 
                 ui.push_id("top_assets", |ui| {
-                    ui.heading(
-                        egui::RichText::new(format!(
+                    let dark = ui.visuals().dark_mode;
+                    ui.label(Typography::heading_3(
+                        format!(
                             "{} Classes de Ativos",
                             egui_phosphor::regular::CHART_PIE_SLICE
-                        ))
-                        .size(14.0)
-                        .strong()
-                        .color(heading_color),
-                    );
+                        ),
+                        dark,
+                    ));
                     ui.separator();
                     ui.add_space(8.0);
-                    TableBuilder::new(ui)
+                    Components::configure_table(TableBuilder::new(ui))
                         .id_salt("portfolio_assets_table")
                         .column(Column::initial(100.0).resizable(true).clip(true))
                         .column(Column::initial(100.0).clip(true))
                         .column(Column::remainder().at_least(120.0))
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .striped(true)
                         .resizable(false)
                         .sense(Sense::click())
                         .header(20.0, |mut header| {
@@ -420,15 +416,14 @@ impl PortfolioUI {
                     "VL_PORCENTAGEM_PL",
                 ];
                 {
-                    ui.heading(
-                        egui::RichText::new(format!(
+                    let dark = ui.visuals().dark_mode;
+                    ui.label(Typography::heading_3(
+                        format!(
                             "{} Detalhamento da Carteira",
                             egui_phosphor::regular::LIST_DASHES
-                        ))
-                        .size(14.0)
-                        .strong()
-                        .color(heading_color),
-                    );
+                        ),
+                        dark,
+                    ));
                     ui.separator();
                     ui.add_space(8.0);
 
@@ -450,7 +445,7 @@ impl PortfolioUI {
                         .id_salt("detail_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            TableBuilder::new(ui)
+                            Components::configure_table(TableBuilder::new(ui))
                                 .auto_shrink([false, false])
                                 .column(
                                     Column::initial(150.0)
@@ -471,8 +466,6 @@ impl PortfolioUI {
                                         .resizable(false)
                                         .clip(true),
                                 )
-                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                                .striped(true)
                                 .header(20.0, |mut header| {
                                     header.col(|ui| {
                                         ui.label("Aplicação");

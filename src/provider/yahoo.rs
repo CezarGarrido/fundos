@@ -62,7 +62,7 @@ impl YahooProvider {
             std::collections::HashMap::new();
 
         for q in quotes {
-            if let Some(dt) = DateTime::from_timestamp(q.timestamp as i64, 0) {
+            if let Some(dt) = DateTime::from_timestamp(q.timestamp, 0) {
                 let month_key = dt.format("%Y-%m").to_string();
                 // Overwrite with the latest in the month
                 monthly_quotes.insert(month_key, q.close);

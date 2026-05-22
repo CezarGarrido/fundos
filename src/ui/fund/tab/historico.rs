@@ -6,7 +6,13 @@ use egui_plot::{AxisHints, GridMark, Legend, Line, Plot};
 use polars::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{message::Message, ui::tabs::Tab};
+use crate::{
+    message::Message,
+    ui::{
+        design::{Components, Typography},
+        tabs::Tab,
+    },
+};
 
 fn get_str(col: &polars::series::Series, row: usize) -> String {
     col.get(row)
@@ -317,16 +323,6 @@ impl HistoricoTab {
             .unwrap_or(0.0);
 
         let dark = ui.visuals().dark_mode;
-        let card_bg = if dark {
-            Color32::from_rgb(22, 26, 34)
-        } else {
-            Color32::from_rgb(245, 247, 251)
-        };
-        let tx = if dark {
-            Color32::from_rgb(250, 250, 250)
-        } else {
-            Color32::from_rgb(10, 10, 10)
-        };
 
         let items = [
             (
@@ -348,15 +344,11 @@ impl HistoricoTab {
         ];
         ui.columns(4, |cols| {
             for (i, (label, value, color)) in items.iter().enumerate() {
-                Frame::NONE
-                    .fill(card_bg)
-                    .corner_radius(egui::CornerRadius::same(6))
-                    .inner_margin(egui::Margin::symmetric(8, 6))
-                    .show(&mut cols[i], |ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.label(RichText::new(*label).size(9.5).color(tx));
-                        ui.label(RichText::new(value).size(14.0).strong().color(*color));
-                    });
+                Components::card(&mut cols[i], dark, 6, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.label(Typography::small_muted(*label, dark));
+                    ui.label(RichText::new(value).size(14.0).strong().color(*color));
+                });
             }
         });
     }
@@ -454,16 +446,8 @@ impl HistoricoTab {
         month_data.reverse(); // most recent first
 
         let dark = ui.visuals().dark_mode;
-        let header_color = if dark {
-            Color32::from_rgb(250, 250, 250)
-        } else {
-            Color32::from_rgb(10, 10, 10)
-        };
 
-        TableBuilder::new(ui)
-            .striped(true)
-            .resizable(false)
-            .cell_layout(Layout::left_to_right(Align::Center))
+        Components::configure_table(TableBuilder::new(ui))
             .column(Column::exact(60.0)) // Mês
             .column(Column::initial(70.0)) // %PL
             .column(Column::initial(90.0)) // Valor
@@ -472,12 +456,7 @@ impl HistoricoTab {
             .header(22.0, |mut h| {
                 for label in &["Mês", "%PL", "Valor Merc.", "Mov. Qtde", "PM Transação"] {
                     h.col(|ui| {
-                        ui.label(
-                            RichText::new(*label)
-                                .size(10.0)
-                                .strong()
-                                .color(header_color),
-                        );
+                        ui.label(Typography::label_strong(*label, dark));
                     });
                 }
             })
@@ -619,23 +598,8 @@ impl HistoricoTab {
     }
 
     fn render_yahoo_inline(&self, ui: &mut Ui, codigo: &str) {
-        let dark = ui.visuals().dark_mode;
-        let _tx = if dark {
-            Color32::from_rgb(140, 155, 175)
-        } else {
-            Color32::from_rgb(90, 100, 120)
-        };
-
         if self.yahoo_loading {
-            ui.vertical_centered(|ui| {
-                ui.add_space(6.0);
-                ui.spinner();
-                ui.label(
-                    RichText::new("Buscando preços no Yahoo Finance...")
-                        .size(11.0)
-                        .weak(),
-                );
-            });
+            crate::ui::loading::show_custom_small(ui, "Buscando Yahoo Finance...");
             return;
         }
         let prices = match self.yahoo_prices.get(codigo) {
@@ -967,18 +931,7 @@ impl HistoricoTab {
                                         };
                                     let dir_text =
                                         format!("{} Z={:+.1} {}", dir_icon, inf.z_score, dir_label);
-                                    Frame::NONE
-                                        .fill(dir_bg)
-                                        .corner_radius(egui::CornerRadius::same(10))
-                                        .inner_margin(egui::Margin::symmetric(6, 2))
-                                        .show(ui, |ui| {
-                                            ui.label(
-                                                RichText::new(dir_text)
-                                                    .size(10.0)
-                                                    .strong()
-                                                    .color(dir_color),
-                                            );
-                                        });
+                                    Components::badge(ui, &dir_text, dir_color, dir_bg);
                                     ui.add_space(4.0);
                                     // Badge 1: Estabilidade
                                     let (stab_color, stab_bg) = if inf.stability_score > 0.75 {
@@ -1033,17 +986,7 @@ impl HistoricoTab {
                                         label,
                                         inf.stability_score * 100.0
                                     );
-                                    Frame::NONE
-                                        .fill(stab_bg)
-                                        .corner_radius(egui::CornerRadius::same(10))
-                                        .inner_margin(egui::Margin::symmetric(6, 2))
-                                        .show(ui, |ui| {
-                                            ui.label(
-                                                RichText::new(stab_text)
-                                                    .size(10.0)
-                                                    .color(stab_color),
-                                            );
-                                        });
+                                    Components::badge(ui, &stab_text, stab_color, stab_bg);
                                 }
                             });
                         });
@@ -1220,18 +1163,11 @@ impl Tab for HistoricoTab {
             ui.add_space(8.0);
 
             if self.loading {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(60.0);
-                    ui.label(
-                        RichText::new(egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE.to_string())
-                            .size(36.0)
-                            .color(Color32::from_rgb(37, 99, 235)),
-                    );
-                    ui.add_space(10.0);
-                    ui.label(RichText::new("Carregando histórico...").size(14.0).strong());
-                    ui.add_space(6.0);
-                    ui.spinner();
-                });
+                crate::ui::loading::show_custom(
+                    ui,
+                    "Carregando histórico...",
+                    egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE,
+                );
                 return;
             }
             if self.data.is_empty() {
