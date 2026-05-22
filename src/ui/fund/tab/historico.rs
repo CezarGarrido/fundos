@@ -820,7 +820,52 @@ impl HistoricoTab {
                             ui.label(RichText::new(format!("≈ {}", val_fmt)).size(11.0).color(tx));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if let Some(ref inf) = analytics.portfolio_inference {
-                                    let (score_color, badge_bg) = if inf.stability_score > 0.75 {
+                                    // Badge 2: Direção do viés
+                                    if inf.z_score > 2.0 || inf.z_score < -2.0 {
+                                        let (dir_color, dir_bg, dir_icon, dir_label) =
+                                            if inf.z_score > 2.0 {
+                                                (
+                                                    green,
+                                                    if dark {
+                                                        Color32::from_rgb(20, 50, 30)
+                                                    } else {
+                                                        Color32::from_rgb(220, 245, 225)
+                                                    },
+                                                    egui_phosphor::regular::ARROW_UP,
+                                                    "Comprando",
+                                                )
+                                            } else {
+                                                (
+                                                    red,
+                                                    if dark {
+                                                        Color32::from_rgb(55, 20, 25)
+                                                    } else {
+                                                        Color32::from_rgb(255, 225, 225)
+                                                    },
+                                                    egui_phosphor::regular::ARROW_DOWN,
+                                                    "Vendendo",
+                                                )
+                                            };
+                                        let dir_text = format!(
+                                            "{} Z={:+.1} {}",
+                                            dir_icon, inf.z_score, dir_label
+                                        );
+                                        Frame::NONE
+                                            .fill(dir_bg)
+                                            .corner_radius(egui::CornerRadius::same(10))
+                                            .inner_margin(egui::Margin::symmetric(6, 2))
+                                            .show(ui, |ui| {
+                                                ui.label(
+                                                    RichText::new(dir_text)
+                                                        .size(10.0)
+                                                        .strong()
+                                                        .color(dir_color),
+                                                );
+                                            });
+                                        ui.add_space(4.0);
+                                    }
+                                    // Badge 1: Estabilidade
+                                    let (stab_color, stab_bg) = if inf.stability_score > 0.75 {
                                         (
                                             green,
                                             if dark {
@@ -857,39 +902,20 @@ impl HistoricoTab {
                                             },
                                         )
                                     };
-                                    let bias_icon = match inf.bias_direction {
-                                        crate::analytics::TradeBias::Acumulando => {
-                                            egui_phosphor::regular::ARROW_UP
-                                        }
-                                        crate::analytics::TradeBias::Distribuindo => {
-                                            egui_phosphor::regular::ARROW_DOWN
-                                        }
-                                        crate::analytics::TradeBias::Consistente => {
-                                            egui_phosphor::regular::EQUALS
-                                        }
-                                    };
-                                    // Mostra direção do viés só quando estatisticamente significativo
-                                    let bias_str = if inf.z_score > 2.0 || inf.z_score < -2.0 {
-                                        format!("{} {}", bias_icon, inf.bias_direction)
-                                    } else {
-                                        format!("{} neutro", bias_icon)
-                                    };
-                                    let badge_text = format!(
-                                        "{} {:.0}%  Z={:+.1}  {}",
+                                    let stab_text = format!(
+                                        "{} {:.0}% inferível",
                                         egui_phosphor::regular::BRAIN,
-                                        inf.stability_score * 100.0,
-                                        inf.z_score,
-                                        bias_str
+                                        inf.stability_score * 100.0
                                     );
                                     Frame::NONE
-                                        .fill(badge_bg)
+                                        .fill(stab_bg)
                                         .corner_radius(egui::CornerRadius::same(10))
-                                        .inner_margin(egui::Margin::symmetric(8, 3))
+                                        .inner_margin(egui::Margin::symmetric(6, 2))
                                         .show(ui, |ui| {
                                             ui.label(
-                                                RichText::new(badge_text)
+                                                RichText::new(stab_text)
                                                     .size(10.0)
-                                                    .color(score_color),
+                                                    .color(stab_color),
                                             );
                                         });
                                 }
