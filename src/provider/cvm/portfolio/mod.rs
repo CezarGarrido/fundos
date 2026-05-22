@@ -275,19 +275,29 @@ impl Portfolio {
                 .copied()
                 .collect();
             if pl_exists.len() == 3 {
-                // Join mensal: PL por mês alinhado com a carteira
+                // PL único para VL_PORCENTAGEM_PL (como antes)
+                let pl = pl_lf
+                    .clone()
+                    .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
+                    .collect()?;
+                let pl_value: f64 = if pl.height() > 0 {
+                    pl.column("VL_PATRIM_LIQ")
+                        .ok()
+                        .and_then(|col| col.get(0).ok())
+                        .and_then(|val| val.get_str().map(|s| s.to_string()))
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+
+                // PL mensal para observação auxiliar do Kalman
                 let pl_monthly = pl_lf
                     .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
                     .with_column(col("DT_COMPTC").str().str_slice(0, Some(7)).alias("month"))
                     .groupby(vec![col("month")])
                     .agg(vec![col("VL_PATRIM_LIQ").last().alias("VL_PATRIM_LIQ")]);
 
-                // Só calcula %PL se a coluna não existir (evita sobrescrever dado original da CVM)
-                let has_pct = lf
-                    .schema()
-                    .ok()
-                    .map(|s| s.contains("VL_PORCENTAGEM_PL"))
-                    .unwrap_or(false);
                 let result = lf
                     .clone()
                     .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
@@ -297,20 +307,15 @@ impl Portfolio {
                         [col("month")],
                         [col("month")],
                         JoinArgs::new(JoinType::Left),
-                    );
-                let result = if has_pct {
-                    result.collect()?
-                } else {
-                    result
-                        .with_column(
-                            (col("VL_MERC_POS_FINAL").cast(DataType::Float64)
-                                / col("VL_PATRIM_LIQ").cast(DataType::Float64)
-                                * lit(100.0))
-                            .round(3)
-                            .alias("VL_PORCENTAGEM_PL"),
-                        )
-                        .collect()?
-                };
+                    )
+                    .with_column(lit(pl_value).alias("VL_PATRIM_LIQ_SINGLE"))
+                    .with_column(
+                        (col("VL_MERC_POS_FINAL").cast(DataType::Float64) / lit(pl_value.max(1.0))
+                            * lit(100.0))
+                        .round(3)
+                        .alias("VL_PORCENTAGEM_PL"),
+                    )
+                    .collect()?;
                 return Ok(result);
             }
             // Fallback: no PL join
