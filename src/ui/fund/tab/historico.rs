@@ -820,7 +820,7 @@ impl HistoricoTab {
                             ui.label(RichText::new(format!("≈ {}", val_fmt)).size(11.0).color(tx));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if let Some(ref inf) = analytics.portfolio_inference {
-                                    let (score_color, badge_bg) = if inf.stability_score > 0.7 {
+                                    let (score_color, badge_bg) = if inf.stability_score > 0.75 {
                                         (
                                             green,
                                             if dark {
@@ -829,13 +829,22 @@ impl HistoricoTab {
                                                 Color32::from_rgb(220, 245, 225)
                                             },
                                         )
-                                    } else if inf.stability_score > 0.4 {
+                                    } else if inf.stability_score > 0.40 {
                                         (
-                                            purple,
+                                            Color32::from_rgb(234, 179, 8),
                                             if dark {
-                                                Color32::from_rgb(40, 25, 60)
+                                                Color32::from_rgb(50, 40, 10)
                                             } else {
-                                                Color32::from_rgb(240, 230, 255)
+                                                Color32::from_rgb(255, 248, 220)
+                                            },
+                                        )
+                                    } else if inf.stability_score > 0.15 {
+                                        (
+                                            Color32::from_rgb(249, 115, 22),
+                                            if dark {
+                                                Color32::from_rgb(50, 25, 10)
+                                            } else {
+                                                Color32::from_rgb(255, 235, 215)
                                             },
                                         )
                                     } else {

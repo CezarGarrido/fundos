@@ -283,10 +283,12 @@ pub fn show_detailed(
                                             if !analytics.hidden_qty_estimates.is_empty() {
                                                 // ── Análise de Integridade da Carteira ────
                                                 if let Some(ref inf) = analytics.portfolio_inference {
-                                                    let score_color = if inf.stability_score > 0.7 {
+                                                    let score_color = if inf.stability_score > 0.75 {
                                                         success_color
-                                                    } else if inf.stability_score > 0.4 {
-                                                        egui::Color32::from_rgb(230, 126, 34)
+                                                    } else if inf.stability_score > 0.40 {
+                                                        egui::Color32::from_rgb(234, 179, 8)
+                                                    } else if inf.stability_score > 0.15 {
+                                                        egui::Color32::from_rgb(249, 115, 22)
                                                     } else {
                                                         egui::Color32::from_rgb(231, 76, 60)
                                                     };
