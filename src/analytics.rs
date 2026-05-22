@@ -173,6 +173,78 @@ pub fn extrapolate(
     }
 }
 
+// ── Kalman MLE (Maximum Likelihood Estimation) ────────────────────────
+
+#[derive(Clone, Copy, Debug)]
+pub struct KalmanParams {
+    pub q_pos: f64,
+    pub r_obs: f64,
+    pub gamma: f64,
+}
+
+fn compute_log_likelihood(log_historical: &[f64], p: &KalmanParams) -> f64 {
+    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, 1)
+        .initial_state(vec![log_historical[0], 0.0])
+        .initial_covariance(vec![0.5, 0.0, 0.0, 0.1])
+        .transition_matrix(vec![1.0, 1.0, 0.0, p.gamma])
+        .process_noise(vec![p.q_pos, 0.0, 0.0, 0.01])
+        .observation_matrix(vec![1.0, 0.0])
+        .measurement_noise(vec![p.r_obs])
+        .build()
+        .unwrap_or_else(|_| panic!("MLE build failed: {:?}", p));
+
+    let mut log_likelihood = 0.0;
+    for &y_obs in log_historical.iter().skip(1) {
+        kf.predict();
+        let pred_y = kf.state()[0];
+        let innovation = y_obs - pred_y;
+        let innovation_variance = kf.covariance()[0] + p.r_obs;
+        let safe_variance = innovation_variance.max(1e-9);
+        let step_ll = -0.5
+            * ((2.0 * std::f64::consts::PI * safe_variance).ln()
+                + (innovation.powi(2) / safe_variance));
+        log_likelihood += step_ll;
+        let _ = kf.update(&[y_obs]);
+    }
+    log_likelihood
+}
+
+fn optimize_kalman_parameters(log_historical: &[f64]) -> KalmanParams {
+    let q_grid = [0.01, 0.05, 0.10, 0.15, 0.25];
+    let r_grid = [0.01, 0.05, 0.10, 0.20, 0.40];
+    let gamma_grid = [0.50, 0.70, 0.85, 0.95];
+
+    let mut best = KalmanParams {
+        q_pos: 0.15,
+        r_obs: 0.10,
+        gamma: 0.85,
+    };
+    let mut max_ll = f64::NEG_INFINITY;
+
+    for &q in &q_grid {
+        for &r in &r_grid {
+            for &g in &gamma_grid {
+                let p = KalmanParams {
+                    q_pos: q,
+                    r_obs: r,
+                    gamma: g,
+                };
+                let ll = compute_log_likelihood(log_historical, &p);
+                if ll > max_ll {
+                    max_ll = ll;
+                    best = p;
+                }
+            }
+        }
+    }
+
+    debug!(
+        "Kalman MLE: Q={:.3} R={:.3} γ={:.3} LL={:.2}",
+        best.q_pos, best.r_obs, best.gamma, max_ll
+    );
+    best
+}
+
 // ── Motor de Inferência de Portfólio (Holding Persistence Estimator) ──
 
 pub fn infer_portfolio_state(
@@ -196,15 +268,19 @@ pub fn infer_portfolio_state(
     // 1. Log-Transform
     let log_historical: Vec<f64> = historical_qtys.iter().map(|&q| q.max(1.0).ln()).collect();
 
-    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(1, 1)
-        .initial_state(vec![log_historical[0]])
-        .initial_covariance(vec![0.5])
-        .transition_matrix(vec![1.0])
-        .process_noise(vec![0.15])
-        .observation_matrix(vec![1.0])
-        .measurement_noise(vec![0.10])
+    // MLE: descobre parâmetros ótimos do próprio histórico do fundo
+    let optimal = optimize_kalman_parameters(&log_historical);
+
+    // Filtro 2D [posição, velocidade] com γ amortecendo o drift
+    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, 1)
+        .initial_state(vec![log_historical[0], 0.0])
+        .initial_covariance(vec![0.5, 0.0, 0.0, 0.1])
+        .transition_matrix(vec![1.0, 1.0, 0.0, optimal.gamma])
+        .process_noise(vec![optimal.q_pos, 0.0, 0.0, 0.01])
+        .observation_matrix(vec![1.0, 0.0])
+        .measurement_noise(vec![optimal.r_obs])
         .build()
-        .expect("Inference Kalman build failed");
+        .expect("Inference Kalman 2D build failed");
 
     let mut log_predictions = Vec::with_capacity(n - 1);
     let mut log_actuals = Vec::with_capacity(n - 1);
@@ -272,11 +348,9 @@ pub fn infer_portfolio_state(
     }
 
     debug!(
-        "Portfolio Inference: baseline={:.0}, filtrado={:.0}, estabilidade={:.2}, viés={:?}",
-        baseline_qty,
-        filtered_log_qty.exp(),
-        stability_score,
-        bias_direction
+        "Portfolio Inference: baseline={:.0}, filtrado={:.0}, estab={:.2}, viés={:?}, MLE(Q={:.3},R={:.3},γ={:.3})",
+        baseline_qty, filtered_log_qty.exp(), stability_score, bias_direction,
+        optimal.q_pos, optimal.r_obs, optimal.gamma
     );
 
     PortfolioInference {
