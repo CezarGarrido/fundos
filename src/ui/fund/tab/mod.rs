@@ -66,18 +66,6 @@ impl FundTab {
                 portfolio_ui.start_date = "".to_string();
             });
 
-        portfolio_ui.send_assets_message();
-
-        let end = chrono::Local::now().naive_local().date();
-        let start = end
-            .checked_sub_months(chrono::Months::new(12))
-            .unwrap_or(end - chrono::Duration::days(365));
-        let _ = sender.send(message::Message::OpenHistoricoTab(
-            title.clone(),
-            start,
-            end,
-        ));
-
         FundTab {
             title,
             fund,
