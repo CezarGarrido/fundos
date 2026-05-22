@@ -16,22 +16,16 @@ pub struct AssetAnalytics {
 /// Inferência de estado da carteira (Holding Persistence Estimator)
 #[derive(Clone, Debug)]
 pub struct PortfolioInference {
-    /// Âncora: último dado real observado no balanço
+    /// Último dado real observado no balanço (âncora)
     pub baseline_qty: f64,
-    /// Estimativa do filtro após consumir todo o histórico (smoothing final)
+    /// Estimativa suavizada do filtro após consumir o histórico
     pub filtered_qty: f64,
-    /// Previsão um passo à frente (onde a inércia do filtro aponta agora)
-    pub predicted_next_qty: f64,
-    /// IC95 do predicted_next_qty (usando covariância real do Kalman)
-    pub confidence_95: (f64, f64),
-    /// Z-Score: (previsão - último_real) / desvio — normalizado pela volatilidade
-    pub z_score: f64,
-    /// Direção do trade baseada no Z-Score (só acusa se |z| > 1)
-    pub bias_direction: TradeBias,
-    /// Erro relativo médio do histórico (quão caótico o fundo é)
-    pub discrepancy_score: f64,
-    /// Inverso da discrepância: 1.0 = perfeitamente previsível
+    /// Score de inferibilidade: 1.0 = perfeitamente previsível, → 0 se caótico
     pub stability_score: f64,
+    /// Direção do viés estatisticamente validada (> 1.64 sigma)
+    pub bias_direction: TradeBias,
+    /// Projeções multi-horizon com incerteza crescente (data, qtd, ci_lower, ci_upper)
+    pub forward_trajectory: Vec<(String, f64, f64, f64)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -181,7 +175,11 @@ pub fn extrapolate(
 
 // ── Motor de Inferência de Portfólio (Holding Persistence Estimator) ──
 
-pub fn infer_portfolio_state(historical_qtys: &[f64]) -> PortfolioInference {
+pub fn infer_portfolio_state(
+    historical_qtys: &[f64],
+    quotes: &[crate::provider::yahoo::MonthlyQuote],
+    last_known_dt: &str,
+) -> PortfolioInference {
     let n = historical_qtys.len();
     let baseline_qty = historical_qtys.last().copied().unwrap_or(0.0);
 
@@ -189,33 +187,29 @@ pub fn infer_portfolio_state(historical_qtys: &[f64]) -> PortfolioInference {
         return PortfolioInference {
             baseline_qty,
             filtered_qty: baseline_qty,
-            predicted_next_qty: baseline_qty,
-            confidence_95: (baseline_qty * 0.95, baseline_qty * 1.05),
-            z_score: 0.0,
-            bias_direction: TradeBias::Consistente,
-            discrepancy_score: 0.0,
             stability_score: 1.0,
+            bias_direction: TradeBias::Consistente,
+            forward_trajectory: generate_static_trajectory(baseline_qty, quotes, last_known_dt),
         };
     }
 
-    // 1. Log-Transform (tratando caudas longas e variações proporcionais)
+    // 1. Log-Transform
     let log_historical: Vec<f64> = historical_qtys.iter().map(|&q| q.max(1.0).ln()).collect();
 
-    // Random Walk com drift gaussiano
     let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(1, 1)
         .initial_state(vec![log_historical[0]])
         .initial_covariance(vec![0.5])
         .transition_matrix(vec![1.0])
-        .process_noise(vec![0.15]) // Incerteza do gestor mudar de ideia (Q)
+        .process_noise(vec![0.15])
         .observation_matrix(vec![1.0])
-        .measurement_noise(vec![0.10]) // Ruído da observação (R)
+        .measurement_noise(vec![0.10])
         .build()
         .expect("Inference Kalman build failed");
 
     let mut log_predictions = Vec::with_capacity(n - 1);
     let mut log_actuals = Vec::with_capacity(n - 1);
 
-    // Loop de Treino / Smoothing Histórico
+    // Assimilação do histórico
     for &y_log_obs in log_historical.iter().skip(1) {
         kf.predict();
         log_predictions.push(kf.state()[0]);
@@ -223,37 +217,9 @@ pub fn infer_portfolio_state(historical_qtys: &[f64]) -> PortfolioInference {
         kf.update(&[y_log_obs]).expect("Kalman update failed");
     }
 
-    // Estado após consumir todos os dados (Smoothing Final)
     let filtered_log_qty = kf.state()[0];
 
-    // 2. O VERDADEIRO FORECAST (passo latente para o futuro não observado)
-    kf.predict();
-    let predicted_log_qty = kf.state()[0];
-    let predicted_cov = kf.covariance()[0];
-
-    // 3. Extração da Incerteza e Z-Score
-    let std_dev_log = if predicted_cov > 1e-6 {
-        predicted_cov.sqrt()
-    } else {
-        0.05
-    };
-
-    let ci_lower = (predicted_log_qty - 1.96 * std_dev_log).exp().max(0.0);
-    let ci_upper = (predicted_log_qty + 1.96 * std_dev_log).exp();
-
-    // Z-Score: (Previsão - Último Dado Real) / Desvio Padrão da Previsão
-    let last_log = log_historical.last().copied().unwrap_or(0.0);
-    let z_score = (predicted_log_qty - last_log) / std_dev_log;
-
-    let bias_direction = if z_score > 1.0 {
-        TradeBias::Acumulando
-    } else if z_score < -1.0 {
-        TradeBias::Distribuindo
-    } else {
-        TradeBias::Consistente
-    };
-
-    // 4. Score de "Inferibilidade" (quão instável o fundo é por dentro)
+    // 2. Stability Score (Suavização Exponencial)
     let m = log_actuals.len();
     let mut relative_error_sum = 0.0;
     for i in 0..m {
@@ -261,28 +227,84 @@ pub fn infer_portfolio_state(historical_qtys: &[f64]) -> PortfolioInference {
         let pred = log_predictions[i].exp();
         relative_error_sum += ((actual - pred) / actual.max(1.0)).abs();
     }
-    let discrepancy_score = relative_error_sum / m as f64;
-    let stability_score = (1.0 - discrepancy_score).clamp(0.0, 1.0);
+    let discrepancy = relative_error_sum / m as f64;
+    let stability_score = (-2.0 * discrepancy).exp();
+
+    // 3. Multi-Horizon Forecast no Escuro
+    let mut forward_trajectory = Vec::new();
+    let inflation_factor = 1.5; // Compensa caudas pesadas de rebalanceamento
+
+    // Z-Score no primeiro passo oculto
+    kf.predict();
+    let t1_log_qty = kf.state()[0];
+    let t1_cov = kf.covariance()[0];
+    let std_dev_log = if t1_cov > 1e-6 {
+        t1_cov.sqrt() * inflation_factor
+    } else {
+        0.05
+    };
+    let last_log = log_historical.last().copied().unwrap_or(0.0);
+    let z_score = (t1_log_qty - last_log) / std_dev_log;
+
+    let bias_direction = if z_score > 1.64 {
+        TradeBias::Acumulando
+    } else if z_score < -1.64 {
+        TradeBias::Distribuindo
+    } else {
+        TradeBias::Consistente
+    };
+
+    // Gera trajetória prospectiva com incerteza crescente
+    for q in quotes {
+        if q.date.as_str() > last_known_dt {
+            let pred_nat = kf.state()[0].exp();
+            let current_cov = kf.covariance()[0];
+            let current_std = if current_cov > 1e-6 {
+                current_cov.sqrt() * inflation_factor
+            } else {
+                0.05
+            };
+            let ci_lower = (kf.state()[0] - 1.96 * current_std).exp().max(0.0);
+            let ci_upper = (kf.state()[0] + 1.96 * current_std).exp();
+            forward_trajectory.push((q.date.clone(), pred_nat, ci_lower, ci_upper));
+            kf.predict(); // Avança no escuro — estado constante, incerteza cresce
+        }
+    }
 
     debug!(
-        "Portfolio Inference: baseline={:.0}, filtrado={:.0}, predito={:.0}, Z={:.2}, estabilidade={:.2}",
+        "Portfolio Inference: baseline={:.0}, filtrado={:.0}, estabilidade={:.2}, viés={:?}",
         baseline_qty,
         filtered_log_qty.exp(),
-        predicted_log_qty.exp(),
-        z_score,
-        stability_score
+        stability_score,
+        bias_direction
     );
 
     PortfolioInference {
         baseline_qty,
         filtered_qty: filtered_log_qty.exp(),
-        predicted_next_qty: predicted_log_qty.exp(),
-        confidence_95: (ci_lower, ci_upper),
-        z_score,
-        bias_direction,
-        discrepancy_score,
         stability_score,
+        bias_direction,
+        forward_trajectory,
     }
+}
+
+fn generate_static_trajectory(
+    baseline_qty: f64,
+    quotes: &[crate::provider::yahoo::MonthlyQuote],
+    last_known_dt: &str,
+) -> Vec<(String, f64, f64, f64)> {
+    let mut traj = Vec::new();
+    for q in quotes {
+        if q.date.as_str() > last_known_dt {
+            traj.push((
+                q.date.clone(),
+                baseline_qty,
+                baseline_qty * 0.90,
+                baseline_qty * 1.10,
+            ));
+        }
+    }
+    traj
 }
 
 // ── Baseline: qtd estática × preço ─────────────────────────────────────
@@ -897,11 +919,11 @@ pub fn compute_asset_analytics(
                             estimates.push((q.date.clone(), last_qty, last_qty * q.close_price));
                         }
                     }
-                    // Inferência de anomalia (Return Gap)
-                    let inference = infer_portfolio_state(&historical_qtys);
+                    // Inferência de estado (Holding Persistence Estimator)
+                    let inference = infer_portfolio_state(&historical_qtys, quotes, &last_known_dt);
                     debug!(
-                        "Portfolio Inference: score={:.3}, viés={}",
-                        inference.discrepancy_score, inference.bias_direction
+                        "Portfolio Inference: estabilidade={:.2}, viés={:?}",
+                        inference.stability_score, inference.bias_direction
                     );
                     (estimates, Some(inference))
                 } else {

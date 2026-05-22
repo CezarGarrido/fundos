@@ -860,12 +860,11 @@ impl HistoricoTab {
                                             egui_phosphor::regular::EQUALS
                                         }
                                     };
-                                    // Badge: Estabilidade + Z-Score + Viés
+                                    // Badge: Estabilidade + Viés
                                     let badge_text = format!(
-                                        "{} Estab {:.0}%  Z={:+.1}  {} {}",
+                                        "{} Estab {:.0}%  {} {}",
                                         egui_phosphor::regular::BRAIN,
                                         inf.stability_score * 100.0,
-                                        inf.z_score,
                                         bias_icon,
                                         inf.bias_direction
                                     );

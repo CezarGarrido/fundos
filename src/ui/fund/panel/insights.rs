@@ -293,9 +293,8 @@ pub fn show_detailed(
                                                     ui.label(egui::RichText::new("Inferência:").color(text_color));
                                                     ui.label(
                                                         egui::RichText::new(format!(
-                                                            "Estab {:.0}%  Z={:+.1}  {}",
+                                                            "Estab {:.0}%  {}",
                                                             inf.stability_score * 100.0,
-                                                            inf.z_score,
                                                             inf.bias_direction
                                                         ))
                                                         .strong()
