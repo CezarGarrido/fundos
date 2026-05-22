@@ -859,12 +859,19 @@ impl HistoricoTab {
                                             egui_phosphor::regular::EQUALS
                                         }
                                     };
+                                    let qualifier = if inf.stability_score < 0.05 {
+                                        "Caótico"
+                                    } else if inf.stability_score < 0.3 {
+                                        "Instável"
+                                    } else {
+                                        "Estável"
+                                    };
                                     let badge_text = format!(
-                                        "{} Estab {:.0}%  {} {}",
+                                        "{} {:.0}% inferível  {} {}",
                                         egui_phosphor::regular::BRAIN,
                                         inf.stability_score * 100.0,
                                         bias_icon,
-                                        inf.bias_direction
+                                        qualifier
                                     );
                                     Frame::NONE
                                         .fill(badge_bg)
