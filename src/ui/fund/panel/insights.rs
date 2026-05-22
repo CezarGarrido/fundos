@@ -2,7 +2,7 @@ use crate::util;
 use egui::Ui;
 use polars::prelude::*;
 
-pub fn show_kpis(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
+pub fn show_kpis(assets: &DataFrame, pl: &DataFrame, ui: &mut Ui) {
     // Definir paleta de cores dinâmicas de alto contraste de acordo com o tema
     let (heading_color, _text_color, secondary_color, success_color, card_bg) =
         if ui.visuals().dark_mode {
@@ -48,9 +48,9 @@ pub fn show_kpis(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
     }
 
     // Obter estatísticas da maior posição
-    let max_pos = get_largest_position(&assets);
-    let total_assets_count = get_unique_assets_count(&assets);
-    let (_short_term_pct, _long_term_pct) = get_duration_split(&assets);
+    let max_pos = get_largest_position(assets);
+    let total_assets_count = get_unique_assets_count(assets);
+    let (_short_term_pct, _long_term_pct) = get_duration_split(assets);
 
     // Grid Superior: Resumos Rápidos (KPI Cards)
     ui.columns(3, |cols| {
@@ -92,7 +92,7 @@ pub fn show_kpis(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
         );
 
         // Card 3: Patrimônio Líquido
-        let pl_val = get_pl_value(&pl);
+        let pl_val = get_pl_value(pl);
         let pl_formatted = if pl_val > 0.0 {
             util::to_real(pl_val).unwrap().format()
         } else {
@@ -110,9 +110,9 @@ pub fn show_kpis(assets: DataFrame, pl: DataFrame, ui: &mut Ui) {
 }
 
 pub fn show_detailed(
-    assets: DataFrame,
-    _pl: DataFrame,
-    fund_history: Option<DataFrame>,
+    assets: &DataFrame,
+    _pl: &DataFrame,
+    fund_history: &Option<DataFrame>,
     ui: &mut Ui,
 ) {
     if assets.height() == 0 {
@@ -138,8 +138,8 @@ pub fn show_detailed(
             )
         };
 
-    let max_pos = get_largest_position(&assets);
-    let (short_term_pct, long_term_pct) = get_duration_split(&assets);
+    let max_pos = get_largest_position(assets);
+    let (short_term_pct, long_term_pct) = get_duration_split(assets);
 
     ui.vertical(|ui| {
         // Bloco Superior: Posição de Convicção e PM
@@ -259,7 +259,7 @@ pub fn show_detailed(
                             });
                             ui.separator();
 
-                            if let Some(history_df) = &fund_history {
+                            if let Some(history_df) = fund_history.as_ref() {
                                 if let Some(analytics) = crate::analytics::compute_asset_analytics(history_df, &pos.codigo, None) {
                                     egui::Grid::new("analytics_grid")
                                         .striped(true)

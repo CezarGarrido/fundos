@@ -90,11 +90,7 @@ impl PortfolioUI {
                     egui::Panel::top("insights_kpi_panel")
                         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
                         .show_inside(ui, |ui| {
-                            crate::ui::fund::panel::insights::show_kpis(
-                                self.assets.clone(),
-                                self.pl.clone(),
-                                ui,
-                            );
+                            crate::ui::fund::panel::insights::show_kpis(&self.assets, &self.pl, ui);
                         });
 
                     egui::Panel::right("insights_detailed_panel")
@@ -105,9 +101,9 @@ impl PortfolioUI {
                         .show_inside(ui, |ui| {
                             egui::ScrollArea::vertical().show(ui, |ui| {
                                 crate::ui::fund::panel::insights::show_detailed(
-                                    self.assets.clone(),
-                                    self.pl.clone(),
-                                    self.fund_history.clone(),
+                                    &self.assets,
+                                    &self.pl,
+                                    &self.fund_history,
                                     ui,
                                 );
                             });
