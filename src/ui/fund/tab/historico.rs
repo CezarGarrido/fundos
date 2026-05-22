@@ -1210,11 +1210,10 @@ impl Tab for HistoricoTab {
             let dark = ui.visuals().dark_mode;
 
             // Collect asset items for the left panel (avoid borrow conflict)
-            let asset_items: Vec<(String, Color32, f64)> = self
+            let mut asset_items: Vec<(String, Color32, f64)> = self
                 .monthly_series
                 .iter()
                 .map(|s| {
-                    // Use the last month with non-zero data (CVM may not have published the current month)
                     let latest = s
                         .points
                         .iter()
@@ -1225,6 +1224,7 @@ impl Tab for HistoricoTab {
                     (s.label.clone(), s.color, latest)
                 })
                 .collect();
+            asset_items.sort_by_key(|a| a.0.to_lowercase());
 
             let mut new_selected: Option<String> = None;
             let current_sel = self.selected_asset.clone();
