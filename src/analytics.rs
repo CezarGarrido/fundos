@@ -183,7 +183,12 @@ pub struct KalmanParams {
     pub gamma: f64,
 }
 
-fn compute_log_likelihood(log_historical: &[f64], p: &KalmanParams, has_aux: bool) -> f64 {
+fn compute_log_likelihood(
+    log_historical: &[f64],
+    log_implied: &[f64],
+    p: &KalmanParams,
+    has_aux: bool,
+) -> f64 {
     let meas_dim = if has_aux { 2 } else { 1 };
     let obs_matrix = if has_aux {
         vec![1.0, 0.0, 1.0, 0.0]
@@ -207,22 +212,37 @@ fn compute_log_likelihood(log_historical: &[f64], p: &KalmanParams, has_aux: boo
         .unwrap_or_else(|_| panic!("MLE build failed: {:?}", p));
 
     let mut log_likelihood = 0.0;
-    for &y_obs in log_historical.iter().skip(1) {
+
+    for i in 1..log_historical.len() {
         kf.predict();
+
+        let y_obs = log_historical[i];
         let pred_y = kf.state()[0];
         let innovation = y_obs - pred_y;
+
         let innovation_variance = kf.covariance()[0] + p.r_obs;
         let safe_variance = innovation_variance.max(1e-9);
+
         let step_ll = -0.5
             * ((2.0 * std::f64::consts::PI * safe_variance).ln()
                 + (innovation.powi(2) / safe_variance));
         log_likelihood += step_ll;
-        let _ = kf.update(&[y_obs]);
+
+        // Garante que o update respeite a dimensão do filtro
+        if has_aux {
+            let _ = kf.update(&[y_obs, log_implied[i]]);
+        } else {
+            let _ = kf.update(&[y_obs]);
+        }
     }
     log_likelihood
 }
 
-fn optimize_kalman_parameters(log_historical: &[f64], has_aux: bool) -> KalmanParams {
+fn optimize_kalman_parameters(
+    log_historical: &[f64],
+    log_implied: &[f64],
+    has_aux: bool,
+) -> KalmanParams {
     let q_grid = [0.01, 0.05, 0.10, 0.15, 0.25];
     let r_grid = [0.01, 0.05, 0.10, 0.20, 0.40];
     let r_aux_grid = [0.10, 0.20, 0.30, 0.50];
@@ -247,7 +267,7 @@ fn optimize_kalman_parameters(log_historical: &[f64], has_aux: bool) -> KalmanPa
                             r_obs_aux: ra,
                             gamma: g,
                         };
-                        let ll = compute_log_likelihood(log_historical, &p, true);
+                        let ll = compute_log_likelihood(log_historical, log_implied, &p, true);
                         if ll > max_ll {
                             max_ll = ll;
                             best = p;
@@ -260,7 +280,7 @@ fn optimize_kalman_parameters(log_historical: &[f64], has_aux: bool) -> KalmanPa
                         r_obs_aux: 0.30,
                         gamma: g,
                     };
-                    let ll = compute_log_likelihood(log_historical, &p, false);
+                    let ll = compute_log_likelihood(log_historical, log_implied, &p, false);
                     if ll > max_ll {
                         max_ll = ll;
                         best = p;
@@ -301,9 +321,9 @@ pub fn infer_portfolio_state(
     // 1. Log-Transform
     let log_historical: Vec<f64> = historical_qtys.iter().map(|&q| q.max(1.0).ln()).collect();
 
-    // Canal dual: q_implied = %PL × PL_Total / Yahoo_Price (observação independente)
+    // Canal dual: exige integridade total (100% dos meses com PL + Yahoo)
     let has_aux =
-        historical_implied.len() == n && historical_implied.iter().any(|&v| v > 0.0 && !v.is_nan());
+        historical_implied.len() == n && historical_implied.iter().all(|&v| v > 0.0 && !v.is_nan());
     let log_implied: Vec<f64> = if has_aux {
         historical_implied
             .iter()
@@ -314,7 +334,7 @@ pub fn infer_portfolio_state(
     };
 
     // MLE
-    let optimal = optimize_kalman_parameters(&log_historical, has_aux);
+    let optimal = optimize_kalman_parameters(&log_historical, &log_implied, has_aux);
 
     // Filtro 2D [pos, vel] com 1 ou 2 canais de observação
     let meas_dim = if has_aux { 2_usize } else { 1_usize };
@@ -347,12 +367,13 @@ pub fn infer_portfolio_state(
         log_predictions.push(kf.state()[0]);
         log_actuals.push(log_historical[i]);
 
-        let y_direct = log_historical[i];
-        if has_aux && !log_implied[i].is_nan() {
-            kf.update(&[y_direct, log_implied[i]])
+        // Se has_aux, log_implied[i] existe garantido (.all() validou)
+        if has_aux {
+            kf.update(&[log_historical[i], log_implied[i]])
                 .expect("Kalman update dual failed");
         } else {
-            kf.update(&[y_direct]).expect("Kalman update failed");
+            kf.update(&[log_historical[i]])
+                .expect("Kalman update failed");
         }
     }
 
