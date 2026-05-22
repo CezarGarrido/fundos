@@ -282,6 +282,12 @@ impl Portfolio {
                     .groupby(vec![col("month")])
                     .agg(vec![col("VL_PATRIM_LIQ").last().alias("VL_PATRIM_LIQ")]);
 
+                // Só calcula %PL se a coluna não existir (evita sobrescrever dado original da CVM)
+                let has_pct = lf
+                    .schema()
+                    .ok()
+                    .map(|s| s.contains("VL_PORCENTAGEM_PL"))
+                    .unwrap_or(false);
                 let result = lf
                     .clone()
                     .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
@@ -291,15 +297,20 @@ impl Portfolio {
                         [col("month")],
                         [col("month")],
                         JoinArgs::new(JoinType::Left),
-                    )
-                    .with_column(
-                        (col("VL_MERC_POS_FINAL").cast(DataType::Float64)
-                            / col("VL_PATRIM_LIQ").cast(DataType::Float64)
-                            * lit(100.0))
-                        .round(3)
-                        .alias("VL_PORCENTAGEM_PL"),
-                    )
-                    .collect()?;
+                    );
+                let result = if has_pct {
+                    result.collect()?
+                } else {
+                    result
+                        .with_column(
+                            (col("VL_MERC_POS_FINAL").cast(DataType::Float64)
+                                / col("VL_PATRIM_LIQ").cast(DataType::Float64)
+                                * lit(100.0))
+                            .round(3)
+                            .alias("VL_PORCENTAGEM_PL"),
+                        )
+                        .collect()?
+                };
                 return Ok(result);
             }
             // Fallback: no PL join
