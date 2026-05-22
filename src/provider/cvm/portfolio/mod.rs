@@ -10,7 +10,7 @@ use polars::{
         dsl::{col, concat, lit},
         frame::LazyFrame,
     },
-    prelude::{IntoLazy, SortOptions, StrptimeOptions, UnionArgs},
+    prelude::{IntoLazy, JoinArgs, JoinType, SortOptions, StrptimeOptions, UnionArgs},
 };
 pub mod options;
 
@@ -275,39 +275,32 @@ impl Portfolio {
                 .copied()
                 .collect();
             if pl_exists.len() == 3 {
-                let pl = pl_lf
+                // Join mensal: PL por mês alinhado com a carteira
+                let pl_monthly = pl_lf
                     .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
-                    .collect()?;
-                if pl.height() > 0 {
-                    let _pl_date = pl
-                        .column("DT_COMPTC")
-                        .ok()
-                        .and_then(|c| c.get(0).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_string()))
-                        .unwrap_or_default();
-                    let pl_value: f64 = pl
-                        .column("VL_PATRIM_LIQ")
-                        .ok()
-                        .and_then(|col| col.get(0).ok())
-                        .and_then(|val| val.get_str().map(|s| s.to_string()))
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .unwrap_or(0.0);
+                    .with_column(col("DT_COMPTC").str().str_slice(0, Some(7)).alias("month"))
+                    .groupby(vec![col("month")])
+                    .agg(vec![col("VL_PATRIM_LIQ").last().alias("VL_PATRIM_LIQ")]);
 
-                    if pl_value > 0.0 {
-                        let result = lf
-                            .clone()
-                            .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
-                            .with_column(lit(pl_value).alias("VL_PATRIM_LIQ"))
-                            .with_column(
-                                (col("VL_MERC_POS_FINAL").cast(DataType::Float64) / lit(pl_value)
-                                    * lit(100.0))
-                                .round(3)
-                                .alias("VL_PORCENTAGEM_PL"),
-                            )
-                            .collect()?;
-                        return Ok(result);
-                    }
-                }
+                let result = lf
+                    .clone()
+                    .filter(col("CNPJ_FUNDO").eq(lit(cnpj.clone())))
+                    .with_column(col("DT_COMPTC").str().str_slice(0, Some(7)).alias("month"))
+                    .join(
+                        pl_monthly,
+                        [col("month")],
+                        [col("month")],
+                        JoinArgs::new(JoinType::Left),
+                    )
+                    .with_column(
+                        (col("VL_MERC_POS_FINAL").cast(DataType::Float64)
+                            / col("VL_PATRIM_LIQ").cast(DataType::Float64)
+                            * lit(100.0))
+                        .round(3)
+                        .alias("VL_PORCENTAGEM_PL"),
+                    )
+                    .collect()?;
+                return Ok(result);
             }
             // Fallback: no PL join
             lf.clone()

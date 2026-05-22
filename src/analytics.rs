@@ -281,8 +281,7 @@ fn optimize_kalman_parameters(log_historical: &[f64], has_aux: bool) -> KalmanPa
 
 pub fn infer_portfolio_state(
     historical_qtys: &[f64],
-    _historical_pcts: &[f64],
-    _historical_prices: &[f64],
+    historical_implied: &[f64],
     quotes: &[crate::provider::yahoo::MonthlyQuote],
     last_known_dt: &str,
 ) -> PortfolioInference {
@@ -302,13 +301,19 @@ pub fn infer_portfolio_state(
     // 1. Log-Transform
     let log_historical: Vec<f64> = historical_qtys.iter().map(|&q| q.max(1.0).ln()).collect();
 
-    // Observação implícita: q_implied = %PL × PL_Total / Price (requer alinhamento Yahoo)
-    // Por enquanto, usamos apenas o canal direto até termos PL_Total por mês
-    let has_aux = false;
-    #[allow(unused)]
-    let log_implied: Vec<f64> = vec![];
+    // Canal dual: q_implied = %PL × PL_Total / Yahoo_Price (observação independente)
+    let has_aux =
+        historical_implied.len() == n && historical_implied.iter().any(|&v| v > 0.0 && !v.is_nan());
+    let log_implied: Vec<f64> = if has_aux {
+        historical_implied
+            .iter()
+            .map(|&q| q.max(1.0).ln())
+            .collect()
+    } else {
+        vec![]
+    };
 
-    // MLE: descobre parâmetros ótimos
+    // MLE
     let optimal = optimize_kalman_parameters(&log_historical, has_aux);
 
     // Filtro 2D [pos, vel] com 1 ou 2 canais de observação
@@ -945,7 +950,8 @@ pub fn compute_asset_analytics(
 
     let mut historical_qtys: Vec<f64> = Vec::with_capacity(height);
     let mut historical_pcts: Vec<f64> = Vec::with_capacity(height);
-    let mut historical_prices: Vec<f64> = Vec::with_capacity(height);
+    let mut historical_pl: Vec<f64> = Vec::with_capacity(height);
+    let pl_col = filtered_df.column("VL_PATRIM_LIQ").ok();
 
     for i in 0..height {
         let current_qty = get_f64(qt_regis_col, i);
@@ -960,7 +966,7 @@ pub fn compute_asset_analytics(
         } else {
             0.0
         };
-        historical_prices.push(est_price);
+        historical_pl.push(pl_col.as_ref().map(|c| get_f64(c, i)).unwrap_or(0.0));
 
         if i == 0 {
             if current_qty > 0.0 {
@@ -1046,11 +1052,50 @@ pub fn compute_asset_analytics(
                             estimates.push((q.date.clone(), last_qty, last_qty * q.close_price));
                         }
                     }
-                    // Inferência de estado (Holding Persistence Estimator)
+                    // Inferência de estado com observação dual (PL mensal + Yahoo)
+                    // Alinha Yahoo mensal para quebrar circularidade
+                    let has_aux = historical_pl.iter().any(|&pl| pl > 0.0) && !quotes.is_empty();
+                    let yahoo_monthly: std::collections::HashMap<String, f64> = if has_aux {
+                        let mut map = std::collections::HashMap::new();
+                        for q in quotes {
+                            if q.date.len() >= 7 {
+                                let month = &q.date[..7];
+                                map.insert(month.to_string(), q.close_price);
+                            }
+                        }
+                        map
+                    } else {
+                        std::collections::HashMap::new()
+                    };
+                    // Extrai meses do histórico (mesmo formato YYYY-MM do DT_COMPTC)
+                    let dt_col = filtered_df.column("DT_COMPTC").ok();
+                    let historical_implied: Vec<f64> = if has_aux {
+                        historical_pcts
+                            .iter()
+                            .enumerate()
+                            .map(|(i, &pct)| {
+                                let pl = historical_pl[i];
+                                let month = dt_col
+                                    .and_then(|c| c.get(i).ok())
+                                    .and_then(|v| v.get_str().map(|s| s.to_string()))
+                                    .unwrap_or_default();
+                                let month_key = if month.len() >= 7 { &month[..7] } else { "" };
+                                let yahoo_price =
+                                    yahoo_monthly.get(month_key).copied().unwrap_or(0.0);
+                                if pct > 0.0 && pl > 0.0 && yahoo_price > 0.0 {
+                                    (pct / 100.0 * pl / yahoo_price).max(1.0)
+                                } else {
+                                    f64::NAN
+                                }
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+
                     let inference = infer_portfolio_state(
                         &historical_qtys,
-                        &historical_pcts,
-                        &historical_prices,
+                        &historical_implied,
                         quotes,
                         &last_known_dt,
                     );
