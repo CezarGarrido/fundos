@@ -92,7 +92,7 @@ pub fn extrapolate_best(
     }
 
     if let Some((ref estimates, ref quality)) = best_result {
-        if best_r2 < 0.0 {
+        if best_r2 < 0.05 {
             info!(
                 "Extrapolação: nenhum método aprendeu (melhor R²={:.4}) — usando baseline",
                 best_r2
@@ -236,7 +236,7 @@ fn extrapolate_linear(
         );
         let (estimates, _) = extrapolate_baseline(quotes, last_known_dt, last_qty);
         let quality = ExtrapolationQuality {
-            method: ExtrapolationMethod::LinearRegression,
+            method: ExtrapolationMethod::Baseline, // reporta como baseline pq foi oq usamos
             r_squared: Some(r_squared),
             mae: Some(mae),
             confidence_95: None,
@@ -420,7 +420,11 @@ fn extrapolate_random_forest(
         ) {
             Ok(model) => {
                 // OOB: cada árvore vota só nas amostras que NÃO viu no bootstrap
-                let preds = model.predict_oob(&x).unwrap_or_else(|_| targets.clone());
+                // Se OOB não disponível, cai pra predict() normal
+                let preds = model
+                    .predict_oob(&x)
+                    .or_else(|_| model.predict(&x))
+                    .unwrap_or_else(|_| targets.clone());
                 let y_mean = targets.iter().sum::<f64>() / m as f64;
                 let ss_res: f64 = targets
                     .iter()
