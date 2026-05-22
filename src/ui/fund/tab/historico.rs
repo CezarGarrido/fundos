@@ -819,7 +819,6 @@ impl HistoricoTab {
                                 .unwrap_or_else(|_| format!("R$ {:.2}", last_est.2));
                             ui.label(RichText::new(format!("≈ {}", val_fmt)).size(11.0).color(tx));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                // ── Portfolio Inference Badge ───────
                                 if let Some(ref inf) = analytics.portfolio_inference {
                                     let (score_color, badge_bg) = if inf.stability_score > 0.7 {
                                         (
@@ -860,7 +859,6 @@ impl HistoricoTab {
                                             egui_phosphor::regular::EQUALS
                                         }
                                     };
-                                    // Badge: Estabilidade + Viés
                                     let badge_text = format!(
                                         "{} Estab {:.0}%  {} {}",
                                         egui_phosphor::regular::BRAIN,
@@ -868,24 +866,17 @@ impl HistoricoTab {
                                         bias_icon,
                                         inf.bias_direction
                                     );
-                                    let galley = ui.painter().layout_no_wrap(
-                                        badge_text.clone(),
-                                        egui::FontId::proportional(10.0),
-                                        score_color,
-                                    );
-                                    let pad = egui::vec2(8.0, 3.0);
-                                    let badge_rect = egui::Rect::from_min_size(
-                                        egui::pos2(ui.cursor().min.x, ui.cursor().min.y),
-                                        galley.rect.size() + pad * 2.0,
-                                    );
-                                    ui.painter().rect_filled(
-                                        badge_rect,
-                                        egui::CornerRadius::same(10),
-                                        badge_bg,
-                                    );
-                                    ui.painter()
-                                        .galley(badge_rect.min + pad, galley, score_color);
-                                    ui.advance_cursor_after_rect(badge_rect);
+                                    Frame::NONE
+                                        .fill(badge_bg)
+                                        .corner_radius(egui::CornerRadius::same(10))
+                                        .inner_margin(egui::Margin::symmetric(8, 3))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                RichText::new(badge_text)
+                                                    .size(10.0)
+                                                    .color(score_color),
+                                            );
+                                        });
                                 }
                             });
                         });
