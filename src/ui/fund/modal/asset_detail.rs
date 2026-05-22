@@ -521,17 +521,10 @@ impl AssetDetailModal {
                                 Self::render_yahoo_detail(ui, prices, hd, tx, vl_md, vl_aq);
                             } else if *yahoo_loading {
                                 // Carregando
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(8.0);
-                                    ui.spinner();
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        egui::RichText::new("Buscando preços no Yahoo Finance...")
-                                            .size(11.0)
-                                            .weak(),
-                                    );
-                                    ui.add_space(8.0);
-                                });
+                                crate::ui::loading::show_custom_small(
+                                    ui,
+                                    "Buscando Yahoo Finance...",
+                                );
                             } else if let Some(sender) = &sender {
                                 // Não carregado e não em loading — botão de retry
                                 ui.vertical_centered(|ui| {
@@ -587,17 +580,7 @@ impl AssetDetailModal {
                             ui.add_space(6.0);
 
                             if self.holders_loading {
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(8.0);
-                                    ui.spinner();
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        egui::RichText::new("Carregando fundos...")
-                                            .size(11.0)
-                                            .weak(),
-                                    );
-                                    ui.add_space(8.0);
-                                });
+                                crate::ui::loading::show_custom_small(ui, "Carregando fundos...");
                             } else if let Some(holders) = &self.holders_data {
                                 let mut has_nm = false;
                                 let mut nm_col = polars::series::Series::default();

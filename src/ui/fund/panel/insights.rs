@@ -337,8 +337,7 @@ pub fn show_detailed(
                                 }
                             } else {
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("Carregando base histórica do fundo para análise...").size(11.0).color(secondary_color));
-                                    ui.spinner();
+                                    crate::ui::loading::show_custom_small(ui, "Carregando análise...");
                                 });
                             }
                         });
