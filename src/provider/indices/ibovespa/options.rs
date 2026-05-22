@@ -56,13 +56,13 @@ impl Options {
                 let date_str = dt.naive_utc().format("%d/%m/%Y").to_string();
 
                 let ibov = Ibov {
-                    timestamp: q.timestamp,
+                    timestamp: q.timestamp as u64,
                     adjclose: q.adjclose,
                     date: date_str,
                     open: q.open,
                     high: q.high,
                     low: q.low,
-                    volume: q.volume,
+                    volume: q.volume as u64,
                     close: q.close,
                 };
                 ibovs.push(ibov);

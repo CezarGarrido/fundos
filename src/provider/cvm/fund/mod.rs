@@ -101,7 +101,21 @@ impl Register {
             let cnpj_raw = col("CNPJ_Classe").cast(DataType::Utf8);
             let cnpj_str = polars::lazy::dsl::when(cnpj_raw.clone().str().lengths().eq(lit(13)))
                 .then(lit("0") + cnpj_raw.clone())
-                .otherwise(cnpj_raw.clone());
+                .otherwise(
+                    polars::lazy::dsl::when(cnpj_raw.clone().str().lengths().eq(lit(12)))
+                        .then(lit("00") + cnpj_raw.clone())
+                        .otherwise(
+                            polars::lazy::dsl::when(cnpj_raw.clone().str().lengths().eq(lit(11)))
+                                .then(lit("000") + cnpj_raw.clone())
+                                .otherwise(
+                                    polars::lazy::dsl::when(
+                                        cnpj_raw.clone().str().lengths().eq(lit(10)),
+                                    )
+                                    .then(lit("0000") + cnpj_raw.clone())
+                                    .otherwise(cnpj_raw.clone()),
+                                ),
+                        ),
+                );
 
             let cnpj_formatted = cnpj_str.clone().str().str_slice(0, Some(2))
                 + lit(".")

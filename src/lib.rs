@@ -2,6 +2,7 @@
 
 pub mod analytics;
 mod app;
+pub mod backtest;
 pub mod config;
 mod history;
 mod message;

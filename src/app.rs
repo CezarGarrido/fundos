@@ -6,7 +6,6 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabAddAlign};
 use egui_toast::{Toast, ToastOptions};
 use polars::frame::DataFrame;
 use polars::prelude::NamedFrom;
-use std::collections::HashMap;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::time::{timeout, Duration};
 use tokio_util::sync::CancellationToken;
@@ -50,7 +49,9 @@ pub struct TemplateApp {
     #[serde(skip)]
     portfolio: Portfolio,
     #[serde(skip)]
-    downloads: HashMap<String, CancellationToken>,
+    search_token: Option<CancellationToken>,
+    #[serde(skip)]
+    dashboard_token: Option<CancellationToken>,
     #[serde(skip)]
     search: Search,
     pub open_logs: bool,
@@ -106,8 +107,9 @@ impl Default for TemplateApp {
             register,
             informe,
             portfolio,
+            search_token: None,
+            dashboard_token: None,
             open_logs: false,
-            downloads: HashMap::new(),
             search,
             asset_detail_modal: AssetDetail {
                 asset: DataFrame::empty(),
@@ -595,25 +597,37 @@ impl TemplateApp {
                     self.search.set_result(df);
                 }
                 Message::SearchFunds(keyword, class) => {
+                    if let Some(token) = &self.search_token {
+                        token.cancel();
+                    }
+                    let token = CancellationToken::new();
+                    self.search_token = Some(token.clone());
+
                     let keyword = keyword.clone();
                     let r = self.register.clone();
                     tokio::spawn(async move {
-                        let res = r.async_find(Some(keyword), class, None, None).await;
-                        match res {
-                            Ok(df) => {
-                                let _ = sender.send(Message::ResultFunds(df));
-                                ctxc.request_repaint();
+                        tokio::select! {
+                            _ = token.cancelled() => {
+                                // Search cancelled, do nothing
                             }
-                            Err(err) => {
-                                let _ = sender.send(Message::ResultFunds(DataFrame::empty()));
-                                ctxc.request_repaint();
-                                log::error!("Erro ao buscar fundos {:?}", err);
-                                util::toaster().add(Toast {
-                                    kind: egui_toast::ToastKind::Error,
-                                    text: "Erro ao buscar fundos".into(),
-                                    options: ToastOptions::default().duration_in_seconds(3.0),
-                                    ..Default::default()
-                                });
+                            res = r.async_find(Some(keyword), class, None, None) => {
+                                match res {
+                                    Ok(df) => {
+                                        let _ = sender.send(Message::ResultFunds(df));
+                                        ctxc.request_repaint();
+                                    }
+                                    Err(err) => {
+                                        let _ = sender.send(Message::ResultFunds(DataFrame::empty()));
+                                        ctxc.request_repaint();
+                                        log::error!("Erro ao buscar fundos {:?}", err);
+                                        util::toaster().add(Toast {
+                                            kind: egui_toast::ToastKind::Error,
+                                            text: "Erro ao buscar fundos".into(),
+                                            options: ToastOptions::default().duration_in_seconds(3.0),
+                                            ..Default::default()
+                                        });
+                                    }
+                                }
                             }
                         }
                     });
@@ -624,17 +638,29 @@ impl TemplateApp {
                 }
                 Message::OpenDashboardTab => {
                     self.add_dashboard_tab();
+                    if let Some(token) = &self.dashboard_token {
+                        token.cancel();
+                    }
+                    let token = CancellationToken::new();
+                    self.dashboard_token = Some(token.clone());
+
                     let sender = sender.clone();
                     let r = self.register.clone();
                     tokio::spawn(async move {
-                        let result = r.async_stats().await;
-                        match result {
-                            Ok((a, b, c)) => {
-                                let _ = sender.send(Message::DashboardTabResult(a, b, c));
-                                ctxc.request_repaint();
+                        tokio::select! {
+                            _ = token.cancelled() => {
+                                // Cancelled
                             }
-                            Err(err) => {
-                                log::error!("Erro ao buscar estatisticas {}", err);
+                            result = r.async_stats() => {
+                                match result {
+                                    Ok((a, b, c)) => {
+                                        let _ = sender.send(Message::DashboardTabResult(a, b, c));
+                                        ctxc.request_repaint();
+                                    }
+                                    Err(err) => {
+                                        log::error!("Erro ao buscar estatisticas {}", err);
+                                    }
+                                }
                             }
                         }
                     });
@@ -657,16 +683,29 @@ impl TemplateApp {
                 }
                 Message::OpenAtivosTab(start, end) => {
                     self.add_ativos_tab();
+                    if let Some(token) = &self.dashboard_token {
+                        token.cancel();
+                    }
+                    let token = CancellationToken::new();
+                    self.dashboard_token = Some(token.clone());
+
                     let portfolio = self.portfolio.clone();
                     let s = sender.clone();
                     tokio::spawn(async move {
-                        match portfolio.async_market_assets(start, end).await {
-                            Ok(df) => {
-                                let _ = s.send(Message::AtivosTabResult(df));
-                                ctxc.request_repaint();
+                        tokio::select! {
+                            _ = token.cancelled() => {
+                                // Cancelled
                             }
-                            Err(err) => {
-                                log::error!("Erro ao calcular ativos de mercado: {}", err);
+                            result = portfolio.async_market_assets(start, end) => {
+                                match result {
+                                    Ok(df) => {
+                                        let _ = s.send(Message::AtivosTabResult(df));
+                                        ctxc.request_repaint();
+                                    }
+                                    Err(err) => {
+                                        log::error!("Erro ao calcular ativos de mercado: {}", err);
+                                    }
+                                }
                             }
                         }
                     });

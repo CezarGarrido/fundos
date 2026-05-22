@@ -260,7 +260,7 @@ pub fn show_detailed(
                             ui.separator();
 
                             if let Some(history_df) = fund_history.as_ref() {
-                                if let Some(analytics) = crate::analytics::compute_asset_analytics(history_df, &pos.codigo, None) {
+                                if let Some(analytics) = crate::analytics::compute_asset_analytics(history_df, &pos.codigo, None, None) {
                                     egui::Grid::new("analytics_grid")
                                         .striped(true)
                                         .num_columns(2)

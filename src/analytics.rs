@@ -28,6 +28,51 @@ pub struct PortfolioInference {
     pub bias_direction: TradeBias,
     /// Projeções multi-horizon com incerteza crescente (data, qtd, ci_lower, ci_upper)
     pub forward_trajectory: Vec<(String, f64, f64, f64)>,
+    /// Histórico de estados filtrados (data, real_qty, filtered_qty, ci_lower, ci_upper)
+    pub historical_states: Vec<(String, f64, f64, f64, f64)>,
+    /// Histórico de Z-Scores
+    pub historical_z_scores: Vec<f64>,
+}
+
+impl PortfolioInference {
+    /// Exporta o ciclo de vida completo da inferência metrológica para CSV (Passado + Futuro).
+    /// Os arquivos serão salvos seguindo o padrão acadêmico: results/FUNDO/ATIVO/metrology.csv
+    pub fn export_to_csv(&self, cnpj: &str, asset: &str) -> std::io::Result<()> {
+        use std::io::Write;
+
+        let safe_cnpj = cnpj.replace(&['/', '.', '-'][..], "");
+        let dir_path = format!("results/{}/{}", safe_cnpj, asset);
+        std::fs::create_dir_all(&dir_path)?;
+
+        let file_path = format!("{}/metrology.csv", dir_path);
+        let mut file = std::fs::File::create(file_path)?;
+
+        writeln!(
+            file,
+            "fund_id,asset,t_dt,real_qty,filtered_qty,ci_lower,ci_upper,z_score,residual,is_future"
+        )?;
+
+        for (i, (dt, real, filtered, lower, upper)) in self.historical_states.iter().enumerate() {
+            let z = self.historical_z_scores.get(i).copied().unwrap_or(0.0);
+            let residual = real - filtered;
+            writeln!(
+                file,
+                "{},{},{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},0",
+                safe_cnpj, asset, dt, real, filtered, lower, upper, z, residual
+            )?;
+        }
+
+        for (dt, filtered, lower, upper) in &self.forward_trajectory {
+            // Em dados futuros, o real_qty, residual e z_score não existem (ficam vazios/zerados)
+            writeln!(
+                file,
+                "{},{},{},,{:.4},{:.4},{:.4},0.0,0.0,1",
+                safe_cnpj, asset, dt, filtered, lower, upper
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -306,6 +351,7 @@ pub fn infer_portfolio_state(
     historical_implied: &[f64],
     quotes: &[crate::provider::yahoo::MonthlyQuote],
     last_known_dt: &str,
+    historical_dates: &[String],
 ) -> PortfolioInference {
     let n = historical_qtys.len();
     let baseline_qty = historical_qtys.last().copied().unwrap_or(0.0);
@@ -336,6 +382,8 @@ pub fn infer_portfolio_state(
             z_score: 0.0,
             bias_direction: TradeBias::Consistente,
             forward_trajectory: generate_static_trajectory(baseline_qty, quotes, last_known_dt),
+            historical_states: Vec::new(),
+            historical_z_scores: Vec::new(),
         };
     }
 
@@ -388,6 +436,24 @@ pub fn infer_portfolio_state(
     let mut log_predictions = Vec::with_capacity(n - 1);
     let mut log_actuals = Vec::with_capacity(n - 1);
 
+    let mut historical_states = Vec::new();
+    let mut historical_z_scores = Vec::new();
+
+    let initial_cov = kf.covariance()[0];
+    let initial_std = if initial_cov > 1e-6 {
+        initial_cov.sqrt() * 1.5
+    } else {
+        0.05
+    };
+    historical_states.push((
+        historical_dates[0].clone(),
+        log_historical[0].exp(),
+        kf.state()[0].exp(),
+        (kf.state()[0] - 1.96 * initial_std).exp().max(0.0),
+        (kf.state()[0] + 1.96 * initial_std).exp(),
+    ));
+    historical_z_scores.push(0.0);
+
     for i in 1..n {
         kf.predict();
         log_predictions.push(kf.state()[0]);
@@ -401,6 +467,28 @@ pub fn infer_portfolio_state(
             kf.update(&[log_historical[i]])
                 .expect("Kalman update failed");
         }
+
+        let filtered_log = kf.state()[0];
+        let cov = kf.covariance()[0];
+        let std = if cov > 1e-6 { cov.sqrt() * 1.5 } else { 0.05 };
+
+        let drift = kf.state()[1];
+        let drift_cov = kf.covariance()[3];
+        let drift_std = if drift_cov > 1e-6 {
+            drift_cov.sqrt()
+        } else {
+            0.05
+        };
+        let z_score = drift / drift_std;
+
+        historical_states.push((
+            historical_dates[i].clone(),
+            log_historical[i].exp(),
+            filtered_log.exp(),
+            (filtered_log - 1.96 * std).exp().max(0.0),
+            (filtered_log + 1.96 * std).exp(),
+        ));
+        historical_z_scores.push(z_score);
     }
 
     let filtered_log_qty = kf.state()[0];
@@ -421,15 +509,16 @@ pub fn infer_portfolio_state(
     let inflation_factor = 1.5;
 
     kf.predict();
-    let t1_log_qty = kf.state()[0];
-    let t1_cov = kf.covariance()[0];
-    let std_dev_log = if t1_cov > 1e-6 {
-        t1_cov.sqrt() * inflation_factor
+
+    // Z-Score calc baseado no Drift (Velocidade) ao invés do delta posicional
+    let drift = kf.state()[1];
+    let drift_cov = kf.covariance()[3];
+    let drift_std = if drift_cov > 1e-6 {
+        drift_cov.sqrt()
     } else {
         0.05
     };
-    let last_log = log_historical.last().copied().unwrap_or(0.0);
-    let z_score = (t1_log_qty - last_log) / std_dev_log;
+    let z_score = drift / drift_std;
 
     let bias_direction = if z_score > 2.0 {
         TradeBias::Acumulando
@@ -475,6 +564,8 @@ pub fn infer_portfolio_state(
         z_score,
         bias_direction,
         forward_trajectory,
+        historical_states,
+        historical_z_scores,
     }
 }
 
@@ -926,6 +1017,7 @@ pub fn compute_asset_analytics(
     df: &DataFrame,
     asset_code: &str,
     yahoo_prices: Option<&DataFrame>,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Option<AssetAnalytics> {
     let quotes: Option<Vec<crate::provider::yahoo::MonthlyQuote>> =
         yahoo_prices.and_then(|prices_df| {
@@ -965,6 +1057,12 @@ pub fn compute_asset_analytics(
         quotes.as_ref().map(|q| q.len()).unwrap_or(0)
     );
 
+    if let Some(c) = &cancel {
+        if c.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+    }
+
     let filtered_df = df
         .clone()
         .lazy()
@@ -1003,7 +1101,6 @@ pub fn compute_asset_analytics(
 
     let height = filtered_df.height();
     let mut last_qty = 0.0;
-    let mut last_aquis = 0.0;
     let mut total_buy_value = 0.0;
     let mut total_buy_qty = 0.0;
     let mut total_sell_value = 0.0;
@@ -1015,6 +1112,11 @@ pub fn compute_asset_analytics(
     let pl_col = filtered_df.column("VL_PATRIM_LIQ").ok();
 
     for i in 0..height {
+        if let Some(c) = &cancel {
+            if c.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+        }
         let current_qty = get_f64(qt_regis_col, i);
         let pct = get_f64(pct_pl_col, i);
         let current_aquis = vl_aquis_col.as_ref().map(|c| get_f64(c, i)).unwrap_or(0.0);
@@ -1041,12 +1143,11 @@ pub fn compute_asset_analytics(
             }
         } else {
             let delta_qty = current_qty - last_qty;
-            let delta_aquis = current_aquis - last_aquis;
             if delta_qty > 0.0 {
                 active_buying_months += 1;
                 total_buy_qty += delta_qty;
-                total_buy_value += if delta_aquis > 0.0 {
-                    delta_aquis
+                total_buy_value += if current_aquis > 0.0 {
+                    current_aquis
                 } else {
                     delta_qty * est_price
                 };
@@ -1063,7 +1164,6 @@ pub fn compute_asset_analytics(
         }
 
         last_qty = current_qty;
-        last_aquis = current_aquis;
     }
 
     let mut take_profit = 0.0;
@@ -1154,6 +1254,16 @@ pub fn compute_asset_analytics(
                         vec![]
                     };
 
+                    let mut historical_dates: Vec<String> =
+                        Vec::with_capacity(historical_qtys.len());
+                    for i in 0..historical_qtys.len() {
+                        let month = dt_col
+                            .and_then(|c| c.get(i).ok())
+                            .and_then(|v| v.get_str().map(|s| s.to_string()))
+                            .unwrap_or_default();
+                        historical_dates.push(month);
+                    }
+
                     let implied_count = historical_implied.iter().filter(|v| !v.is_nan()).count();
                     info!(
                         "Analytics: observações implícitas geradas: {}/{} meses",
@@ -1166,6 +1276,7 @@ pub fn compute_asset_analytics(
                         &historical_implied,
                         quotes,
                         &last_known_dt,
+                        &historical_dates,
                     );
                     debug!(
                         "Portfolio Inference: estabilidade={:.2}, viés={:?}",
@@ -1189,6 +1300,28 @@ pub fn compute_asset_analytics(
         debug!("Analytics: sem quotes — pulando inferência");
         (Vec::new(), None)
     };
+
+    let cnpj = df
+        .column("CNPJ_FUNDO")
+        .ok()
+        .and_then(|c| c.get(0).ok())
+        .and_then(|v| v.get_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "UNKNOWN_FUND".to_string());
+
+    if let Some(ref inf) = portfolio_inference {
+        if let Err(e) = inf.export_to_csv(&cnpj, asset_code) {
+            log::error!(
+                "Erro ao exportar CSV metrológico para {}: {}",
+                asset_code,
+                e
+            );
+        } else {
+            info!(
+                "CSV metrológico exportado com sucesso para {}/{}",
+                cnpj, asset_code
+            );
+        }
+    }
 
     Some(AssetAnalytics {
         avg_buy_price,
@@ -1216,7 +1349,10 @@ fn get_f64(col: &Series, row: usize) -> f64 {
 
 pub type TopSeriesRow = (String, String, Vec<(f64, f64)>);
 
-pub fn compute_top_series(data: &DataFrame) -> Vec<TopSeriesRow> {
+pub fn compute_top_series(
+    data: &DataFrame,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Vec<TopSeriesRow> {
     let mut series = Vec::new();
     let height = data.height();
     if height == 0 {
@@ -1273,6 +1409,11 @@ pub fn compute_top_series(data: &DataFrame) -> Vec<TopSeriesRow> {
     let akey_col = grouped.column("asset_key").ok();
 
     for key in &top_keys {
+        if let Some(c) = &cancel {
+            if c.load(std::sync::atomic::Ordering::Relaxed) {
+                return Vec::new();
+            }
+        }
         let name = asset_names.get(key).cloned().unwrap_or_else(|| key.clone());
         let mut points: Vec<(f64, f64)> = vec![];
         for mi in 0..grouped.height() {
@@ -1357,4 +1498,296 @@ fn get_str(col: &Series, row: usize) -> String {
         .ok()
         .and_then(|v| v.get_str().map(|s| s.to_string()))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use polars::prelude::*;
+
+    #[test]
+    fn test_submarino_em_linha_reta() {
+        // Cenário: Submarino em linha reta logarítmica (Acumulação estrita)
+        // A quantidade dobra a cada mês (crescimento exponencial = rampa linear no espaço log)
+        let cd_ativo = Series::new("CD_ATIVO", vec!["SUBMARINO"; 10]);
+        let dt_comptc = Series::new(
+            "DT_COMPTC",
+            vec![
+                "2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07",
+                "2024-08", "2024-09", "2024-10",
+            ],
+        );
+        let qt_pos = Series::new(
+            "QT_POS_FINAL",
+            vec![
+                100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0, 6400.0, 12800.0, 25600.0, 51200.0,
+            ],
+        );
+        let pct_pl = Series::new("VL_PORCENTAGEM_PL", vec![1.0; 10]);
+        let vl_aquis = Series::new("VL_AQUIS_NEGOC", vec![1000.0; 10]);
+        let vl_merc = Series::new(
+            "VL_MERC_POS_FINAL",
+            vec![
+                1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0, 9000.0, 10000.0,
+            ],
+        );
+        let pl = Series::new("VL_PATRIM_LIQ", vec![100000.0; 10]);
+        let cd_isin = Series::new("CD_ISIN", vec![""; 10]);
+
+        let df = DataFrame::new(vec![
+            cd_ativo, cd_isin, dt_comptc, qt_pos, pct_pl, vl_aquis, vl_merc, pl,
+        ])
+        .unwrap();
+
+        // 3 cotações no "futuro" para inferência multi-horizonte e 10 de histórico
+        let q_date = Series::new(
+            "date",
+            vec![
+                "2024-01-01",
+                "2024-02-01",
+                "2024-03-01",
+                "2024-04-01",
+                "2024-05-01",
+                "2024-06-01",
+                "2024-07-01",
+                "2024-08-01",
+                "2024-09-01",
+                "2024-10-01",
+                "2024-11-01",
+                "2024-12-01",
+                "2025-01-01",
+            ],
+        );
+        let q_close = Series::new("adjclose", vec![10.0; 13]);
+        let quotes_df = DataFrame::new(vec![q_date, q_close]).unwrap();
+
+        let analytics = compute_asset_analytics(&df, "SUBMARINO", Some(&quotes_df), None)
+            .expect("Analytics failed");
+
+        let inference = analytics
+            .portfolio_inference
+            .expect("Sem PortfolioInference!");
+
+        println!("DEBUG Z-SCORE: {}", inference.z_score);
+        println!("DEBUG BIAS: {:?}", inference.bias_direction);
+
+        assert_eq!(
+            inference.bias_direction,
+            TradeBias::Acumulando,
+            "Filtro falhou em detectar acumulação direcional forte."
+        );
+        assert!(
+            inference.z_score > 2.0,
+            "O Z-Score ({:.2}) deveria ser altamente significativo (> 2.0) para uma rampa limpa.",
+            inference.z_score
+        );
+    }
+
+    #[test]
+    fn test_log_transform_zero() {
+        // Teste de Log-Transform: 0.0 não causa NaN ou -inf
+        let cd_ativo = Series::new("CD_ATIVO", vec!["SUBMARINO"; 5]);
+        let dt_comptc = Series::new(
+            "DT_COMPTC",
+            vec!["2024-01", "2024-02", "2024-03", "2024-04", "2024-05"],
+        );
+        let qt_pos = Series::new("QT_POS_FINAL", vec![0.0; 5]);
+        let pct_pl = Series::new("VL_PORCENTAGEM_PL", vec![0.0; 5]);
+        let vl_aquis = Series::new("VL_AQUIS_NEGOC", vec![0.0; 5]);
+        let vl_merc = Series::new("VL_MERC_POS_FINAL", vec![0.0; 5]);
+        let pl = Series::new("VL_PATRIM_LIQ", vec![100000.0; 5]);
+        let cd_isin = Series::new("CD_ISIN", vec![""; 5]);
+
+        let df = DataFrame::new(vec![
+            cd_ativo, cd_isin, dt_comptc, qt_pos, pct_pl, vl_aquis, vl_merc, pl,
+        ])
+        .unwrap();
+
+        let q_date = Series::new("date", vec!["2024-06-01"]);
+        let q_close = Series::new("adjclose", vec![10.0]);
+        let quotes_df = DataFrame::new(vec![q_date, q_close]).unwrap();
+
+        let analytics = compute_asset_analytics(&df, "SUBMARINO", Some(&quotes_df), None)
+            .expect("Analytics failed");
+        let inference = analytics
+            .portfolio_inference
+            .expect("No inference generated");
+
+        assert_eq!(
+            inference.bias_direction,
+            TradeBias::Consistente,
+            "Viés de posições zeradas deve ser Consistente."
+        );
+        for (_, qty, _, _) in inference.forward_trajectory {
+            assert!(
+                !qty.is_nan(),
+                "Trajetória gerou NaN em quantidades zeradas."
+            );
+        }
+    }
+
+    #[test]
+    fn test_invariancia_de_escala() {
+        // Mesmo cenário log-linear, mas quantidades multiplicadas por 1000
+        let cd_ativo = Series::new("CD_ATIVO", vec!["ESCALA"; 10]);
+        let dt_comptc = Series::new(
+            "DT_COMPTC",
+            vec![
+                "2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07",
+                "2024-08", "2024-09", "2024-10",
+            ],
+        );
+        // 100k, 200k, 400k...
+        let qt_pos = Series::new(
+            "QT_POS_FINAL",
+            vec![
+                1e5, 2e5, 4e5, 8e5, 1.6e6, 3.2e6, 6.4e6, 1.28e7, 2.56e7, 5.12e7,
+            ],
+        );
+        let pct_pl = Series::new("VL_PORCENTAGEM_PL", vec![1.0; 10]);
+        let vl_aquis = Series::new("VL_AQUIS_NEGOC", vec![1000.0; 10]);
+        let vl_merc = Series::new("VL_MERC_POS_FINAL", vec![1000.0; 10]);
+        let pl = Series::new("VL_PATRIM_LIQ", vec![100000.0; 10]);
+        let cd_isin = Series::new("CD_ISIN", vec![""; 10]);
+
+        let df = DataFrame::new(vec![
+            cd_ativo, cd_isin, dt_comptc, qt_pos, pct_pl, vl_aquis, vl_merc, pl,
+        ])
+        .unwrap();
+
+        let q_date = Series::new(
+            "date",
+            vec![
+                "2024-01-01",
+                "2024-02-01",
+                "2024-03-01",
+                "2024-04-01",
+                "2024-05-01",
+                "2024-06-01",
+                "2024-07-01",
+                "2024-08-01",
+                "2024-09-01",
+                "2024-10-01",
+                "2024-11-01",
+            ],
+        );
+        let q_close = Series::new("adjclose", vec![10.0; 11]);
+        let quotes_df = DataFrame::new(vec![q_date, q_close]).unwrap();
+
+        let analytics = compute_asset_analytics(&df, "ESCALA", Some(&quotes_df), None)
+            .expect("Analytics failed");
+        let inference = analytics
+            .portfolio_inference
+            .expect("Sem PortfolioInference!");
+
+        assert_eq!(
+            inference.bias_direction,
+            TradeBias::Acumulando,
+            "A invariância de escala não foi respeitada."
+        );
+    }
+
+    #[test]
+    fn test_choque_exogeno() {
+        // Choque Exógeno: estabilidade -> salto súbito -> estabilidade. O estado deve retornar a Consistente após estabilizar.
+        let cd_ativo = Series::new("CD_ATIVO", vec!["CHOQUE"; 12]);
+        let dt_comptc = Series::new(
+            "DT_COMPTC",
+            vec![
+                "2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07",
+                "2024-08", "2024-09", "2024-10", "2024-11", "2024-12",
+            ],
+        );
+        let qt_pos = Series::new(
+            "QT_POS_FINAL",
+            vec![
+                1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 50000.0, 50000.0, 50000.0, 50000.0,
+                50000.0, 50000.0,
+            ],
+        );
+        let pct_pl = Series::new("VL_PORCENTAGEM_PL", vec![1.0; 12]);
+        let vl_aquis = Series::new("VL_AQUIS_NEGOC", vec![0.0; 12]);
+        let vl_merc = Series::new("VL_MERC_POS_FINAL", vec![1000.0; 12]);
+        let pl = Series::new("VL_PATRIM_LIQ", vec![100000.0; 12]);
+        let cd_isin = Series::new("CD_ISIN", vec![""; 12]);
+
+        let df = DataFrame::new(vec![
+            cd_ativo, cd_isin, dt_comptc, qt_pos, pct_pl, vl_aquis, vl_merc, pl,
+        ])
+        .unwrap();
+
+        let q_date = Series::new(
+            "date",
+            vec![
+                "2024-01-01",
+                "2024-02-01",
+                "2024-03-01",
+                "2024-04-01",
+                "2024-05-01",
+                "2024-06-01",
+                "2024-07-01",
+                "2024-08-01",
+                "2024-09-01",
+                "2024-10-01",
+                "2024-11-01",
+                "2024-12-01",
+                "2025-01-01",
+            ],
+        );
+        let q_close = Series::new("adjclose", vec![10.0; 13]);
+        let quotes_df = DataFrame::new(vec![q_date, q_close]).unwrap();
+
+        let analytics = compute_asset_analytics(&df, "CHOQUE", Some(&quotes_df), None)
+            .expect("Analytics failed");
+        let inference = analytics
+            .portfolio_inference
+            .expect("Sem PortfolioInference!");
+
+        assert_eq!(
+            inference.bias_direction,
+            TradeBias::Consistente,
+            "Filtro não estabilizou após o choque exógeno prolongado."
+        );
+    }
+
+    #[test]
+    fn test_integridade_canal_dual() {
+        // Passando NaN no PL para desativar o canal dual, o filtro deve sobreviver usando só o canal histórico primário.
+        let cd_ativo = Series::new("CD_ATIVO", vec!["CANAL"; 5]);
+        let dt_comptc = Series::new(
+            "DT_COMPTC",
+            vec!["2024-01", "2024-02", "2024-03", "2024-04", "2024-05"],
+        );
+        let qt_pos = Series::new("QT_POS_FINAL", vec![100.0, 200.0, 300.0, 400.0, 500.0]);
+        let pct_pl = Series::new("VL_PORCENTAGEM_PL", vec![1.0; 5]);
+        let vl_aquis = Series::new("VL_AQUIS_NEGOC", vec![0.0; 5]);
+        let vl_merc = Series::new("VL_MERC_POS_FINAL", vec![1000.0; 5]);
+        let pl = Series::new("VL_PATRIM_LIQ", vec![f64::NAN; 5]); // NaN intencional
+        let cd_isin = Series::new("CD_ISIN", vec![""; 5]);
+
+        let df = DataFrame::new(vec![
+            cd_ativo, cd_isin, dt_comptc, qt_pos, pct_pl, vl_aquis, vl_merc, pl,
+        ])
+        .unwrap();
+
+        let q_date = Series::new(
+            "date",
+            vec![
+                "2024-01-01",
+                "2024-02-01",
+                "2024-03-01",
+                "2024-04-01",
+                "2024-05-01",
+                "2024-06-01",
+            ],
+        );
+        let q_close = Series::new("adjclose", vec![10.0; 6]);
+        let quotes_df = DataFrame::new(vec![q_date, q_close]).unwrap();
+
+        let analytics = compute_asset_analytics(&df, "CANAL", Some(&quotes_df), None)
+            .expect("Analytics failed");
+        let _inference = analytics
+            .portfolio_inference
+            .expect("Filtro falhou em fallback dimensional (NaN).");
+    }
 }

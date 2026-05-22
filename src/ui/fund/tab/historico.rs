@@ -64,6 +64,9 @@ pub struct HistoricoTab {
     cached_asset_info: Option<(String, String, String, f64, f64, f64)>,
     last_selected: Option<String>,
     cached_sparkline: Option<(String, Vec<[f64; 2]>, f64, f64)>,
+    pub cancel_token: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub asset_task_token: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    selected_period_months: u32,
 }
 
 #[derive(Clone)]
@@ -72,11 +75,21 @@ pub struct MonthlySeries {
     pub label: String,
     pub color: Color32,
     pub points: Vec<(f64, f64)>,
+    pub tp_ativo: String,
+}
+
+impl Drop for HistoricoTab {
+    fn drop(&mut self) {
+        self.cancel_token
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.asset_task_token
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 impl HistoricoTab {
     pub fn new(cnpj: String, sender: UnboundedSender<Message>) -> Self {
-        let tab = Self {
+        let mut tab = Self {
             title: format!("{} Histórico", cnpj),
             cnpj,
             sender,
@@ -92,16 +105,28 @@ impl HistoricoTab {
             cached_asset_info: None,
             last_selected: None,
             cached_sparkline: None,
+            cancel_token: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            asset_task_token: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            selected_period_months: 12,
         };
-        tab.send_load_request();
+        tab.send_load_request(12);
         tab
     }
 
-    fn send_load_request(&self) {
+    fn send_load_request(&mut self, months: u32) {
+        self.selected_period_months = months;
+        self.loading = true;
+        self.data = DataFrame::empty();
+        self.monthly_series.clear();
+        self.selected_asset = None;
+        self.last_selected = None;
+        self.cached_sparkline = None;
+        self.analytics_cache.clear();
+
         let end = chrono::Local::now().naive_local().date();
         let start = end
-            .checked_sub_months(chrono::Months::new(12))
-            .unwrap_or(end - chrono::Duration::days(365));
+            .checked_sub_months(chrono::Months::new(months))
+            .unwrap_or(end - chrono::Duration::days((months as i64) * 30));
         let _ = self
             .sender
             .send(Message::OpenHistoricoTab(self.cnpj.clone(), start, end));
@@ -141,8 +166,34 @@ impl HistoricoTab {
         let data = self.data.clone();
         let sender = self.sender.clone();
         let cnpj = self.cnpj.clone();
+        self.cancel_token
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.cancel_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel = self.cancel_token.clone();
+
         tokio::spawn(async move {
-            let raw_series = crate::analytics::compute_top_series(&data);
+            let raw_series = crate::analytics::compute_top_series(&data, Some(cancel));
+
+            let mut tp_map = std::collections::HashMap::new();
+            if let Ok(tp_col) = data.column("TP_ATIVO") {
+                let cd_ativo_col = data.column("CD_ATIVO").ok();
+                let cd_isin_col = data.column("CD_ISIN").ok();
+                for i in 0..data.height() {
+                    let ca = cd_ativo_col
+                        .as_ref()
+                        .map(|c| get_str(c, i))
+                        .unwrap_or_default();
+                    let ci = cd_isin_col
+                        .as_ref()
+                        .map(|c| get_str(c, i))
+                        .unwrap_or_default();
+                    let key = if !ca.is_empty() { ca } else { ci };
+                    if !key.is_empty() && !tp_map.contains_key(&key) {
+                        tp_map.insert(key, get_str(tp_col, i));
+                    }
+                }
+            }
+
             let palette: [Color32; 12] = [
                 Color32::from_rgb(37, 99, 235),
                 Color32::from_rgb(34, 197, 94),
@@ -160,11 +211,18 @@ impl HistoricoTab {
             let series: Vec<MonthlySeries> = raw_series
                 .into_iter()
                 .enumerate()
-                .map(|(i, (key, label, points))| MonthlySeries {
-                    key,
-                    label,
-                    color: palette[i % palette.len()],
-                    points,
+                .map(|(i, (key, label, points))| {
+                    let tp = tp_map
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_else(|| "OUTROS".to_string());
+                    MonthlySeries {
+                        key,
+                        label,
+                        color: palette[i % palette.len()],
+                        points,
+                        tp_ativo: tp,
+                    }
                 })
                 .collect();
             let _ = sender.send(Message::HistoricoSeriesResult(cnpj, series));
@@ -265,9 +323,9 @@ impl HistoricoTab {
             Color32::from_rgb(245, 247, 251)
         };
         let tx = if dark {
-            Color32::from_rgb(140, 155, 175)
+            Color32::from_rgb(250, 250, 250)
         } else {
-            Color32::from_rgb(90, 100, 120)
+            Color32::from_rgb(10, 10, 10)
         };
 
         let items = [
@@ -279,7 +337,7 @@ impl HistoricoTab {
             (
                 "Médio",
                 format!("{:.2}%", avg_p),
-                Color32::from_rgb(148, 163, 184),
+                Color32::from_rgb(59, 130, 246),
             ),
             (
                 "Máximo",
@@ -371,18 +429,16 @@ impl HistoricoTab {
         // month_data will hold: (month, merc, pct, delta_qt, pm_transacao)
         let mut month_data: Vec<(String, f64, f64, f64, f64)> = Vec::new();
         let mut last_qt = 0.0;
-        let mut last_aquis = 0.0;
 
         for (m, merc, pct, qt, aquis) in chronological_data {
             let delta_qt = qt - last_qt;
-            let delta_aquis = aquis - last_aquis;
             let est_price = if qt > 0.0 { merc / qt } else { 0.0 };
 
             let mut pm_transacao = 0.0;
             if delta_qt > 0.0 {
                 // Bought
-                pm_transacao = if delta_aquis > 0.0 {
-                    delta_aquis / delta_qt
+                pm_transacao = if aquis > 0.0 {
+                    aquis / delta_qt
                 } else {
                     est_price
                 };
@@ -393,16 +449,15 @@ impl HistoricoTab {
 
             month_data.push((m, merc, pct, delta_qt, pm_transacao));
             last_qt = qt;
-            last_aquis = aquis;
         }
 
         month_data.reverse(); // most recent first
 
         let dark = ui.visuals().dark_mode;
         let header_color = if dark {
-            Color32::from_rgb(160, 175, 200)
+            Color32::from_rgb(250, 250, 250)
         } else {
-            Color32::from_rgb(60, 75, 100)
+            Color32::from_rgb(10, 10, 10)
         };
 
         TableBuilder::new(ui)
@@ -642,16 +697,16 @@ impl HistoricoTab {
         let dark = ui.visuals().dark_mode;
         let (hd, tx, muted, bg) = if dark {
             (
-                Color32::from_rgb(242, 247, 255),
-                Color32::from_rgb(200, 210, 230),
-                Color32::from_rgb(145, 155, 175),
+                Color32::from_rgb(255, 255, 255),
+                Color32::from_rgb(240, 240, 240),
+                Color32::from_rgb(200, 200, 200),
                 Color32::from_rgb(16, 20, 30),
             )
         } else {
             (
-                Color32::from_rgb(8, 12, 28),
-                Color32::from_rgb(40, 45, 60),
-                Color32::from_rgb(105, 110, 125),
+                Color32::from_rgb(0, 0, 0),
+                Color32::from_rgb(10, 10, 10),
+                Color32::from_rgb(30, 30, 30),
                 Color32::from_rgb(248, 250, 253),
             )
         };
@@ -666,11 +721,20 @@ impl HistoricoTab {
             let data = self.data.clone();
             let codigo_owned = codigo.to_string();
             let sender = self.sender.clone();
+
+            self.asset_task_token
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            self.asset_task_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let cancel = self.asset_task_token.clone();
+
             tokio::spawn(async move {
                 let yahoo_ref = yahoo_df.as_ref();
-                if let Some(a) =
-                    crate::analytics::compute_asset_analytics(&data, &codigo_owned, yahoo_ref)
-                {
+                if let Some(a) = crate::analytics::compute_asset_analytics(
+                    &data,
+                    &codigo_owned,
+                    yahoo_ref,
+                    Some(cancel),
+                ) {
                     let _ = sender.send(Message::AssetAnalyticsResult(codigo_owned, a));
                 }
             });
@@ -758,7 +822,7 @@ impl HistoricoTab {
                                     egui_phosphor::regular::STACK,
                                     fmt_num(qt_pos)
                                 ))
-                                .size(11.0)
+                                .size(13.0)
                                 .color(muted),
                             );
                         });
@@ -779,10 +843,10 @@ impl HistoricoTab {
                                         "{} PM Compra",
                                         egui_phosphor::regular::SHOPPING_CART
                                     ))
-                                    .size(11.0)
+                                    .size(13.0)
                                     .color(muted),
                                 );
-                                ui.label(RichText::new(pm_str).size(12.0).strong().color(accent));
+                                ui.label(RichText::new(pm_str).size(14.0).strong().color(accent));
                             }
                         }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -793,7 +857,7 @@ impl HistoricoTab {
                                         .unwrap_or_else(|_| format!("R$ {:.2}", vl_aquis));
                                     ui.label(
                                         RichText::new(format!("Custo {}", cost_str))
-                                            .size(10.0)
+                                            .size(12.0)
                                             .color(muted),
                                     );
                                 }
@@ -1113,6 +1177,48 @@ impl Tab for HistoricoTab {
 
     fn ui(&mut self, ui: &mut Ui) {
         Frame::NONE.inner_margin(6.0).show(ui, |ui| {
+            // -- Period Selection Bar --
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Período Histórico:").strong());
+
+                let periods = [
+                    (3, "3 Meses"),
+                    (6, "6 Meses"),
+                    (12, "1 Ano"),
+                    (24, "2 Anos"),
+                    (60, "5 Anos"),
+                    (120, "10 Anos"),
+                ];
+
+                let mut changed_period = None;
+                for (months, label) in periods {
+                    let is_selected = self.selected_period_months == months;
+                    let response = if is_selected {
+                        ui.add(
+                            egui::Button::new(
+                                RichText::new(label)
+                                    .strong()
+                                    .color(ui.visuals().window_fill),
+                            )
+                            .fill(ui.visuals().text_color()),
+                        )
+                    } else {
+                        ui.button(label)
+                    };
+
+                    if response.clicked() {
+                        changed_period = Some(months);
+                    }
+                }
+
+                if let Some(m) = changed_period {
+                    self.send_load_request(m);
+                }
+            });
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
+
             if self.loading {
                 ui.vertical_centered(|ui| {
                     ui.add_space(60.0);
@@ -1144,7 +1250,7 @@ impl Tab for HistoricoTab {
             let dark = ui.visuals().dark_mode;
 
             // Collect asset items for the left panel (avoid borrow conflict)
-            let mut asset_items: Vec<(String, String, Color32, f64)> = self
+            let mut asset_items: Vec<(String, String, String, Color32, f64)> = self
                 .monthly_series
                 .iter()
                 .map(|s| {
@@ -1155,10 +1261,44 @@ impl Tab for HistoricoTab {
                         .find(|(_, p)| *p > 0.0)
                         .map(|(_, p)| *p)
                         .unwrap_or(0.0);
-                    (s.key.clone(), s.label.clone(), s.color, latest)
+                    let t = s.tp_ativo.trim().to_uppercase();
+                    let tp = if t.is_empty() {
+                        "OUTROS".to_string()
+                    } else {
+                        t
+                    };
+                    (tp, s.key.clone(), s.label.clone(), s.color, latest)
                 })
                 .collect();
-            asset_items.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+
+            fn type_priority(tp: &str) -> i32 {
+                if tp.contains("AÇÃO") || tp.contains("AÇÕES") {
+                    1
+                } else if tp == "BDR" {
+                    2
+                } else if tp.contains("ETF") || tp.contains("ÍNDICE") {
+                    3
+                } else if tp == "FII" || tp.contains("IMOBILIÁRIO") {
+                    4
+                } else if tp == "OUTROS" {
+                    99
+                } else {
+                    50
+                }
+            }
+
+            // Sort by type priority ascending, then type name ascending, then alphabetically by ticker
+            asset_items.sort_by(|a, b| {
+                let pa = type_priority(&a.0);
+                let pb = type_priority(&b.0);
+                match pa.cmp(&pb) {
+                    std::cmp::Ordering::Equal => match a.0.cmp(&b.0) {
+                        std::cmp::Ordering::Equal => a.1.cmp(&b.1),
+                        other => other,
+                    },
+                    other => other,
+                }
+            });
 
             let mut new_selected: Option<String> = None;
             let current_sel = self.selected_asset.clone();
@@ -1175,15 +1315,26 @@ impl Tab for HistoricoTab {
                     };
                     Frame::NONE.fill(panel_bg).show(ui, |ui| {
                         ui.add_space(6.0);
-                        ui.label(RichText::new("ATIVOS").size(9.5).strong().color(if dark {
-                            Color32::from_rgb(90, 105, 130)
-                        } else {
-                            Color32::from_rgb(150, 165, 185)
-                        }));
-                        ui.add_space(4.0);
 
                         ScrollArea::vertical().show(ui, |ui| {
-                            for (key, name, color, latest_pct) in &asset_items {
+                            let mut current_group = String::new();
+
+                            for (tp, key, name, color, latest_pct) in &asset_items {
+                                if *tp != current_group {
+                                    if !current_group.is_empty() {
+                                        ui.add_space(8.0);
+                                    }
+                                    ui.label(RichText::new(tp).size(12.0).strong().color(
+                                        if dark {
+                                            Color32::from_rgb(160, 175, 195)
+                                        } else {
+                                            Color32::from_rgb(90, 105, 125)
+                                        },
+                                    ));
+                                    ui.add_space(4.0);
+                                    current_group = tp.clone();
+                                }
+
                                 let is_sel = current_sel.as_deref() == Some(key.as_str());
                                 let sel_bg = if dark {
                                     Color32::from_rgb(30, 42, 68)
@@ -1196,9 +1347,9 @@ impl Tab for HistoricoTab {
                                     Color32::from_rgb(240, 244, 252)
                                 };
                                 let txt_color = if dark {
-                                    Color32::from_rgb(210, 220, 235)
+                                    Color32::from_rgb(240, 245, 255)
                                 } else {
-                                    Color32::from_rgb(30, 40, 60)
+                                    Color32::from_rgb(20, 30, 45)
                                 };
                                 let pct_color = if *latest_pct > 0.0 {
                                     Color32::from_rgb(34, 197, 94)
@@ -1208,7 +1359,7 @@ impl Tab for HistoricoTab {
 
                                 let avail_w = ui.available_width();
                                 let (rect, resp) = ui
-                                    .allocate_exact_size(egui::vec2(avail_w, 30.0), Sense::click());
+                                    .allocate_exact_size(egui::vec2(avail_w, 34.0), Sense::click());
                                 let bg = if is_sel {
                                     sel_bg
                                 } else if resp.hovered() {
@@ -1235,7 +1386,7 @@ impl Tab for HistoricoTab {
                                     egui::pos2(rect.min.x + 22.0, rect.center().y),
                                     egui::Align2::LEFT_CENTER,
                                     &display,
-                                    egui::FontId::proportional(11.0),
+                                    egui::FontId::proportional(12.5),
                                     txt_color,
                                 );
 
@@ -1244,7 +1395,7 @@ impl Tab for HistoricoTab {
                                     egui::pos2(rect.max.x - 8.0, rect.center().y),
                                     egui::Align2::RIGHT_CENTER,
                                     format!("{:.1}%", latest_pct),
-                                    egui::FontId::proportional(10.0),
+                                    egui::FontId::proportional(11.5),
                                     pct_color,
                                 );
 
