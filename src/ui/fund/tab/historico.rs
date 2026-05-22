@@ -107,7 +107,31 @@ impl HistoricoTab {
         let sender = self.sender.clone();
         let cnpj = self.cnpj.clone();
         tokio::spawn(async move {
-            let series = Self::compute_series(&data);
+            let raw_series = crate::analytics::compute_top_series(&data);
+            let palette: [Color32; 12] = [
+                Color32::from_rgb(37, 99, 235),
+                Color32::from_rgb(34, 197, 94),
+                Color32::from_rgb(239, 68, 68),
+                Color32::from_rgb(234, 179, 8),
+                Color32::from_rgb(139, 92, 246),
+                Color32::from_rgb(249, 115, 22),
+                Color32::from_rgb(20, 184, 166),
+                Color32::from_rgb(236, 72, 153),
+                Color32::from_rgb(59, 130, 246),
+                Color32::from_rgb(168, 85, 247),
+                Color32::from_rgb(251, 146, 60),
+                Color32::from_rgb(45, 212, 191),
+            ];
+            let series: Vec<MonthlySeries> = raw_series
+                .into_iter()
+                .enumerate()
+                .map(|(i, (key, label, points))| MonthlySeries {
+                    key,
+                    label,
+                    color: palette[i % palette.len()],
+                    points,
+                })
+                .collect();
             let _ = sender.send(Message::HistoricoSeriesResult(cnpj, series));
         });
     }
@@ -133,162 +157,6 @@ impl HistoricoTab {
         self.analytics_cache.remove(&codigo); // invalida cache desse ativo
         self.yahoo_prices.insert(codigo, prices);
         self.yahoo_loading = false;
-    }
-
-    fn compute_series(data: &DataFrame) -> Vec<MonthlySeries> {
-        let mut series = Vec::new();
-        let height = data.height();
-        if height == 0 {
-            return series;
-        }
-
-        // Usa Polars lazy para groupby
-        let df = data
-            .clone()
-            .lazy()
-            .with_column(col("CD_ATIVO").fill_null(lit("")))
-            .with_column(col("CD_ISIN").fill_null(lit("")))
-            .with_column(
-                when(col("CD_ATIVO").neq(lit("")))
-                    .then(col("CD_ATIVO"))
-                    .otherwise(col("CD_ISIN"))
-                    .alias("asset_key"),
-            )
-            .with_column(col("DT_COMPTC").str().str_slice(0, Some(7)).alias("month"))
-            .filter(col("asset_key").neq(lit("")))
-            .groupby(vec![col("month"), col("asset_key")])
-            .agg(vec![
-                col("VL_MERC_POS_FINAL").sum().alias("total_merc"),
-                col("VL_PORCENTAGEM_PL").sum().alias("total_pct"),
-            ])
-            .sort("month", SortOptions::default())
-            .collect();
-
-        let grouped = match df {
-            Ok(g) => g,
-            Err(_) => return series,
-        };
-        if grouped.height() == 0 {
-            return series;
-        }
-
-        // Top 8 ativos
-        let mut asset_totals: HashMap<String, f64> = HashMap::new();
-        let merc_col_g = grouped.column("total_merc").ok();
-        let key_col_g = grouped.column("asset_key").ok();
-        if let (Some(mc), Some(kc)) = (merc_col_g, key_col_g) {
-            for i in 0..grouped.height() {
-                let key = get_str(kc, i);
-                let val = get_f64(mc, i);
-                *asset_totals.entry(key).or_default() += val;
-            }
-        }
-        let mut sorted: Vec<(String, f64)> = asset_totals.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        let top_keys: Vec<String> = sorted.into_iter().take(12).map(|(k, _)| k).collect();
-
-        let asset_names = Self::build_names(data, &top_keys);
-
-        let merc_col = grouped.column("total_merc").ok();
-        let pct_col = grouped.column("total_pct").ok();
-        let akey_col = grouped.column("asset_key").ok();
-
-        let palette = [
-            Color32::from_rgb(37, 99, 235),
-            Color32::from_rgb(34, 197, 94),
-            Color32::from_rgb(239, 68, 68),
-            Color32::from_rgb(234, 179, 8),
-            Color32::from_rgb(139, 92, 246),
-            Color32::from_rgb(249, 115, 22),
-            Color32::from_rgb(20, 184, 166),
-            Color32::from_rgb(236, 72, 153),
-            Color32::from_rgb(59, 130, 246),
-            Color32::from_rgb(168, 85, 247),
-            Color32::from_rgb(251, 146, 60),
-            Color32::from_rgb(45, 212, 191),
-        ];
-
-        for (idx, key) in top_keys.iter().enumerate() {
-            let name = asset_names.get(key).cloned().unwrap_or_else(|| key.clone());
-            let mut points: Vec<(f64, f64)> = vec![];
-            for mi in 0..grouped.height() {
-                if let (Some(mc), Some(ac)) = (merc_col, akey_col) {
-                    let akey = get_str(ac, mi);
-                    if akey != *key {
-                        continue;
-                    }
-                    let month_idx = mi as f64;
-                    let pct = if let Some(pc) = pct_col {
-                        get_f64(pc, mi)
-                    } else {
-                        get_f64(mc, mi)
-                    };
-                    points.push((month_idx, pct));
-                }
-            }
-            points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            series.push(MonthlySeries {
-                key: key.clone(),
-                label: name,
-                color: palette[idx % palette.len()],
-                points,
-            });
-        }
-        series
-    }
-
-    fn build_names(data: &DataFrame, top_keys: &[String]) -> HashMap<String, String> {
-        let mut names = HashMap::new();
-        let cd_ativo_col = data.column("CD_ATIVO").ok();
-        let cd_isin_col = data.column("CD_ISIN").ok();
-        let ds_ativo_col = data.column("DS_ATIVO").ok();
-        let nm_fundo_col = data.column("NM_FUNDO_COTA").ok();
-        let titpub_col = data.column("TP_TITPUB").ok();
-
-        for i in 0..data.height() {
-            let cd_ativo = cd_ativo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let cd_isin = cd_isin_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let key = if !cd_ativo.is_empty() {
-                cd_ativo.clone()
-            } else {
-                cd_isin.clone()
-            };
-            if key.is_empty() || !top_keys.contains(&key) || names.contains_key(&key) {
-                continue;
-            }
-            let ds = ds_ativo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let nf = nm_fundo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let tp = titpub_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let mut name = if !tp.is_empty() {
-                tp
-            } else if !ds.is_empty() {
-                ds
-            } else if !nf.is_empty() {
-                nf
-            } else {
-                key.clone()
-            };
-            if !cd_ativo.is_empty() && name != cd_ativo && !name.starts_with(&cd_ativo) {
-                name = format!("{} - {}", cd_ativo, name);
-            }
-            names.insert(key, name);
-        }
-        names
     }
 
     fn render_asset_line_chart(&self, ui: &mut Ui, months: &[String], selected_name: &str) {

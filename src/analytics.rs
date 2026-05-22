@@ -784,3 +784,152 @@ fn get_f64(col: &Series, row: usize) -> f64 {
         })
         .unwrap_or(0.0)
 }
+
+// ── Top Assets Time Series ────────────────────────────────────────────
+
+/// (key, display_name, points[(month_idx, pct)])
+pub type TopSeriesRow = (String, String, Vec<(f64, f64)>);
+
+/// Retorna os top 12 ativos do DataFrame CVM como (key, display_name, points[(month_idx, pct)])
+pub fn compute_top_series(data: &DataFrame) -> Vec<TopSeriesRow> {
+    let mut series = Vec::new();
+    let height = data.height();
+    if height == 0 {
+        return series;
+    }
+
+    let df = data
+        .clone()
+        .lazy()
+        .with_column(col("CD_ATIVO").fill_null(lit("")))
+        .with_column(col("CD_ISIN").fill_null(lit("")))
+        .with_column(
+            when(col("CD_ATIVO").neq(lit("")))
+                .then(col("CD_ATIVO"))
+                .otherwise(col("CD_ISIN"))
+                .alias("asset_key"),
+        )
+        .with_column(col("DT_COMPTC").str().str_slice(0, Some(7)).alias("month"))
+        .filter(col("asset_key").neq(lit("")))
+        .groupby(vec![col("month"), col("asset_key")])
+        .agg(vec![
+            col("VL_MERC_POS_FINAL").sum().alias("total_merc"),
+            col("VL_PORCENTAGEM_PL").sum().alias("total_pct"),
+        ])
+        .sort("month", SortOptions::default())
+        .collect();
+
+    let grouped = match df {
+        Ok(g) => g,
+        Err(_) => return series,
+    };
+    if grouped.height() == 0 {
+        return series;
+    }
+
+    let mut asset_totals: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let merc_col_g = grouped.column("total_merc").ok();
+    let key_col_g = grouped.column("asset_key").ok();
+    if let (Some(mc), Some(kc)) = (merc_col_g, key_col_g) {
+        for i in 0..grouped.height() {
+            let key = get_str(kc, i);
+            let val = get_f64(mc, i);
+            *asset_totals.entry(key).or_default() += val;
+        }
+    }
+    let mut sorted: Vec<(String, f64)> = asset_totals.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let top_keys: Vec<String> = sorted.into_iter().take(12).map(|(k, _)| k).collect();
+
+    let asset_names = build_asset_names(data, &top_keys);
+
+    let merc_col = grouped.column("total_merc").ok();
+    let pct_col = grouped.column("total_pct").ok();
+    let akey_col = grouped.column("asset_key").ok();
+
+    for key in &top_keys {
+        let name = asset_names.get(key).cloned().unwrap_or_else(|| key.clone());
+        let mut points: Vec<(f64, f64)> = vec![];
+        for mi in 0..grouped.height() {
+            if let (Some(mc), Some(ac)) = (merc_col, akey_col) {
+                if get_str(ac, mi) != *key {
+                    continue;
+                }
+                let month_idx = mi as f64;
+                let pct = if let Some(pc) = pct_col {
+                    get_f64(pc, mi)
+                } else {
+                    get_f64(mc, mi)
+                };
+                points.push((month_idx, pct));
+            }
+        }
+        points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        series.push((key.clone(), name, points));
+    }
+    series
+}
+
+fn build_asset_names(
+    data: &DataFrame,
+    top_keys: &[String],
+) -> std::collections::HashMap<String, String> {
+    let mut names = std::collections::HashMap::new();
+    let cd_ativo_col = data.column("CD_ATIVO").ok();
+    let cd_isin_col = data.column("CD_ISIN").ok();
+    let ds_ativo_col = data.column("DS_ATIVO").ok();
+    let nm_fundo_col = data.column("NM_FUNDO_COTA").ok();
+    let titpub_col = data.column("TP_TITPUB").ok();
+
+    for i in 0..data.height() {
+        let cd_ativo = cd_ativo_col
+            .as_ref()
+            .map(|c| get_str(c, i))
+            .unwrap_or_default();
+        let cd_isin = cd_isin_col
+            .as_ref()
+            .map(|c| get_str(c, i))
+            .unwrap_or_default();
+        let key = if !cd_ativo.is_empty() {
+            cd_ativo.clone()
+        } else {
+            cd_isin.clone()
+        };
+        if key.is_empty() || !top_keys.contains(&key) || names.contains_key(&key) {
+            continue;
+        }
+        let ds = ds_ativo_col
+            .as_ref()
+            .map(|c| get_str(c, i))
+            .unwrap_or_default();
+        let nf = nm_fundo_col
+            .as_ref()
+            .map(|c| get_str(c, i))
+            .unwrap_or_default();
+        let tp = titpub_col
+            .as_ref()
+            .map(|c| get_str(c, i))
+            .unwrap_or_default();
+        let mut name = if !tp.is_empty() {
+            tp
+        } else if !ds.is_empty() {
+            ds
+        } else if !nf.is_empty() {
+            nf
+        } else {
+            key.clone()
+        };
+        if !cd_ativo.is_empty() && name != cd_ativo && !name.starts_with(&cd_ativo) {
+            name = format!("{} - {}", cd_ativo, name);
+        }
+        names.insert(key, name);
+    }
+    names
+}
+
+fn get_str(col: &Series, row: usize) -> String {
+    col.get(row)
+        .ok()
+        .and_then(|v| v.get_str().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
