@@ -600,16 +600,16 @@ impl HistoricoTab {
         let dark = ui.visuals().dark_mode;
         let (hd, tx, muted, bg) = if dark {
             (
-                Color32::from_rgb(235, 240, 250),
-                Color32::from_rgb(185, 195, 215),
-                Color32::from_rgb(120, 130, 155),
-                Color32::from_rgb(18, 22, 32),
+                Color32::from_rgb(242, 247, 255),
+                Color32::from_rgb(200, 210, 230),
+                Color32::from_rgb(145, 155, 175),
+                Color32::from_rgb(16, 20, 30),
             )
         } else {
             (
-                Color32::from_rgb(15, 20, 35),
-                Color32::from_rgb(55, 60, 75),
-                Color32::from_rgb(120, 125, 140),
+                Color32::from_rgb(8, 12, 28),
+                Color32::from_rgb(40, 45, 60),
+                Color32::from_rgb(105, 110, 125),
                 Color32::from_rgb(248, 250, 253),
             )
         };
@@ -689,7 +689,7 @@ impl HistoricoTab {
                         let price_str = crate::util::to_real(last_p)
                             .map(|r| r.format())
                             .unwrap_or_else(|_| format!("R$ {:.2}", last_p));
-                        ui.label(RichText::new(price_str).size(22.0).strong().color(hd));
+                        ui.label(RichText::new(price_str).size(26.0).strong().color(hd));
                         if change != 0.0 {
                             let icon = if change > 0.0 {
                                 egui_phosphor::regular::TREND_UP
@@ -730,10 +730,10 @@ impl HistoricoTab {
                                         "{} PM Compra",
                                         egui_phosphor::regular::SHOPPING_CART
                                     ))
-                                    .size(10.0)
+                                    .size(11.0)
                                     .color(muted),
                                 );
-                                ui.label(RichText::new(pm_str).size(11.0).strong().color(accent));
+                                ui.label(RichText::new(pm_str).size(12.0).strong().color(accent));
                             }
                         }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -774,7 +774,7 @@ impl HistoricoTab {
                                 "{} Posição Oculta Estimada",
                                 egui_phosphor::regular::EYE_SLASH
                             ))
-                            .size(10.0)
+                            .size(11.0)
                             .strong()
                             .color(tx),
                         );
@@ -821,12 +821,33 @@ impl HistoricoTab {
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 // ── Portfolio Inference Badge ───────
                                 if let Some(ref inf) = analytics.portfolio_inference {
-                                    let score_color = if inf.discrepancy_score < 0.5 {
-                                        green
+                                    let (score_color, badge_bg) = if inf.discrepancy_score < 0.5 {
+                                        (
+                                            green,
+                                            if dark {
+                                                Color32::from_rgb(20, 50, 30)
+                                            } else {
+                                                Color32::from_rgb(220, 245, 225)
+                                            },
+                                        )
                                     } else if inf.discrepancy_score < 1.0 {
-                                        purple
+                                        (
+                                            purple,
+                                            if dark {
+                                                Color32::from_rgb(40, 25, 60)
+                                            } else {
+                                                Color32::from_rgb(240, 230, 255)
+                                            },
+                                        )
                                     } else {
-                                        red
+                                        (
+                                            red,
+                                            if dark {
+                                                Color32::from_rgb(55, 20, 25)
+                                            } else {
+                                                Color32::from_rgb(255, 225, 225)
+                                            },
+                                        )
                                     };
                                     let bias_icon = match inf.bias_direction {
                                         crate::analytics::TradeBias::Acumulando => {
@@ -839,17 +860,32 @@ impl HistoricoTab {
                                             egui_phosphor::regular::EQUALS
                                         }
                                     };
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{} Score={:.2}  {} {}",
-                                            egui_phosphor::regular::BRAIN,
-                                            inf.discrepancy_score,
-                                            bias_icon,
-                                            inf.bias_direction
-                                        ))
-                                        .size(9.0)
-                                        .color(score_color),
+                                    // Badge com fundo sutil
+                                    let badge_text = format!(
+                                        "{} Score {:.2}  {} {}",
+                                        egui_phosphor::regular::BRAIN,
+                                        inf.discrepancy_score,
+                                        bias_icon,
+                                        inf.bias_direction
                                     );
+                                    let galley = ui.painter().layout_no_wrap(
+                                        badge_text.clone(),
+                                        egui::FontId::proportional(10.0),
+                                        score_color,
+                                    );
+                                    let pad = egui::vec2(8.0, 3.0);
+                                    let badge_rect = egui::Rect::from_min_size(
+                                        egui::pos2(ui.cursor().min.x, ui.cursor().min.y),
+                                        galley.rect.size() + pad * 2.0,
+                                    );
+                                    ui.painter().rect_filled(
+                                        badge_rect,
+                                        egui::CornerRadius::same(10),
+                                        badge_bg,
+                                    );
+                                    ui.painter()
+                                        .galley(badge_rect.min + pad, galley, score_color);
+                                    ui.advance_cursor_after_rect(badge_rect);
                                 }
                             });
                         });
@@ -867,7 +903,7 @@ impl HistoricoTab {
                             "{} Estratégia do Gestor",
                             egui_phosphor::regular::LIGHTNING
                         ))
-                        .size(10.0)
+                        .size(11.0)
                         .strong()
                         .color(tx),
                     );
