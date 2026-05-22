@@ -732,6 +732,14 @@ impl TemplateApp {
                                 break;
                             }
                         }
+                        if let TabType::Fund(tab) = tb {
+                            if let Some(ref mut htab) = tab.historico_tab {
+                                if htab.cnpj == cnpj {
+                                    htab.monthly_series = series.clone();
+                                    htab.loading = false;
+                                }
+                            }
+                        }
                     }
                 }
                 Message::FetchYahooPrice(codigo, _cnpj, start, end) => {
