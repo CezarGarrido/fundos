@@ -184,7 +184,7 @@ impl HistoricoTab {
         }
         let mut sorted: Vec<(String, f64)> = asset_totals.into_iter().collect();
         sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        let top_keys: Vec<String> = sorted.into_iter().take(8).map(|(k, _)| k).collect();
+        let top_keys: Vec<String> = sorted.into_iter().take(12).map(|(k, _)| k).collect();
 
         let asset_names = Self::build_names(data, &top_keys);
 
@@ -201,6 +201,10 @@ impl HistoricoTab {
             Color32::from_rgb(249, 115, 22),
             Color32::from_rgb(20, 184, 166),
             Color32::from_rgb(236, 72, 153),
+            Color32::from_rgb(59, 130, 246),
+            Color32::from_rgb(168, 85, 247),
+            Color32::from_rgb(251, 146, 60),
+            Color32::from_rgb(45, 212, 191),
         ];
 
         for (idx, key) in top_keys.iter().enumerate() {
