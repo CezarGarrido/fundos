@@ -618,13 +618,20 @@ impl HistoricoTab {
         let red = Color32::from_rgb(239, 68, 68);
         let purple = Color32::from_rgb(139, 92, 246);
 
-        // Cache
+        // Cache: dispara task se não computado ainda
         if !self.analytics_cache.contains_key(codigo) {
-            let yahoo_df = self.yahoo_prices.get(codigo);
-            if let Some(a) = crate::analytics::compute_asset_analytics(&self.data, codigo, yahoo_df)
-            {
-                self.analytics_cache.insert(codigo.to_string(), a);
-            }
+            let yahoo_df = self.yahoo_prices.get(codigo).cloned();
+            let data = self.data.clone();
+            let codigo_owned = codigo.to_string();
+            let sender = self.sender.clone();
+            tokio::spawn(async move {
+                let yahoo_ref = yahoo_df.as_ref();
+                if let Some(a) =
+                    crate::analytics::compute_asset_analytics(&data, &codigo_owned, yahoo_ref)
+                {
+                    let _ = sender.send(Message::AssetAnalyticsResult(codigo_owned, a));
+                }
+            });
         }
 
         let yahoo_data: Option<(&DataFrame, f64, f64, f64)> = self

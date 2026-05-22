@@ -742,6 +742,23 @@ impl TemplateApp {
                         }
                     }
                 }
+                Message::AssetAnalyticsResult(codigo, analytics) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Historico(tab) = tb {
+                            tab.analytics_cache
+                                .insert(codigo.clone(), analytics.clone());
+                            ctxc.request_repaint();
+                            break;
+                        }
+                        if let TabType::Fund(tab) = tb {
+                            if let Some(ref mut htab) = tab.historico_tab {
+                                htab.analytics_cache
+                                    .insert(codigo.clone(), analytics.clone());
+                            }
+                        }
+                    }
+                }
                 Message::FetchYahooPrice(codigo, _cnpj, start, end) => {
                     let s = sender.clone();
                     tokio::spawn(async move {

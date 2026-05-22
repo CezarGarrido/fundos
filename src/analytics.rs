@@ -3,6 +3,7 @@ use polars::prelude::*;
 
 // ── Analytics Structures ─────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct AssetAnalytics {
     pub avg_buy_price: f64,
     pub avg_sell_price: f64,

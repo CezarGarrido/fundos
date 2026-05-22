@@ -25,4 +25,5 @@ pub enum Message {
     FetchAssetHolders(String, NaiveDate, NaiveDate),
     AssetHoldersResult(String, DataFrame),
     HistoricoSeriesResult(String, Vec<crate::ui::fund::tab::historico::MonthlySeries>),
+    AssetAnalyticsResult(String, crate::analytics::AssetAnalytics),
 }
