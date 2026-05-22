@@ -106,7 +106,7 @@ impl HistoricoTab {
         let data = self.data.clone();
         let sender = self.sender.clone();
         let cnpj = self.cnpj.clone();
-        tokio::task::spawn_blocking(move || {
+        tokio::spawn(async move {
             let series = Self::compute_series(&data);
             let _ = sender.send(Message::HistoricoSeriesResult(cnpj, series));
         });
