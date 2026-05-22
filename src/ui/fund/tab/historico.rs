@@ -755,98 +755,104 @@ impl HistoricoTab {
 
                 // ── Extrapolação ──────────────────────────────────
                 if let Some(analytics) = self.analytics_cache.get(codigo) {
-                    if let Some(ref q) = analytics.extrapolation_quality {
-                        if let Some(last_est) = analytics.hidden_qty_estimates.last() {
-                            ui.add_space(6.0);
-                            ui.separator();
-                            ui.add_space(4.0);
+                    if let Some(last_est) = analytics.hidden_qty_estimates.last() {
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(4.0);
 
-                            let max_qty = analytics
-                                .hidden_qty_estimates
-                                .first()
-                                .map(|e| e.1)
-                                .unwrap_or(last_est.1)
-                                .max(last_est.1)
-                                .max(1.0);
-                            let bar_pct = (last_est.1 / max_qty).clamp(0.0, 1.0) as f32;
+                        let max_qty = analytics
+                            .hidden_qty_estimates
+                            .first()
+                            .map(|e| e.1)
+                            .unwrap_or(last_est.1)
+                            .max(last_est.1)
+                            .max(1.0);
+                        let bar_pct = (last_est.1 / max_qty).clamp(0.0, 1.0) as f32;
 
+                        ui.label(
+                            RichText::new(format!(
+                                "{} Posição Oculta Estimada",
+                                egui_phosphor::regular::EYE_SLASH
+                            ))
+                            .size(10.0)
+                            .strong()
+                            .color(tx),
+                        );
+                        ui.add_space(3.0);
+
+                        // Barra de progresso
+                        let bar_h = 8.0;
+                        let (bar_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), bar_h),
+                            Sense::hover(),
+                        );
+                        ui.painter().rect_filled(
+                            bar_rect,
+                            egui::CornerRadius::same(4),
+                            if dark {
+                                Color32::from_rgb(35, 40, 55)
+                            } else {
+                                Color32::from_rgb(220, 228, 240)
+                            },
+                        );
+                        let fill = egui::Rect::from_min_size(
+                            bar_rect.min,
+                            egui::vec2(bar_rect.width() * bar_pct, bar_h),
+                        );
+                        ui.painter()
+                            .rect_filled(fill, egui::CornerRadius::same(4), accent);
+
+                        ui.add_space(2.0);
+                        ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(format!(
-                                    "{} Posição Oculta Estimada",
-                                    egui_phosphor::regular::EYE_SLASH
+                                    "{} {}",
+                                    egui_phosphor::regular::CIRCLES_THREE_PLUS,
+                                    fmt_num(last_est.1)
                                 ))
-                                .size(10.0)
+                                .size(12.0)
                                 .strong()
-                                .color(tx),
+                                .color(hd),
                             );
-                            ui.add_space(3.0);
-
-                            // Barra de progresso
-                            let bar_h = 8.0;
-                            let (bar_rect, _) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), bar_h),
-                                Sense::hover(),
-                            );
-                            ui.painter().rect_filled(
-                                bar_rect,
-                                egui::CornerRadius::same(4),
-                                if dark {
-                                    Color32::from_rgb(35, 40, 55)
-                                } else {
-                                    Color32::from_rgb(220, 228, 240)
-                                },
-                            );
-                            let fill = egui::Rect::from_min_size(
-                                bar_rect.min,
-                                egui::vec2(bar_rect.width() * bar_pct, bar_h),
-                            );
-                            ui.painter()
-                                .rect_filled(fill, egui::CornerRadius::same(4), accent);
-
-                            ui.add_space(2.0);
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} {}",
-                                        egui_phosphor::regular::CIRCLES_THREE_PLUS,
-                                        fmt_num(last_est.1)
-                                    ))
-                                    .size(12.0)
-                                    .strong()
-                                    .color(hd),
-                                );
-                                let val_fmt = crate::util::to_real(last_est.2)
-                                    .map(|r| r.format())
-                                    .unwrap_or_else(|_| format!("R$ {:.2}", last_est.2));
-                                ui.label(
-                                    RichText::new(format!("≈ {}", val_fmt)).size(11.0).color(tx),
-                                );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let val_fmt = crate::util::to_real(last_est.2)
+                                .map(|r| r.format())
+                                .unwrap_or_else(|_| format!("R$ {:.2}", last_est.2));
+                            ui.label(RichText::new(format!("≈ {}", val_fmt)).size(11.0).color(tx));
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                // ── Portfolio Inference Badge ───────
+                                if let Some(ref inf) = analytics.portfolio_inference {
+                                    let score_color = if inf.discrepancy_score < 0.5 {
+                                        green
+                                    } else if inf.discrepancy_score < 1.0 {
+                                        purple
+                                    } else {
+                                        red
+                                    };
+                                    let bias_icon = match inf.bias_direction {
+                                        crate::analytics::TradeBias::Acumulando => {
+                                            egui_phosphor::regular::ARROW_UP
+                                        }
+                                        crate::analytics::TradeBias::Distribuindo => {
+                                            egui_phosphor::regular::ARROW_DOWN
+                                        }
+                                        crate::analytics::TradeBias::Consistente => {
+                                            egui_phosphor::regular::EQUALS
+                                        }
+                                    };
                                     ui.label(
                                         RichText::new(format!(
-                                            "{}  {}  R²={:.2}",
+                                            "{} Score={:.2}  {} {}",
                                             egui_phosphor::regular::BRAIN,
-                                            q.method,
-                                            q.r_squared.unwrap_or(0.0)
+                                            inf.discrepancy_score,
+                                            bias_icon,
+                                            inf.bias_direction
                                         ))
                                         .size(9.0)
-                                        .color(muted),
+                                        .color(score_color),
                                     );
-                                    if let Some((lo, hi)) = q.confidence_95 {
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{} [{:.0} – {:.0}]",
-                                                egui_phosphor::regular::ARROWS_HORIZONTAL,
-                                                lo,
-                                                hi
-                                            ))
-                                            .size(9.0)
-                                            .color(muted),
-                                        );
-                                    }
-                                });
+                                }
                             });
-                        }
+                        });
                     }
                 }
 

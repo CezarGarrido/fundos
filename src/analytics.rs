@@ -9,10 +9,36 @@ pub struct AssetAnalytics {
     pub avg_sell_price: f64,
     pub take_profit_trigger: f64,
     pub speed_to_peak: usize,
-    /// (date, predicted_qty, estimated_value) — resultado do melhor método
     pub hidden_qty_estimates: Vec<(String, f64, f64)>,
-    /// Métricas de qualidade da extrapolação
-    pub extrapolation_quality: Option<ExtrapolationQuality>,
+    pub portfolio_inference: Option<PortfolioInference>,
+}
+
+/// Inferência de estado da carteira (Return Gap / State-Space)
+#[derive(Clone, Debug)]
+pub struct PortfolioInference {
+    /// Âncora: último patamar conhecido (persistência)
+    pub persistent_qty: f64,
+    /// Score de desvio: 0.0 = consistente, > 1.0 = forte indício de trading oculto
+    pub discrepancy_score: f64,
+    /// Viés direcional do gestor baseado no tracking recente
+    pub bias_direction: TradeBias,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TradeBias {
+    Acumulando,
+    Distribuindo,
+    Consistente,
+}
+
+impl std::fmt::Display for TradeBias {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Acumulando => write!(f, "Comprando"),
+            Self::Distribuindo => write!(f, "Vendendo"),
+            Self::Consistente => write!(f, "Estável"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -140,6 +166,68 @@ pub fn extrapolate(
         ExtrapolationMethod::RandomForest => {
             extrapolate_random_forest(historical_qtys, last_qty, quotes, last_known_dt)
         }
+    }
+}
+
+// ── Motor de Inferência de Portfólio (Return Gap / State-Space) ─────
+
+pub fn infer_portfolio_state(historical_qtys: &[f64]) -> PortfolioInference {
+    let n = historical_qtys.len();
+    let last_qty = historical_qtys.last().copied().unwrap_or(0.0);
+
+    if n < 3 {
+        return PortfolioInference {
+            persistent_qty: last_qty,
+            discrepancy_score: 0.0,
+            bias_direction: TradeBias::Consistente,
+        };
+    }
+
+    let log_historical: Vec<f64> = historical_qtys.iter().map(|&q| q.max(1.0).ln()).collect();
+
+    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(1, 1)
+        .initial_state(vec![log_historical[0]])
+        .initial_covariance(vec![0.5])
+        .transition_matrix(vec![1.0])
+        .process_noise(vec![0.15])
+        .observation_matrix(vec![1.0])
+        .measurement_noise(vec![0.10])
+        .build()
+        .expect("Inference Kalman build failed");
+
+    let mut log_predictions = Vec::with_capacity(n - 1);
+    let mut log_actuals = Vec::with_capacity(n - 1);
+
+    for &y_log_obs in log_historical.iter().skip(1) {
+        kf.predict();
+        log_predictions.push(kf.state()[0]);
+        log_actuals.push(y_log_obs);
+        kf.update(&[y_log_obs]).expect("Kalman update failed");
+    }
+
+    let m = log_actuals.len();
+    let mut relative_error_sum = 0.0;
+    for i in 0..m {
+        let actual = log_actuals[i].exp();
+        let pred = log_predictions[i].exp();
+        relative_error_sum += ((actual - pred) / actual.max(1.0)).abs();
+    }
+    let discrepancy_score = relative_error_sum / m as f64;
+
+    let final_filtered_qty = kf.state()[0].exp();
+    let threshold = 0.05;
+    let bias_direction = if final_filtered_qty > last_qty * (1.0 + threshold) {
+        TradeBias::Acumulando
+    } else if final_filtered_qty < last_qty * (1.0 - threshold) {
+        TradeBias::Distribuindo
+    } else {
+        TradeBias::Consistente
+    };
+
+    PortfolioInference {
+        persistent_qty: last_qty,
+        discrepancy_score,
+        bias_direction,
     }
 }
 
@@ -564,7 +652,7 @@ pub fn compute_asset_analytics_v1(df: &DataFrame, asset_code: &str) -> Option<As
         take_profit_trigger: take_profit,
         speed_to_peak: months_to_peak,
         hidden_qty_estimates: Vec::new(),
-        extrapolation_quality: None,
+        portfolio_inference: None,
     })
 }
 
@@ -732,23 +820,9 @@ pub fn compute_asset_analytics(
         0.0
     };
 
-    // ── Extrapolação Engine Trigger ─────
-    let (hidden_qty_estimates, extrapolation_quality) = if let Some(ref quotes) = quotes {
-        if historical_qtys.len() < 3 {
-            debug!(
-                "Analytics: poucos dados ({}) — pulando extrapolação",
-                historical_qtys.len()
-            );
-            (
-                Vec::new(),
-                ExtrapolationQuality {
-                    method: ExtrapolationMethod::Baseline,
-                    r_squared: None,
-                    mae: None,
-                    confidence_95: None,
-                },
-            )
-        } else {
+    // ── Inferência de Portfólio ─────────────────────────────────────
+    let (hidden_qty_estimates, portfolio_inference) = if let Some(ref quotes) = quotes {
+        if historical_qtys.len() >= 3 {
             debug!("Analytics: quotes disponíveis ({} cotações)", quotes.len());
             if let Ok(dt_col) = filtered_df.column("DT_COMPTC") {
                 if let Some(last_known_dt) = dt_col
@@ -757,44 +831,41 @@ pub fn compute_asset_analytics(
                     .and_then(|v| v.get_str().map(|s| s.to_string()))
                 {
                     info!(
-                        "Analytics: executando extrapolação para {} ({} meses históricos, última qtd={:.0})",
-                        asset_code, historical_qtys.len(), last_qty
+                        "Analytics: inferindo estado para {} ({} meses, qtd={:.0})",
+                        asset_code,
+                        historical_qtys.len(),
+                        last_qty
                     );
-                    extrapolate_best(&historical_qtys, last_qty, quotes, &last_known_dt)
+                    // Baseline: valor estimado hoje (âncora de persistência)
+                    let mut estimates = Vec::new();
+                    for q in quotes {
+                        if q.date.as_str() > last_known_dt.as_str() && last_qty > 0.0 {
+                            estimates.push((q.date.clone(), last_qty, last_qty * q.close_price));
+                        }
+                    }
+                    // Inferência de anomalia (Return Gap)
+                    let inference = infer_portfolio_state(&historical_qtys);
+                    debug!(
+                        "Portfolio Inference: score={:.3}, viés={}",
+                        inference.discrepancy_score, inference.bias_direction
+                    );
+                    (estimates, Some(inference))
                 } else {
-                    (
-                        Vec::new(),
-                        ExtrapolationQuality {
-                            method: ExtrapolationMethod::Baseline,
-                            r_squared: None,
-                            mae: None,
-                            confidence_95: None,
-                        },
-                    )
+                    (Vec::new(), None)
                 }
             } else {
-                (
-                    Vec::new(),
-                    ExtrapolationQuality {
-                        method: ExtrapolationMethod::Baseline,
-                        r_squared: None,
-                        mae: None,
-                        confidence_95: None,
-                    },
-                )
+                (Vec::new(), None)
             }
+        } else {
+            debug!(
+                "Analytics: poucos dados ({}) — pulando inferência",
+                historical_qtys.len()
+            );
+            (Vec::new(), None)
         }
     } else {
-        debug!("Analytics: sem quotes disponíveis — pulando extrapolação");
-        (
-            Vec::new(),
-            ExtrapolationQuality {
-                method: ExtrapolationMethod::Baseline,
-                r_squared: None,
-                mae: None,
-                confidence_95: None,
-            },
-        )
+        debug!("Analytics: sem quotes — pulando inferência");
+        (Vec::new(), None)
     };
 
     Some(AssetAnalytics {
@@ -803,7 +874,7 @@ pub fn compute_asset_analytics(
         take_profit_trigger: take_profit,
         speed_to_peak: months_counting_to_peak,
         hidden_qty_estimates,
-        extrapolation_quality: Some(extrapolation_quality),
+        portfolio_inference,
     })
 }
 

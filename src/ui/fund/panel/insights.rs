@@ -281,17 +281,24 @@ pub fn show_detailed(
                                             ui.end_row();
 
                                             if !analytics.hidden_qty_estimates.is_empty() {
-                                                // ── Extrapolação: resultado do melhor método ──────
-                                                if let Some(ref q) = analytics.extrapolation_quality {
-                                                    ui.label(egui::RichText::new("Extrapolação:").color(text_color));
+                                                // ── Análise de Integridade da Carteira ────
+                                                if let Some(ref inf) = analytics.portfolio_inference {
+                                                    let score_color = if inf.discrepancy_score < 0.5 {
+                                                        success_color
+                                                    } else if inf.discrepancy_score < 1.0 {
+                                                        egui::Color32::from_rgb(230, 126, 34)
+                                                    } else {
+                                                        egui::Color32::from_rgb(231, 76, 60)
+                                                    };
+                                                    ui.label(egui::RichText::new("Integridade:").color(text_color));
                                                     ui.label(
                                                         egui::RichText::new(format!(
-                                                            "{} (R²={:.2})",
-                                                            q.method,
-                                                            q.r_squared.unwrap_or(0.0)
+                                                            "Score={:.2} — Gestor {}",
+                                                            inf.discrepancy_score,
+                                                            inf.bias_direction
                                                         ))
                                                         .strong()
-                                                        .color(success_color),
+                                                        .color(score_color),
                                                     );
                                                     ui.end_row();
                                                 }
