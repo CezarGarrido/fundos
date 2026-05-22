@@ -108,7 +108,31 @@ impl HistoricoTab {
     }
 
     pub fn set_data(&mut self, df: DataFrame) {
-        self.data = df;
+        // Mantém só colunas usadas (evita duplicar 50+ colunas em memória)
+        let keep = [
+            "DT_COMPTC",
+            "CD_ATIVO",
+            "CD_ISIN",
+            "VL_MERC_POS_FINAL",
+            "VL_PORCENTAGEM_PL",
+            "VL_AQUIS_NEGOC",
+            "QT_REGIS",
+            "QT_POS_FINAL",
+            "QT_VENDA",
+            "TP_ATIVO",
+            "TP_APLIC",
+            "DS_ATIVO",
+            "NM_FUNDO_COTA",
+            "TP_TITPUB",
+            "VL_PATRIM_LIQ",
+            "CNPJ_FUNDO",
+        ];
+        let cols: Vec<&str> = keep
+            .iter()
+            .filter(|c| df.column(c).is_ok())
+            .copied()
+            .collect();
+        self.data = df.select(cols.as_slice()).unwrap_or(df);
         self.analytics_cache.clear();
         self.cached_months.clear();
         self.cached_asset_info = None;
