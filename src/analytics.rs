@@ -22,7 +22,9 @@ pub struct PortfolioInference {
     pub filtered_qty: f64,
     /// Score de inferibilidade: 1.0 = perfeitamente previsível, → 0 se caótico
     pub stability_score: f64,
-    /// Direção do viés estatisticamente validada (> 1.64 sigma)
+    /// Z-Score da previsão: quantos desvios-padrão a previsão está da baseline
+    pub z_score: f64,
+    /// Direção do viés estatisticamente validada (> 2.0 sigma)
     pub bias_direction: TradeBias,
     /// Projeções multi-horizon com incerteza crescente (data, qtd, ci_lower, ci_upper)
     pub forward_trajectory: Vec<(String, f64, f64, f64)>,
@@ -331,6 +333,7 @@ pub fn infer_portfolio_state(
             baseline_qty,
             filtered_qty: baseline_qty,
             stability_score: 1.0,
+            z_score: 0.0,
             bias_direction: TradeBias::Consistente,
             forward_trajectory: generate_static_trajectory(baseline_qty, quotes, last_known_dt),
         };
@@ -428,9 +431,9 @@ pub fn infer_portfolio_state(
     let last_log = log_historical.last().copied().unwrap_or(0.0);
     let z_score = (t1_log_qty - last_log) / std_dev_log;
 
-    let bias_direction = if z_score > 1.64 {
+    let bias_direction = if z_score > 2.0 {
         TradeBias::Acumulando
-    } else if z_score < -1.64 {
+    } else if z_score < -2.0 {
         TradeBias::Distribuindo
     } else {
         TradeBias::Consistente
@@ -469,6 +472,7 @@ pub fn infer_portfolio_state(
         baseline_qty,
         filtered_qty: filtered_log_qty.exp(),
         stability_score,
+        z_score,
         bias_direction,
         forward_trajectory,
     }

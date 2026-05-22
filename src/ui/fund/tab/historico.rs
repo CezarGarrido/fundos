@@ -859,19 +859,18 @@ impl HistoricoTab {
                                             egui_phosphor::regular::EQUALS
                                         }
                                     };
-                                    let qualifier = if inf.stability_score < 0.05 {
-                                        "Caótico"
-                                    } else if inf.stability_score < 0.3 {
-                                        "Instável"
+                                    // Mostra direção do viés só quando estatisticamente significativo
+                                    let bias_str = if inf.z_score > 2.0 || inf.z_score < -2.0 {
+                                        format!("{} {}", bias_icon, inf.bias_direction)
                                     } else {
-                                        "Estável"
+                                        format!("{} neutro", bias_icon)
                                     };
                                     let badge_text = format!(
-                                        "{} {:.0}% inferível  {} {}",
+                                        "{} {:.0}%  Z={:+.1}  {}",
                                         egui_phosphor::regular::BRAIN,
                                         inf.stability_score * 100.0,
-                                        bias_icon,
-                                        qualifier
+                                        inf.z_score,
+                                        bias_str
                                     );
                                     Frame::NONE
                                         .fill(badge_bg)
