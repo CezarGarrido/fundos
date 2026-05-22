@@ -59,7 +59,11 @@ pub struct HistoricoTab {
     pub yahoo_prices: HashMap<String, DataFrame>,
     pub yahoo_loading: bool,
     pub last_yahoo_fetch: Option<String>,
-    pub analytics_cache: HashMap<String, crate::analytics::AssetAnalytics>, // tracks last fetched asset to avoid re-fetch
+    pub analytics_cache: HashMap<String, crate::analytics::AssetAnalytics>,
+    cached_months: Vec<String>,
+    cached_asset_info: Option<(String, String, String, f64, f64, f64)>,
+    last_selected: Option<String>,
+    cached_sparkline: Option<(String, Vec<[f64; 2]>, f64, f64)>,
 }
 
 #[derive(Clone)]
@@ -84,6 +88,10 @@ impl HistoricoTab {
             yahoo_loading: false,
             last_yahoo_fetch: None,
             analytics_cache: HashMap::new(),
+            cached_months: Vec::new(),
+            cached_asset_info: None,
+            last_selected: None,
+            cached_sparkline: None,
         };
         tab.send_load_request();
         tab
@@ -102,6 +110,9 @@ impl HistoricoTab {
     pub fn set_data(&mut self, df: DataFrame) {
         self.data = df;
         self.analytics_cache.clear();
+        self.cached_months.clear();
+        self.cached_asset_info = None;
+        self.last_selected = None;
         // Não processa séries aqui — envia para background thread
         let data = self.data.clone();
         let sender = self.sender.clone();
@@ -134,6 +145,13 @@ impl HistoricoTab {
                 .collect();
             let _ = sender.send(Message::HistoricoSeriesResult(cnpj, series));
         });
+    }
+
+    fn get_months(&mut self) -> Vec<String> {
+        if self.cached_months.is_empty() {
+            self.cached_months = self.extract_months();
+        }
+        self.cached_months.clone()
     }
 
     fn extract_months(&self) -> Vec<String> {
@@ -634,13 +652,20 @@ impl HistoricoTab {
             });
         }
 
-        let yahoo_data: Option<(&DataFrame, f64, f64, f64)> = self
-            .get_asset_info(&self.selected_asset.clone().unwrap_or_default())
-            .and_then(|(_, _, _, vl_merc, vl_aquis, qt_pos)| {
+        // Cache get_asset_info (O(n) — só recalcula quando ativo muda)
+        if self.last_selected.as_deref() != Some(codigo) {
+            self.cached_asset_info =
+                self.get_asset_info(&self.selected_asset.clone().unwrap_or_default());
+            self.last_selected = Some(codigo.to_string());
+        }
+        let yahoo_data: Option<(&DataFrame, f64, f64, f64)> =
+            if let Some((_, _, _, vl_merc, vl_aquis, qt_pos)) = &self.cached_asset_info {
                 self.yahoo_prices
                     .get(codigo)
-                    .map(|prices| (prices, vl_merc, vl_aquis, qt_pos))
-            });
+                    .map(|prices| (prices, *vl_merc, *vl_aquis, *qt_pos))
+            } else {
+                None
+            };
 
         Frame::NONE
             .fill(bg)
@@ -1081,7 +1106,7 @@ impl Tab for HistoricoTab {
                 return;
             }
 
-            let months = self.extract_months();
+            let months = self.get_months();
             let dark = ui.visuals().dark_mode;
 
             // Collect asset items for the left panel (avoid borrow conflict)
