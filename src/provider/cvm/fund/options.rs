@@ -13,6 +13,15 @@ use crate::config::get;
 
 const ROOT: &str = "cvm.fundo.cadastro";
 
+fn cache_options(subdir: &str) -> cached_path::Options {
+    cached_path::Options::default().subdir(subdir)
+}
+
+fn cache_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home).join(".fundos").join("cache")
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Options {
     pub description: String,
@@ -32,10 +41,7 @@ impl Options {
 
         // Baixa o arquivo usando `cached_path`
         let path = spawn_blocking(move || {
-            let res = cached_path_with_options(
-                url.as_str(),
-                &cached_path::Options::default().subdir(&subdir),
-            );
+            let res = cached_path_with_options(url.as_str(), &cache_options(&subdir));
 
             match res {
                 Ok(path) => Ok(path),
@@ -47,20 +53,15 @@ impl Options {
                             err,
                             fb_url
                         );
-                        cached_path_with_options(
-                            fb_url.as_str(),
-                            &cached_path::Options::default().subdir(&subdir),
-                        )
+                        cached_path_with_options(fb_url.as_str(), &cache_options(&subdir))
                     } else {
                         super::set_status("Carregando do cache local (modo offline)...");
                         let cache = Cache::builder()
+                            .dir(cache_dir())
                             .progress_bar(Some(cached_path::ProgressBar::Full))
                             .offline(true)
                             .build()?;
-                        cache.cached_path_with_options(
-                            url.as_str(),
-                            &cached_path::Options::default().subdir(&subdir),
-                        )
+                        cache.cached_path_with_options(url.as_str(), &cache_options(&subdir))
                     }
                 }
             }
@@ -301,11 +302,8 @@ impl Options {
         let subdir = self.path.clone();
 
         let path = spawn_blocking(move || {
-            let c = Cache::builder().offline(true).build()?;
-            c.cached_path_with_options(
-                url.as_str(),
-                &cached_path::Options::default().subdir(&subdir),
-            )
+            let c = Cache::builder().dir(cache_dir()).offline(true).build()?;
+            c.cached_path_with_options(url.as_str(), &cache_options(&subdir))
         })
         .await
         .unwrap()?;
