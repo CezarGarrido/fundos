@@ -100,8 +100,8 @@ impl HistoricoTab {
     fn send_load_request(&self) {
         let end = chrono::Local::now().naive_local().date();
         let start = end
-            .checked_sub_months(chrono::Months::new(24))
-            .unwrap_or(end - chrono::Duration::days(730));
+            .checked_sub_months(chrono::Months::new(12))
+            .unwrap_or(end - chrono::Duration::days(365));
         let _ = self
             .sender
             .send(Message::OpenHistoricoTab(self.cnpj.clone(), start, end));
