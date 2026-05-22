@@ -409,6 +409,7 @@ fn extrapolate_random_forest(
         n_trees,
         max_depth: Some(max_depth),
         seed: 42,
+        keep_samples: true, // necessário para OOB
         ..Default::default()
     };
 
@@ -417,7 +418,8 @@ fn extrapolate_random_forest(
             &x, &targets, rf_params,
         ) {
             Ok(model) => {
-                let preds = model.predict(&x).unwrap_or_else(|_| targets.clone());
+                // OOB: cada árvore vota só nas amostras que NÃO viu no bootstrap
+                let preds = model.predict_oob(&x).unwrap_or_else(|_| targets.clone());
                 let y_mean = targets.iter().sum::<f64>() / m as f64;
                 let ss_res: f64 = targets
                     .iter()
