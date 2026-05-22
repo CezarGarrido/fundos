@@ -820,50 +820,53 @@ impl HistoricoTab {
                             ui.label(RichText::new(format!("≈ {}", val_fmt)).size(11.0).color(tx));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if let Some(ref inf) = analytics.portfolio_inference {
-                                    // Badge 2: Direção do viés
-                                    if inf.z_score > 2.0 || inf.z_score < -2.0 {
-                                        let (dir_color, dir_bg, dir_icon, dir_label) =
-                                            if inf.z_score > 2.0 {
-                                                (
-                                                    green,
-                                                    if dark {
-                                                        Color32::from_rgb(20, 50, 30)
-                                                    } else {
-                                                        Color32::from_rgb(220, 245, 225)
-                                                    },
-                                                    egui_phosphor::regular::ARROW_UP,
-                                                    "Comprando",
-                                                )
-                                            } else {
-                                                (
-                                                    red,
-                                                    if dark {
-                                                        Color32::from_rgb(55, 20, 25)
-                                                    } else {
-                                                        Color32::from_rgb(255, 225, 225)
-                                                    },
-                                                    egui_phosphor::regular::ARROW_DOWN,
-                                                    "Vendendo",
-                                                )
-                                            };
-                                        let dir_text = format!(
-                                            "{} Z={:+.1} {}",
-                                            dir_icon, inf.z_score, dir_label
-                                        );
-                                        Frame::NONE
-                                            .fill(dir_bg)
-                                            .corner_radius(egui::CornerRadius::same(10))
-                                            .inner_margin(egui::Margin::symmetric(6, 2))
-                                            .show(ui, |ui| {
-                                                ui.label(
-                                                    RichText::new(dir_text)
-                                                        .size(10.0)
-                                                        .strong()
-                                                        .color(dir_color),
-                                                );
-                                            });
-                                        ui.add_space(4.0);
-                                    }
+                                    // Badge 2: Direção do viés (sempre visível)
+                                    let (dir_color, dir_bg, dir_icon, dir_label) =
+                                        if inf.z_score > 2.0 {
+                                            (
+                                                green,
+                                                if dark {
+                                                    Color32::from_rgb(20, 50, 30)
+                                                } else {
+                                                    Color32::from_rgb(220, 245, 225)
+                                                },
+                                                egui_phosphor::regular::ARROW_UP,
+                                                "Comprando",
+                                            )
+                                        } else if inf.z_score < -2.0 {
+                                            (
+                                                red,
+                                                if dark {
+                                                    Color32::from_rgb(55, 20, 25)
+                                                } else {
+                                                    Color32::from_rgb(255, 225, 225)
+                                                },
+                                                egui_phosphor::regular::ARROW_DOWN,
+                                                "Vendendo",
+                                            )
+                                        } else {
+                                            (
+                                                tx,
+                                                Color32::TRANSPARENT,
+                                                egui_phosphor::regular::EQUALS,
+                                                "Neutro",
+                                            )
+                                        };
+                                    let dir_text =
+                                        format!("{} Z={:+.1} {}", dir_icon, inf.z_score, dir_label);
+                                    Frame::NONE
+                                        .fill(dir_bg)
+                                        .corner_radius(egui::CornerRadius::same(10))
+                                        .inner_margin(egui::Margin::symmetric(6, 2))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                RichText::new(dir_text)
+                                                    .size(10.0)
+                                                    .strong()
+                                                    .color(dir_color),
+                                            );
+                                        });
+                                    ui.add_space(4.0);
                                     // Badge 1: Estabilidade
                                     let (stab_color, stab_bg) = if inf.stability_score > 0.75 {
                                         (
