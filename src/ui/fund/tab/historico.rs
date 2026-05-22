@@ -817,8 +817,9 @@ impl HistoricoTab {
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     ui.label(
                                         RichText::new(format!(
-                                            "{}  R²={:.2}",
+                                            "{}  {}  R²={:.2}",
                                             egui_phosphor::regular::BRAIN,
+                                            q.method,
                                             q.r_squared.unwrap_or(0.0)
                                         ))
                                         .size(9.0)
