@@ -145,6 +145,8 @@ impl HistoricoTab {
         let df = data
             .clone()
             .lazy()
+            .with_column(col("CD_ATIVO").fill_null(lit("")))
+            .with_column(col("CD_ISIN").fill_null(lit("")))
             .with_column(
                 when(col("CD_ATIVO").neq(lit("")))
                     .then(col("CD_ATIVO"))
