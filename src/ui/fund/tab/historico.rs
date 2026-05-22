@@ -100,8 +100,8 @@ impl HistoricoTab {
     fn send_load_request(&self) {
         let end = chrono::Local::now().naive_local().date();
         let start = end
-            .checked_sub_months(chrono::Months::new(12))
-            .unwrap_or(end - chrono::Duration::days(365));
+            .checked_sub_months(chrono::Months::new(24))
+            .unwrap_or(end - chrono::Duration::days(730));
         let _ = self
             .sender
             .send(Message::OpenHistoricoTab(self.cnpj.clone(), start, end));
@@ -930,9 +930,19 @@ impl HistoricoTab {
                                             },
                                         )
                                     };
+                                    let label = if inf.stability_score > 0.75 {
+                                        "Previsível"
+                                    } else if inf.stability_score > 0.40 {
+                                        "Estável"
+                                    } else if inf.stability_score > 0.15 {
+                                        "Instável"
+                                    } else {
+                                        "Caótico"
+                                    };
                                     let stab_text = format!(
-                                        "{} {:.0}% inferível",
+                                        "{} {} ({:.0}%)",
                                         egui_phosphor::regular::BRAIN,
+                                        label,
                                         inf.stability_score * 100.0
                                     );
                                     Frame::NONE
