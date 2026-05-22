@@ -1224,7 +1224,7 @@ impl Tab for HistoricoTab {
                     (s.label.clone(), s.color, latest)
                 })
                 .collect();
-            asset_items.sort_by_key(|a| a.0.to_lowercase());
+            asset_items.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
             let mut new_selected: Option<String> = None;
             let current_sel = self.selected_asset.clone();
