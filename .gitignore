@@ -16,3 +16,4 @@ target_wasm
 dataset
 *.csv
 *.zip
+*.log

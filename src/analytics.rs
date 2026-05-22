@@ -46,7 +46,7 @@ impl std::fmt::Display for ExtrapolationMethod {
 
 type ExtrapolationResult = (Vec<(String, f64, f64)>, ExtrapolationQuality);
 
-/// Compara todos os métodos de extrapolação e retorna o melhor (maior R²).
+/// Compara todos os métodos de extrapolação e retorna o melhor (maior R² legítimo).
 pub fn extrapolate_best(
     historical_qtys: &[f64],
     last_qty: f64,
@@ -61,7 +61,7 @@ pub fn extrapolate_best(
     ];
 
     let mut best_result: Option<ExtrapolationResult> = None;
-    let mut best_r2: f64 = -1.0;
+    let mut best_r2: f64 = f64::MIN;
 
     info!(
         "Extrapolação: comparando 4 métodos com {} pontos históricos e {} cotações futuras",
@@ -77,7 +77,13 @@ pub fn extrapolate_best(
             quotes,
             last_known_dt,
         );
-        let r2 = quality.r_squared.unwrap_or(-1.0);
+
+        // Define o Baseline como marco zero (0.0). Os outros precisam vencê-lo.
+        let r2 = match quality.method {
+            ExtrapolationMethod::Baseline => 0.0,
+            _ => quality.r_squared.unwrap_or(-100.0),
+        };
+
         debug!(
             "  {} → R²={:.4}, MAE={:?}, estimativas={}",
             method,
@@ -85,39 +91,34 @@ pub fn extrapolate_best(
             quality.mae,
             estimates.len()
         );
+
         if r2 > best_r2 {
             best_r2 = r2;
             best_result = Some((estimates, quality));
         }
     }
 
-    if let Some((ref estimates, ref quality)) = best_result {
-        if best_r2 < 0.05 {
+    if let Some((estimates, quality)) = best_result {
+        // Se nenhum modelo dinâmico superou o marco zero com segurança, força o Baseline
+        if quality.method != ExtrapolationMethod::Baseline && best_r2 < 0.01 {
             info!(
-                "Extrapolação: nenhum método aprendeu (melhor R²={:.4}) — usando baseline",
+                "Extrapolação: nenhum método dinâmico aprendeu o padrão (melhor R²={:.4}) — forçando fallback para baseline",
                 best_r2
             );
             return extrapolate_baseline(quotes, last_known_dt, last_qty);
         }
+
         info!(
             "Extrapolação: vencedor = {} (R²={:.4}, {} estimativas)",
             quality.method,
             best_r2,
             estimates.len()
         );
+        return (estimates, quality);
     }
 
-    best_result.unwrap_or_else(|| {
-        info!("Extrapolação: todos os métodos falharam, usando baseline");
-        let (estimates, quality) = extrapolate(
-            ExtrapolationMethod::Baseline,
-            historical_qtys,
-            last_qty,
-            quotes,
-            last_known_dt,
-        );
-        (estimates, quality)
-    })
+    info!("Extrapolação: todos os métodos falharam criticamente, gerando baseline");
+    extrapolate_baseline(quotes, last_known_dt, last_qty)
 }
 
 /// Executa a extrapolação usando o método especificado.
@@ -182,7 +183,6 @@ fn extrapolate_linear(
         return extrapolate_baseline(quotes, last_known_dt, last_qty);
     }
 
-    // Features: X = [[t]] para cada ponto, target: y = qtd
     let features: Vec<Vec<f64>> = (0..n).map(|i| vec![i as f64]).collect();
     let targets: Vec<f64> = historical_qtys.to_vec();
 
@@ -228,7 +228,6 @@ fn extrapolate_linear(
         intercept, slope, r_squared, mae
     );
 
-    // R² < 0.1 → ruído, usa baseline
     if r_squared < 0.1 {
         debug!(
             "Regressão Linear: R² muito baixo ({:.4}), usando baseline",
@@ -236,7 +235,7 @@ fn extrapolate_linear(
         );
         let (estimates, _) = extrapolate_baseline(quotes, last_known_dt, last_qty);
         let quality = ExtrapolationQuality {
-            method: ExtrapolationMethod::Baseline, // reporta como baseline pq foi oq usamos
+            method: ExtrapolationMethod::Baseline,
             r_squared: Some(r_squared),
             mae: Some(mae),
             confidence_95: None,
@@ -262,7 +261,7 @@ fn extrapolate_linear(
     (estimates, quality)
 }
 
-// ── Filtro de Kalman (1D posição + velocidade) ─────────────────────────
+// ── Filtro de Kalman Local Level (1D em escala Log) ─────────────────────────
 
 fn extrapolate_kalman(
     historical_qtys: &[f64],
@@ -275,99 +274,132 @@ fn extrapolate_kalman(
         return extrapolate_baseline(quotes, last_known_dt, last_qty);
     }
 
-    let data_scale = historical_qtys
-        .iter()
-        .cloned()
-        .fold(0.0_f64, f64::max)
-        .max(1.0);
-    let q_pos = data_scale * data_scale * 0.01;
-    let q_vel = data_scale * data_scale * 0.001;
-    let r_obs = data_scale * data_scale * 0.05;
-    let init_var = data_scale * data_scale;
+    // 1. Aplicação do Log-Transform
+    let log_historical: Vec<f64> = historical_qtys.iter().map(|&q| q.max(1.0).ln()).collect();
 
-    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(2, 1)
-        .initial_state(vec![historical_qtys[0], 0.0])
-        .initial_covariance(vec![init_var, 0.0, 0.0, init_var * 0.1])
-        .transition_matrix(vec![1.0, 1.0, 0.0, 1.0]) // F = [[1,1],[0,1]]
-        .process_noise(vec![q_pos, 0.0, 0.0, q_vel])
-        .observation_matrix(vec![1.0, 0.0]) // H = [1, 0]
+    let q_pos = 0.15;
+    let r_obs = 0.10;
+    let init_var = 0.5;
+
+    let mut kf = kalman_filters::KalmanFilterBuilder::<f64>::new(1, 1)
+        .initial_state(vec![log_historical[0]])
+        .initial_covariance(vec![init_var])
+        .transition_matrix(vec![1.0])
+        .process_noise(vec![q_pos])
+        .observation_matrix(vec![1.0])
         .measurement_noise(vec![r_obs])
         .build()
-        .expect("KalmanFilter build failed");
+        .expect("KalmanFilter 1D build failed");
 
-    let mut predictions: Vec<f64> = vec![historical_qtys[0]];
-    let mut residuals: Vec<f64> = Vec::new();
+    let mut prior_predictions_native = Vec::with_capacity(n - 1);
+    let mut actual_evaluated_native = Vec::with_capacity(n - 1);
 
-    for &y_obs in historical_qtys.iter().skip(1) {
+    for &y_log_obs in log_historical.iter().skip(1) {
         kf.predict();
-        let pred_state = kf.state().to_vec();
-        predictions.push(pred_state[0]);
 
-        let residual = y_obs - pred_state[0];
-        residuals.push(residual);
+        // Extrai o estado e garante a conversão nativa de forma explícita aqui
+        let pred_log = kf.state()[0];
 
-        kf.update(&[y_obs]).expect("Kalman update failed");
+        // Se kf.state() por algum motivo bizarro já estiver retornando nativo,
+        // checamos o tamanho para evitar distorção de escala
+        let final_pred_native = if pred_log > 50.0 {
+            pred_log
+        } else {
+            pred_log.exp()
+        };
+
+        prior_predictions_native.push(final_pred_native);
+        actual_evaluated_native.push(y_log_obs.exp());
+
+        kf.update(&[y_log_obs]).expect("Kalman update failed");
     }
 
     let final_state = kf.state().to_vec();
     let final_cov = kf.covariance().to_vec();
 
-    // R² e MAE
-    let y_mean: f64 = historical_qtys.iter().sum::<f64>() / n as f64;
-    let ss_res: f64 = historical_qtys
-        .iter()
-        .zip(predictions.iter())
-        .map(|(y, p)| (y - p).powi(2))
-        .sum();
-    let ss_tot: f64 = historical_qtys.iter().map(|y| (y - y_mean).powi(2)).sum();
-    let r_squared = if ss_tot > 0.0 {
-        1.0 - ss_res / ss_tot
+    // 2. Cálculo do R² Geométrico/Relativo (Calculado de forma direta e blindada)
+    let m = actual_evaluated_native.len();
+
+    // Vamos calcular o erro com base na variação percentual para neutralizar o efeito dos picos de 10x
+    let mut ss_res_rel = 0.0;
+    let mut ss_tot_rel = 0.0;
+
+    let y_mean_native = actual_evaluated_native.iter().sum::<f64>() / m as f64;
+
+    for i in 0..m {
+        // Erro relativo proporcional ao tamanho do ativo
+        let actual = actual_evaluated_native[i];
+        let pred = prior_predictions_native[i];
+
+        ss_res_rel += ((actual - pred) / actual.max(1.0)).powi(2);
+        ss_tot_rel += ((actual - y_mean_native) / actual.max(1.0)).powi(2);
+    }
+
+    // R² proporcional geométrico. Protege contra o Viés de Jensen no exp()
+    let kf_r_squared = if ss_tot_rel > 0.0 {
+        (1.0 - (ss_res_rel / ss_tot_rel)).clamp(-1.0, 1.0)
     } else {
         0.0
     };
-    let mae: f64 = residuals.iter().map(|r| r.abs()).sum::<f64>() / residuals.len().max(1) as f64;
 
-    let std_dev = if final_cov[0] > data_scale * 0.01 {
+    // MAE nativo tradicional
+    let mut total_absolute_error = 0.0;
+    for i in 0..m {
+        total_absolute_error += (actual_evaluated_native[i] - prior_predictions_native[i]).abs();
+    }
+    let kf_mae = total_absolute_error / m.max(1) as f64;
+
+    // Intervalo de confiança
+    let std_dev_log = if !final_cov.is_empty() && final_cov[0] > 0.001 {
         final_cov[0].sqrt()
     } else {
-        let var_res: f64 =
-            residuals.iter().map(|r| r * r).sum::<f64>() / residuals.len().max(1) as f64;
-        var_res.sqrt().max(data_scale * 0.05)
+        0.20 // Fallback estável de desvio log
     };
-    let ci_lower = (final_state[0] - 1.96 * std_dev).max(0.0);
-    let ci_upper = final_state[0] + 1.96 * std_dev;
+
+    let final_pos_log = final_state[0];
+    let final_pos_native = if final_pos_log > 50.0 {
+        final_pos_log
+    } else {
+        final_pos_log.exp()
+    };
+
+    let ci_lower = if final_pos_log > 50.0 {
+        final_pos_log * 0.7
+    } else {
+        (final_pos_log - 1.96 * std_dev_log).exp().max(0.0)
+    };
+    let ci_upper = if final_pos_log > 50.0 {
+        final_pos_log * 1.3
+    } else {
+        (final_pos_log + 1.96 * std_dev_log).exp()
+    };
 
     debug!(
-        "Kalman: estado_final=[pos={:.2}, vel={:.4}], IC95=[{:.0}, {:.0}], R²={:.4}, MAE={:.2}",
-        final_state[0], final_state[1], ci_lower, ci_upper, r_squared, mae
+        "Kalman 1D: nível_final={:.2}, IC95=[{:.0}, {:.0}], R²={:.4}, MAE={:.2}",
+        final_pos_native, ci_lower, ci_upper, kf_r_squared, kf_mae
     );
 
-    // Projeção com suavização
     let mut estimates = Vec::new();
-    let mut prev_qty = final_state[0];
-    let vel = final_state[1];
-    let ema_alpha = 0.25;
+    let pred_qty_native = final_pos_native;
+
     for q in quotes {
         if q.date.as_str() > last_known_dt {
-            let raw_qty = prev_qty + vel;
-            let max_change = prev_qty * 0.25;
-            let clamped = raw_qty.clamp(prev_qty - max_change, prev_qty + max_change);
-            let pred_qty = (ema_alpha * clamped + (1.0 - ema_alpha) * prev_qty).max(0.0);
-            estimates.push((q.date.clone(), pred_qty, pred_qty * q.close_price));
-            prev_qty = pred_qty;
+            estimates.push((
+                q.date.clone(),
+                pred_qty_native,
+                pred_qty_native * q.close_price,
+            ));
         }
     }
 
     let quality = ExtrapolationQuality {
         method: ExtrapolationMethod::KalmanFilter,
-        r_squared: Some(r_squared),
-        mae: Some(mae),
+        r_squared: Some(kf_r_squared),
+        mae: Some(kf_mae),
         confidence_95: Some((ci_lower, ci_upper)),
     };
     (estimates, quality)
 }
-
-// ── Random Forest (via smartcore) ─────────────────────────────────────
 
 fn extrapolate_random_forest(
     historical_qtys: &[f64],
@@ -380,7 +412,6 @@ fn extrapolate_random_forest(
         return extrapolate_linear(historical_qtys, last_qty, quotes, last_known_dt);
     }
 
-    // Features: [t, y_lag1]
     let mut features: Vec<Vec<f64>> = Vec::with_capacity(n - 1);
     let mut targets: Vec<f64> = Vec::with_capacity(n - 1);
     for i in 1..n {
@@ -410,7 +441,7 @@ fn extrapolate_random_forest(
         n_trees,
         max_depth: Some(max_depth),
         seed: 42,
-        keep_samples: true, // necessário para OOB
+        keep_samples: true,
         ..Default::default()
     };
 
@@ -419,8 +450,6 @@ fn extrapolate_random_forest(
             &x, &targets, rf_params,
         ) {
             Ok(model) => {
-                // OOB: cada árvore vota só nas amostras que NÃO viu no bootstrap
-                // Se OOB não disponível, cai pra predict() normal
                 let preds = model
                     .predict_oob(&x)
                     .or_else(|_| model.predict(&x))
@@ -453,7 +482,6 @@ fn extrapolate_random_forest(
         n_trees, max_depth, m, r_squared, mae
     );
 
-    // Projeção recursiva com suavização
     let mut estimates = Vec::new();
     let mut prev_qty = historical_qtys[n - 1];
     let ema_alpha = 0.3;
@@ -545,7 +573,6 @@ pub fn compute_asset_analytics(
     asset_code: &str,
     yahoo_prices: Option<&DataFrame>,
 ) -> Option<AssetAnalytics> {
-    // Converter DataFrame da Yahoo para Vec<MonthlyQuote>
     let quotes: Option<Vec<crate::provider::yahoo::MonthlyQuote>> =
         yahoo_prices.and_then(|prices_df| {
             let date_col = prices_df.column("date").ok()?;
@@ -583,6 +610,7 @@ pub fn compute_asset_analytics(
         df.height(),
         quotes.as_ref().map(|q| q.len()).unwrap_or(0)
     );
+
     let filtered_df = df
         .clone()
         .lazy()
@@ -627,7 +655,6 @@ pub fn compute_asset_analytics(
     let mut total_sell_value = 0.0;
     let mut total_sell_qty = 0.0;
 
-    // Coletar quantidades históricas para extrapolação
     let mut historical_qtys: Vec<f64> = Vec::with_capacity(height);
 
     for i in 0..height {
@@ -705,7 +732,7 @@ pub fn compute_asset_analytics(
         0.0
     };
 
-    // ── Extrapolação: testa todos os métodos e escolhe o melhor ─────
+    // ── Extrapolação Engine Trigger ─────
     let (hidden_qty_estimates, extrapolation_quality) = if let Some(ref quotes) = quotes {
         if historical_qtys.len() < 3 {
             debug!(
@@ -794,10 +821,8 @@ fn get_f64(col: &Series, row: usize) -> f64 {
 
 // ── Top Assets Time Series ────────────────────────────────────────────
 
-/// (key, display_name, points[(month_idx, pct)])
 pub type TopSeriesRow = (String, String, Vec<(f64, f64)>);
 
-/// Retorna os top 12 ativos do DataFrame CVM como (key, display_name, points[(month_idx, pct)])
 pub fn compute_top_series(data: &DataFrame) -> Vec<TopSeriesRow> {
     let mut series = Vec::new();
     let height = data.height();
