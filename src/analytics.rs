@@ -308,7 +308,25 @@ pub fn infer_portfolio_state(
     let n = historical_qtys.len();
     let baseline_qty = historical_qtys.last().copied().unwrap_or(0.0);
 
+    let qty_min = historical_qtys
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
+    let qty_max = historical_qtys.iter().cloned().fold(0.0_f64, f64::max);
+    info!(
+        "Inferência iniciada: {} meses, qtd=[{:.0}..{:.0}], baseline={:.0}, quotes_futuras={}",
+        n,
+        qty_min,
+        qty_max,
+        baseline_qty,
+        quotes.len()
+    );
+
     if n < 3 {
+        info!(
+            "Inferência: poucos dados ({}), usando trajetória estática",
+            n
+        );
         return PortfolioInference {
             baseline_qty,
             filtered_qty: baseline_qty,
@@ -324,6 +342,11 @@ pub fn infer_portfolio_state(
     // Canal dual: exige integridade total (100% dos meses com PL + Yahoo)
     let has_aux =
         historical_implied.len() == n && historical_implied.iter().all(|&v| v > 0.0 && !v.is_nan());
+    info!(
+        "Inferência: canal dual {} ({} observações implícitas)",
+        if has_aux { "ATIVO" } else { "desligado" },
+        if has_aux { n } else { 0 }
+    );
     let log_implied: Vec<f64> = if has_aux {
         historical_implied
             .iter()
@@ -428,6 +451,19 @@ pub fn infer_portfolio_state(
             kf.predict();
         }
     }
+
+    let first_ci = forward_trajectory.first().map(|f| (f.2, f.3));
+    let last_ci = forward_trajectory.last().map(|f| (f.2, f.3));
+    info!(
+        "Inferência concluída: filtrado={:.0}, estab={:.1}%, viés={:?}, Z={:+.2}, traj={} passos, IC95_inicial={:?}, IC95_final={:?}",
+        filtered_log_qty.exp(),
+        stability_score * 100.0,
+        bias_direction,
+        z_score,
+        forward_trajectory.len(),
+        first_ci,
+        last_ci
+    );
 
     PortfolioInference {
         baseline_qty,
@@ -1113,6 +1149,13 @@ pub fn compute_asset_analytics(
                     } else {
                         vec![]
                     };
+
+                    let implied_count = historical_implied.iter().filter(|v| !v.is_nan()).count();
+                    info!(
+                        "Analytics: observações implícitas geradas: {}/{} meses",
+                        implied_count,
+                        historical_implied.len()
+                    );
 
                     let inference = infer_portfolio_state(
                         &historical_qtys,
