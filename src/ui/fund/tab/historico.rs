@@ -64,6 +64,7 @@ pub struct HistoricoTab {
 
 #[derive(Clone)]
 pub struct MonthlySeries {
+    pub key: String,
     pub label: String,
     pub color: Color32,
     pub points: Vec<(f64, f64)>,
@@ -227,6 +228,7 @@ impl HistoricoTab {
             }
             points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             series.push(MonthlySeries {
+                key: key.clone(),
                 label: name,
                 color: palette[idx % palette.len()],
                 points,
@@ -290,11 +292,7 @@ impl HistoricoTab {
     }
 
     fn render_asset_line_chart(&self, ui: &mut Ui, months: &[String], selected_name: &str) {
-        let series = match self
-            .monthly_series
-            .iter()
-            .find(|s| s.label == selected_name)
-        {
+        let series = match self.monthly_series.iter().find(|s| s.key == selected_name) {
             Some(s) => s,
             None => return,
         };
@@ -332,11 +330,7 @@ impl HistoricoTab {
     }
 
     fn render_pct_stats(&self, ui: &mut Ui, selected_name: &str) {
-        let series = match self
-            .monthly_series
-            .iter()
-            .find(|s| s.label == selected_name)
-        {
+        let series = match self.monthly_series.iter().find(|s| s.key == selected_name) {
             Some(s) => s,
             None => return,
         };
@@ -400,15 +394,8 @@ impl HistoricoTab {
     }
 
     fn render_asset_monthly_table(&self, ui: &mut Ui, months: &[String], selected_name: &str) {
-        let name_to_key: HashMap<String, String> = self
-            .collect_asset_keys()
-            .into_iter()
-            .map(|(k, n)| (n, k))
-            .collect();
-        let asset_key = match name_to_key.get(selected_name) {
-            Some(k) => k.clone(),
-            None => return,
-        };
+        // selected_name já é a chave (CD_ATIVO ou CD_ISIN)
+        let asset_key = selected_name.to_string();
 
         let dt_col = match self.data.column("DT_COMPTC") {
             Ok(c) => c,
@@ -609,84 +596,13 @@ impl HistoricoTab {
             });
     }
 
-    fn collect_asset_keys(&self) -> Vec<(String, String)> {
-        let cd_ativo_col = self.data.column("CD_ATIVO").ok();
-        let cd_isin_col = self.data.column("CD_ISIN").ok();
-        let titpub_col = self.data.column("TP_TITPUB").ok();
-        let ds_ativo_col = self.data.column("DS_ATIVO").ok();
-        let nm_fundo_col = self.data.column("NM_FUNDO_COTA").ok();
-        let aplic_col = self.data.column("TP_APLIC").ok();
-
-        let mut result: Vec<(String, String)> = vec![];
-        for i in 0..self.data.height() {
-            let cd_ativo = cd_ativo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let cd_isin = cd_isin_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let key = if !cd_ativo.is_empty() {
-                cd_ativo.clone()
-            } else if !cd_isin.is_empty() {
-                cd_isin.clone()
-            } else {
-                continue;
-            };
-
-            let titpub = titpub_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let ds_ativo = ds_ativo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let nm_fundo = nm_fundo_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-            let aplic = aplic_col
-                .as_ref()
-                .map(|c| get_str(c, i))
-                .unwrap_or_default();
-
-            let mut name = if !titpub.is_empty() {
-                titpub
-            } else if !ds_ativo.is_empty() {
-                ds_ativo
-            } else if !nm_fundo.is_empty() {
-                nm_fundo
-            } else if !aplic.is_empty() {
-                aplic
-            } else {
-                key.clone()
-            };
-
-            // Coloca a sigla (CD_ATIVO) na frente do nome
-            if !cd_ativo.is_empty() && name != cd_ativo && !name.starts_with(&cd_ativo) {
-                name = format!("{} - {}", cd_ativo, name);
-            }
-
-            if !result.iter().any(|(k, _)| k == &key) {
-                result.push((key, name));
-            }
-        }
-        result
-    }
-
     /// Extract first-row info for the selected asset from raw data
     fn get_asset_info(
         &self,
         selected_name: &str,
     ) -> Option<(String, String, String, f64, f64, f64)> {
-        let name_to_key: HashMap<String, String> = self
-            .collect_asset_keys()
-            .into_iter()
-            .map(|(k, n)| (n, k))
-            .collect();
-        let asset_key = name_to_key.get(selected_name)?.clone();
+        // selected_name já é a chave
+        let asset_key = selected_name.to_string();
         let cd_ativo_col = self.data.column("CD_ATIVO").ok();
         let cd_isin_col = self.data.column("CD_ISIN").ok();
         let tp_ativo_col = self.data.column("TP_ATIVO").ok();
@@ -1216,7 +1132,7 @@ impl Tab for HistoricoTab {
             let dark = ui.visuals().dark_mode;
 
             // Collect asset items for the left panel (avoid borrow conflict)
-            let mut asset_items: Vec<(String, Color32, f64)> = self
+            let mut asset_items: Vec<(String, String, Color32, f64)> = self
                 .monthly_series
                 .iter()
                 .map(|s| {
@@ -1227,10 +1143,10 @@ impl Tab for HistoricoTab {
                         .find(|(_, p)| *p > 0.0)
                         .map(|(_, p)| *p)
                         .unwrap_or(0.0);
-                    (s.label.clone(), s.color, latest)
+                    (s.key.clone(), s.label.clone(), s.color, latest)
                 })
                 .collect();
-            asset_items.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+            asset_items.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
 
             let mut new_selected: Option<String> = None;
             let current_sel = self.selected_asset.clone();
@@ -1255,8 +1171,8 @@ impl Tab for HistoricoTab {
                         ui.add_space(4.0);
 
                         ScrollArea::vertical().show(ui, |ui| {
-                            for (name, color, latest_pct) in &asset_items {
-                                let is_sel = current_sel.as_deref() == Some(name.as_str());
+                            for (key, name, color, latest_pct) in &asset_items {
+                                let is_sel = current_sel.as_deref() == Some(key.as_str());
                                 let sel_bg = if dark {
                                     Color32::from_rgb(30, 42, 68)
                                 } else {
@@ -1321,7 +1237,7 @@ impl Tab for HistoricoTab {
                                 );
 
                                 if resp.clicked() {
-                                    new_selected = Some(name.clone());
+                                    new_selected = Some(key.clone());
                                 }
                             }
                         });
