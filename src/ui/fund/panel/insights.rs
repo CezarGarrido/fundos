@@ -283,18 +283,19 @@ pub fn show_detailed(
                                             if !analytics.hidden_qty_estimates.is_empty() {
                                                 // ── Análise de Integridade da Carteira ────
                                                 if let Some(ref inf) = analytics.portfolio_inference {
-                                                    let score_color = if inf.discrepancy_score < 0.5 {
+                                                    let score_color = if inf.stability_score > 0.7 {
                                                         success_color
-                                                    } else if inf.discrepancy_score < 1.0 {
+                                                    } else if inf.stability_score > 0.4 {
                                                         egui::Color32::from_rgb(230, 126, 34)
                                                     } else {
                                                         egui::Color32::from_rgb(231, 76, 60)
                                                     };
-                                                    ui.label(egui::RichText::new("Integridade:").color(text_color));
+                                                    ui.label(egui::RichText::new("Inferência:").color(text_color));
                                                     ui.label(
                                                         egui::RichText::new(format!(
-                                                            "Score={:.2} — Gestor {}",
-                                                            inf.discrepancy_score,
+                                                            "Estab {:.0}%  Z={:+.1}  {}",
+                                                            inf.stability_score * 100.0,
+                                                            inf.z_score,
                                                             inf.bias_direction
                                                         ))
                                                         .strong()

@@ -821,7 +821,7 @@ impl HistoricoTab {
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 // ── Portfolio Inference Badge ───────
                                 if let Some(ref inf) = analytics.portfolio_inference {
-                                    let (score_color, badge_bg) = if inf.discrepancy_score < 0.5 {
+                                    let (score_color, badge_bg) = if inf.stability_score > 0.7 {
                                         (
                                             green,
                                             if dark {
@@ -830,7 +830,7 @@ impl HistoricoTab {
                                                 Color32::from_rgb(220, 245, 225)
                                             },
                                         )
-                                    } else if inf.discrepancy_score < 1.0 {
+                                    } else if inf.stability_score > 0.4 {
                                         (
                                             purple,
                                             if dark {
@@ -860,11 +860,12 @@ impl HistoricoTab {
                                             egui_phosphor::regular::EQUALS
                                         }
                                     };
-                                    // Badge com fundo sutil
+                                    // Badge: Estabilidade + Z-Score + Viés
                                     let badge_text = format!(
-                                        "{} Score {:.2}  {} {}",
+                                        "{} Estab {:.0}%  Z={:+.1}  {} {}",
                                         egui_phosphor::regular::BRAIN,
-                                        inf.discrepancy_score,
+                                        inf.stability_score * 100.0,
+                                        inf.z_score,
                                         bias_icon,
                                         inf.bias_direction
                                     );
