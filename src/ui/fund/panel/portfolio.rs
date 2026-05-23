@@ -1,6 +1,6 @@
 use crate::{
     message,
-    ui::design::{Components, Typography},
+    ui::design::{Components, Scale, Typography},
     ui::fund::modal::asset_detail::{AssetDetailModal, AssetModalContext},
     ui::loading,
     util,
@@ -31,6 +31,7 @@ pub struct PortfolioUI {
     pub cnpj: String,
     pub sender: Option<UnboundedSender<message::Message>>,
     pub loading: bool,
+    pub loading_status: String,
     pub asset_modal: AssetDetailModal,
     #[allow(dead_code)]
     pub show_insights: bool,
@@ -54,6 +55,7 @@ impl Default for PortfolioUI {
             start_date: "".to_string(),
             filter_date: now_str,
             loading: false,
+            loading_status: "Carregando composição de carteira...".to_string(),
             asset_modal: AssetDetailModal {
                 context: AssetModalContext::FundPortfolio,
                 ..Default::default()
@@ -86,7 +88,7 @@ impl PortfolioUI {
 
                 if self.loading {
                     ui.vertical_centered(|ui| {
-                        loading::show(ui);
+                        loading::show(ui, &self.loading_status);
                     });
                 } else {
                     egui::Panel::top("insights_kpi_panel")
@@ -98,7 +100,7 @@ impl PortfolioUI {
                     egui::Panel::right("insights_detailed_panel")
                         .resizable(true)
                         .min_size(320.0)
-                        .default_size(380.0)
+                        .default_size(Scale::MODAL_NARROW)
                         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 4)))
                         .show_inside(ui, |ui| {
                             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -188,6 +190,7 @@ impl PortfolioUI {
             self.filter_year.clone(),
             self.filter_month.clone(),
         ));
+        self.loading_status = "Baixando composição de carteiras da CVM...".to_string();
         self.loading = true;
     }
 
@@ -216,7 +219,7 @@ impl PortfolioUI {
                 ui.label(
                     egui::RichText::new(egui_phosphor::regular::WARNING.to_string())
                         .color(egui::Color32::from_rgb(250, 185, 80))
-                        .size(48.0),
+                        .size(Scale::ICON_JUMBO),
                 );
                 ui.add_space(15.0);
                 let desc_color = if ui.visuals().dark_mode {
@@ -231,7 +234,7 @@ impl PortfolioUI {
                 ui.label(
                     egui::RichText::new("Não há registros de composição de ativos para a data selecionada.")
                         .color(desc_color)
-                        .size(13.0)
+                        .size(Scale::DEFAULT.button())
                 );
                 ui.add_space(10.0);
                 ui.weak("Certifique-se de que a CVM publicou os dados mensais para este período ou verifique sua conexão.");
@@ -268,19 +271,19 @@ impl PortfolioUI {
                         .column(Column::remainder().at_least(120.0))
                         .resizable(false)
                         .sense(Sense::click())
-                        .header(20.0, |mut header| {
+                        .header(Scale::DEFAULT.table_header_height(), |mut header| {
                             header.col(|ui| {
-                                ui.label(egui::RichText::new("Classe").size(11.0).strong());
+                                ui.label(egui::RichText::new("Classe").size(Scale::DEFAULT.label()).strong());
                             });
                             header.col(|ui| {
-                                ui.label(egui::RichText::new("Valor").size(11.0).strong());
+                                ui.label(egui::RichText::new("Valor").size(Scale::DEFAULT.label()).strong());
                             });
                             header.col(|ui| {
-                                ui.label(egui::RichText::new("% PL").size(11.0).strong());
+                                ui.label(egui::RichText::new("% PL").size(Scale::DEFAULT.label()).strong());
                             });
                         })
                         .body(|body| {
-                            body.rows(20.0, nr_rows, |mut row| {
+                            body.rows(Scale::DEFAULT.table_row_height(), nr_rows, |mut row| {
                                 let row_index = row.index();
                                 row.set_selected(self.tp_aplic_selected.contains(&row_index));
                                 for col in &cols {
@@ -317,7 +320,7 @@ impl PortfolioUI {
                                                         |ui| {
                                                             ui.label(
                                                                 egui::RichText::new(r.format())
-                                                                    .size(11.0),
+                                                                    .size(Scale::DEFAULT.label()),
                                                             );
                                                         },
                                                     );
@@ -326,11 +329,11 @@ impl PortfolioUI {
                                                         ui.label(
                                                             egui::RichText::new("●")
                                                                 .color(colors[row_index])
-                                                                .size(11.0),
+                                                                .size(Scale::DEFAULT.label()),
                                                         );
                                                         ui.label(
                                                             egui::RichText::new(value_str)
-                                                                .size(11.0),
+                                                                .size(Scale::DEFAULT.label()),
                                                         );
                                                     });
                                                 }
@@ -432,7 +435,7 @@ impl PortfolioUI {
                             egui::RichText::new(
                                 egui_phosphor::regular::MAGNIFYING_GLASS.to_string(),
                             )
-                            .size(14.0),
+                            .size(Scale::ICON_SMALL),
                         );
                         ui.add(
                             egui::TextEdit::singleline(&mut self.search_query)
@@ -466,7 +469,7 @@ impl PortfolioUI {
                                         .resizable(false)
                                         .clip(true),
                                 )
-                                .header(20.0, |mut header| {
+                                .header(Scale::DEFAULT.table_header_height(), |mut header| {
                                     header.col(|ui| {
                                         ui.label("Aplicação");
                                     });
@@ -486,7 +489,7 @@ impl PortfolioUI {
                                     });
                                 })
                                 .body(|body| {
-                                    body.rows(20.0, nr_rows, |mut row| {
+                                    body.rows(Scale::DEFAULT.table_row_height(), nr_rows, |mut row| {
                                         let row_index = row.index();
                                         for (i, col_name) in cols.iter().enumerate() {
                                             row.col(|ui| {

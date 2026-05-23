@@ -1,3 +1,4 @@
+use crate::ui::design::Scale;
 use crate::util;
 use egui::Ui;
 use polars::prelude::*;
@@ -29,19 +30,19 @@ pub fn show_kpis(assets: &DataFrame, pl: &DataFrame, ui: &mut Ui) {
             ui.label(
                 egui::RichText::new(egui_phosphor::regular::LIGHTBULB.to_string())
                     .color(egui::Color32::from_rgb(250, 185, 80))
-                    .size(48.0),
+                    .size(Scale::ICON_JUMBO),
             );
             ui.add_space(15.0);
             ui.heading(
                 egui::RichText::new("Aguardando Dados da Carteira")
                     .color(heading_color)
-                    .size(18.0)
+                    .size(Scale::DEFAULT.metric())
             );
             ui.add_space(8.0);
             ui.label(
                 egui::RichText::new("Por favor, selecione e carregue uma data de referência na aba 'Carteira' primeiro para gerar os insights automáticos da carteira.")
                     .color(secondary_color)
-                    .size(13.0)
+                    .size(Scale::DEFAULT.button())
             );
         });
         return;
@@ -149,7 +150,7 @@ pub fn show_detailed(
                             "{} Posição de Maior Convicção",
                             egui_phosphor::regular::TARGET
                         ))
-                        .size(14.0)
+                        .size(Scale::DEFAULT.body())
                         .strong()
                         .color(heading_color)
                     );
@@ -159,7 +160,7 @@ pub fn show_detailed(
                     if let Some(pos) = &max_pos {
                         ui.label(
                             egui::RichText::new(&pos.name)
-                                .size(13.0)
+                                .size(Scale::DEFAULT.button())
                                 .strong()
                                 .color(ui.visuals().selection.bg_fill)
                         );
@@ -234,7 +235,7 @@ pub fn show_detailed(
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new(egui_phosphor::regular::SHIELD_CHECK.to_string()).color(success_color));
-                                ui.label(egui::RichText::new("Análise de Risco de Liquidez").strong().size(12.0).color(heading_color));
+                                ui.label(egui::RichText::new("Análise de Risco de Liquidez").strong().size(Scale::DEFAULT.small_text()).color(heading_color));
                             });
                             ui.separator();
                             let msg = if pos.pct > 20.0 {
@@ -244,7 +245,7 @@ pub fn show_detailed(
                             } else {
                                 "CONCORDÂNCIA: A maior posição está perfeitamente enquadrada abaixo do limite prudencial padrão de 10% por ativo/emissor privado. Gestão adota um modelo equilibrado de diversificação."
                             };
-                            ui.label(egui::RichText::new(msg).size(11.0).color(text_color));
+                            ui.label(egui::RichText::new(msg).size(Scale::DEFAULT.label()).color(text_color));
                         });
 
                         ui.add_space(15.0);
@@ -255,7 +256,7 @@ pub fn show_detailed(
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new(egui_phosphor::regular::BRAIN.to_string()).color(egui::Color32::from_rgb(155, 89, 182)));
-                                ui.label(egui::RichText::new("Comportamento do Gestor (Analytics)").strong().size(12.0).color(heading_color));
+                                ui.label(egui::RichText::new("Comportamento do Gestor (Analytics)").strong().size(Scale::DEFAULT.small_text()).color(heading_color));
                             });
                             ui.separator();
 
@@ -330,9 +331,9 @@ pub fn show_detailed(
                                 } else {
                                     let is_generic = pos.codigo.len() < 4 || pos.codigo.contains("Ações") || pos.codigo.contains("Operações");
                                     if is_generic {
-                                        ui.label(egui::RichText::new(format!("A maior exposição ('{}') é uma classe genérica ou está sob sigilo recente da CVM. Não é possível traçar o perfil do ativo.", pos.name)).size(11.0).color(secondary_color));
+                                        ui.label(egui::RichText::new(format!("A maior exposição ('{}') é uma classe genérica ou está sob sigilo recente da CVM. Não é possível traçar o perfil do ativo.", pos.name)).size(Scale::DEFAULT.label()).color(secondary_color));
                                     } else {
-                                        ui.label(egui::RichText::new("Dados históricos insuficientes para calcular análise comportamental deste ativo.").size(11.0).color(secondary_color));
+                                        ui.label(egui::RichText::new("Dados históricos insuficientes para calcular análise comportamental deste ativo.").size(Scale::DEFAULT.label()).color(secondary_color));
                                     }
                                 }
                             } else {
@@ -356,7 +357,7 @@ pub fn show_detailed(
                             "{} Alocação de Prazo e Liquidez",
                             egui_phosphor::regular::CLOCK
                         ))
-                        .size(14.0)
+                        .size(Scale::DEFAULT.body())
                         .strong()
                         .color(heading_color)
                     );
@@ -371,9 +372,9 @@ pub fn show_detailed(
                     let short_ratio = if total_pct > 0.0 { short_term_pct / total_pct } else { 0.5 };
 
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Liquidez / Curto Prazo").size(11.0).color(secondary_color));
+                        ui.label(egui::RichText::new("Liquidez / Curto Prazo").size(Scale::DEFAULT.label()).color(secondary_color));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new("Estratégico / Longo Prazo").size(11.0).color(secondary_color));
+                            ui.label(egui::RichText::new("Estratégico / Longo Prazo").size(Scale::DEFAULT.label()).color(secondary_color));
                         });
                     });
 
@@ -400,20 +401,20 @@ pub fn show_detailed(
                             egui::RichText::new(format!("● {:.1}%", short_term_pct))
                                 .color(success_color)
                                 .strong()
-                                .size(12.0),
+                                .size(Scale::DEFAULT.small_text()),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
                                 egui::RichText::new(format!("● {:.1}%", long_term_pct))
                                     .color(orange_color)
                                     .strong()
-                                    .size(12.0),
+                                    .size(Scale::DEFAULT.small_text()),
                             );
                         });
                     });
 
                     ui.add_space(20.0);
-                    ui.label(egui::RichText::new("Interpretação da Duration / Liquidez:").strong().size(12.0).color(heading_color));
+                    ui.label(egui::RichText::new("Interpretação da Duration / Liquidez:").strong().size(Scale::DEFAULT.small_text()).color(heading_color));
                     ui.separator();
                     let profile_msg = if short_term_pct > 70.0 {
                         "CARTEIRA ULTRA-LÍQUIDA: Mais de 70% da carteira está alocada em instrumentos de alta liquidez e curtíssimo prazo (como Títulos Públicos federais Selic e caixa imediato). Este perfil apresenta volatilidade mínima, protegendo o cotista de riscos de taxas de juros de mercado futuras."
@@ -422,7 +423,7 @@ pub fn show_detailed(
                     } else {
                         "PERFIL EQUILIBRADO / HÍBRIDO: O fundo equilibra o caixa e liquidez rápida (cerca de metade da carteira) com investimentos estruturais de longo prazo para buscar Alfa sem comprometer as janelas de resgate rápidas."
                     };
-                    ui.label(egui::RichText::new(profile_msg).size(11.0).color(text_color));
+                    ui.label(egui::RichText::new(profile_msg).size(Scale::DEFAULT.label()).color(text_color));
             // Fim Coluna Direita
                 });
     });
@@ -443,18 +444,12 @@ fn get_largest_position(assets: &DataFrame) -> Option<LargestPos> {
     }
 
     let pct_col = assets.column("VL_PORCENTAGEM_PL").ok()?;
-    let mut max_idx = 0;
-    let mut max_val = -1.0;
-
-    for i in 0..pct_col.len() {
-        if let Ok(val) = pct_col.get(i) {
-            let val_f64 = val.try_extract::<f64>().unwrap_or(0.0);
-            if val_f64 > max_val {
-                max_val = val_f64;
-                max_idx = i;
-            }
-        }
-    }
+    let max_idx = pct_col.arg_max()?;
+    let max_val = pct_col
+        .get(max_idx)
+        .ok()
+        .and_then(|v| v.try_extract::<f64>().ok())
+        .unwrap_or(0.0);
 
     if max_val <= 0.0 {
         return None;
@@ -534,21 +529,11 @@ fn get_unique_assets_count(assets: &DataFrame) -> usize {
         return 0;
     }
 
-    if let Ok(col) = assets.column("CD_ATIVO") {
-        let mut set = std::collections::HashSet::new();
-        for i in 0..col.len() {
-            if let Ok(val) = col.get(i) {
-                if let Some(s) = val.get_str() {
-                    set.insert(s.to_string());
-                }
-            }
-        }
-        if !set.is_empty() {
-            return set.len();
-        }
-    }
-
-    assets.height()
+    assets
+        .column("CD_ATIVO")
+        .ok()
+        .and_then(|c| c.n_unique().ok())
+        .unwrap_or_else(|| assets.height())
 }
 
 fn get_pl_value(pl: &DataFrame) -> f64 {
@@ -573,48 +558,71 @@ fn get_duration_split(assets: &DataFrame) -> (f64, f64) {
         return (0.0, 0.0);
     }
 
-    let mut short_term = 0.0;
-    let mut long_term = 0.0;
+    // Single Polars pass: conditional sum for short vs long term classification
+    let result = assets
+        .clone()
+        .lazy()
+        .with_column(
+            col("TP_APLIC")
+                .str()
+                .to_lowercase()
+                .str()
+                .contains(lit("títulos públicos"), false)
+                .or(col("TP_APLIC")
+                    .str()
+                    .to_lowercase()
+                    .str()
+                    .contains(lit("operações compromissadas"), false))
+                .or(col("TP_APLIC")
+                    .str()
+                    .to_lowercase()
+                    .str()
+                    .contains(lit("caixa"), false))
+                .or(col("TP_APLIC")
+                    .str()
+                    .to_lowercase()
+                    .str()
+                    .contains(lit("disponibilidades"), false))
+                .or(col("TP_APLIC")
+                    .str()
+                    .to_lowercase()
+                    .str()
+                    .contains(lit("renda fixa"), false))
+                .alias("is_short"),
+        )
+        .select([
+            col("VL_PORCENTAGEM_PL")
+                .filter(col("is_short").eq(lit(true)))
+                .sum()
+                .alias("short_term"),
+            col("VL_PORCENTAGEM_PL")
+                .filter(col("is_short").eq(lit(false)))
+                .sum()
+                .alias("long_term"),
+        ])
+        .collect();
 
-    let tp_aplic_col = assets.column("TP_APLIC").ok();
-    let pct_col = assets.column("VL_PORCENTAGEM_PL").ok();
-
-    if let (Some(tp_col), Some(p_col)) = (tp_aplic_col, pct_col) {
-        for i in 0..assets.height() {
-            let tp_val = tp_col
-                .get(i)
+    match result {
+        Ok(df) => {
+            let short = df
+                .column("short_term")
                 .ok()
-                .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                .unwrap_or_default();
-            let pct_val = p_col
-                .get(i)
-                .ok()
-                .and_then(|v| {
-                    v.try_extract::<f64>().ok().or_else(|| {
-                        v.get_str()
-                            .and_then(|s| s.replace(',', ".").parse::<f64>().ok())
-                    })
-                })
+                .and_then(|c| c.get(0).ok())
+                .and_then(|v| v.try_extract::<f64>().ok())
                 .unwrap_or(0.0);
-
-            let is_short = tp_val.contains("títulos públicos")
-                || tp_val.contains("operações compromissadas")
-                || tp_val.contains("caixa")
-                || tp_val.contains("disponibilidades")
-                || tp_val.contains("renda fixa");
-
-            if is_short {
-                short_term += pct_val;
+            let long = df
+                .column("long_term")
+                .ok()
+                .and_then(|c| c.get(0).ok())
+                .and_then(|v| v.try_extract::<f64>().ok())
+                .unwrap_or(0.0);
+            if short == 0.0 && long == 0.0 {
+                (50.0, 50.0)
             } else {
-                long_term += pct_val;
+                (short, long)
             }
         }
-    }
-
-    if short_term == 0.0 && long_term == 0.0 {
-        (50.0, 50.0)
-    } else {
-        (short_term, long_term)
+        Err(_) => (0.0, 0.0),
     }
 }
 
@@ -653,18 +661,18 @@ fn draw_kpi_card(
                 ui.vertical(|ui| {
                     ui.label(
                         egui::RichText::new(title)
-                            .size(9.0)
+                            .size(Scale::DEFAULT.label_mini())
                             .strong()
                             .color(desc_color),
                     );
                     ui.label(
                         egui::RichText::new(value)
-                            .size(17.0)
+                            .size(Scale::DEFAULT.metric())
                             .strong()
                             .color(text_color),
                     );
                     ui.add_space(2.0);
-                    ui.label(egui::RichText::new(description).size(9.5).color(desc_color));
+                    ui.label(egui::RichText::new(description).size(Scale::DEFAULT.description()).color(desc_color));
                 });
             });
         });

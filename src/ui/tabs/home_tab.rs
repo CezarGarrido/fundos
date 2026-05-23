@@ -1,3 +1,4 @@
+use crate::ui::design::Scale;
 use super::Tab;
 use crate::{history::History, message::Message};
 use chrono::{Duration, Local, Months};
@@ -44,7 +45,7 @@ impl Tab for HomeTab {
 
                 ui.label(
                     egui::RichText::new(egui_phosphor::regular::CHART_LINE_UP.to_string())
-                        .size(52.0)
+                        .size(Scale::ICON_BRAND)
                         .color(brand_color),
                 );
 
@@ -53,7 +54,7 @@ impl Tab for HomeTab {
                 // 2. Título principal
                 ui.label(
                     egui::RichText::new("Fundos")
-                        .size(24.0)
+                        .size(Scale::DEFAULT.heading_1())
                         .strong()
                         .color(if is_dark {
                             egui::Color32::WHITE
@@ -105,7 +106,7 @@ impl Tab for HomeTab {
 
                     ui.label(
                         egui::RichText::new("VISTO RECENTEMENTE")
-                            .size(10.0)
+                            .size(Scale::DEFAULT.badge())
                             .strong()
                             .color(if is_dark {
                                 egui::Color32::from_rgb(100, 100, 100)
@@ -164,7 +165,7 @@ fn draw_menu_item(ui: &mut egui::Ui, label: &str, shortcut_keys: &[&str]) -> boo
                 // Left aligned: label
                 ui.label(
                     egui::RichText::new(label)
-                        .size(13.0)
+                        .size(Scale::DEFAULT.button())
                         .color(if response.hovered() {
                             if is_dark {
                                 egui::Color32::WHITE
@@ -221,7 +222,7 @@ fn draw_menu_item(ui: &mut egui::Ui, label: &str, shortcut_keys: &[&str]) -> boo
                         );
 
                         if i < shortcut_keys.len() - 1 {
-                            ui.label(egui::RichText::new("+").size(10.0).weak());
+                            ui.label(egui::RichText::new("+").size(Scale::DEFAULT.badge()).weak());
                         }
                     }
                 });
@@ -257,7 +258,7 @@ fn draw_recent_item(ui: &mut egui::Ui, name: &str, cnpj: &str) -> bool {
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(name)
-                        .size(12.0)
+                        .size(Scale::DEFAULT.small_text())
                         .color(if response.hovered() {
                             if is_dark {
                                 egui::Color32::WHITE
@@ -279,7 +280,7 @@ fn draw_recent_item(ui: &mut egui::Ui, name: &str, cnpj: &str) -> bool {
                         egui::RichText::new(
                             egui_phosphor::regular::ARROW_SQUARE_UP_RIGHT.to_string(),
                         )
-                        .size(11.0)
+                        .size(Scale::DEFAULT.label())
                         .weak(),
                     );
                 });

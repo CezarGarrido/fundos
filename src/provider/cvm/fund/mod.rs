@@ -12,9 +12,11 @@ use polars::{
 };
 use std::sync::RwLock;
 
+#[allow(dead_code)]
 pub static LOADING_STATUS: Lazy<RwLock<String>> =
     Lazy::new(|| RwLock::new("Aguardando...".to_string()));
 
+#[allow(dead_code)]
 pub fn set_status(s: &str) {
     if let Ok(mut guard) = LOADING_STATUS.write() {
         *guard = s.to_string();

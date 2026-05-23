@@ -1,9 +1,11 @@
+use crate::ui::design::Scale;
 use chrono::{Datelike, Local, NaiveDate};
 
 use egui::{Sense, Ui, Widget, WidgetText};
 use egui_extras::{Column, DatePickerButton, TableBuilder};
 use jiff::civil::{date as jiff_date, Date as JiffDate};
 use polars::frame::DataFrame;
+use polars::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -22,6 +24,7 @@ pub struct AssetsMarketTab {
     pub end_date: JiffDate,
     pub filter_type: String, // "" = all
     pub search_text: String,
+    pub active_preset_months: u32, // 0 = custom date range
     // detail modal
     pub selected_row: Option<usize>,
     pub asset_modal: AssetDetailModal,
@@ -56,6 +59,7 @@ impl AssetsMarketTab {
             end_date: end,
             filter_type: String::new(),
             search_text: String::new(),
+            active_preset_months: 3,
             selected_row: None,
             asset_modal: AssetDetailModal::default(),
         }
@@ -71,108 +75,97 @@ impl AssetsMarketTab {
         let Ok(col) = self.data.column("TP_APLIC") else {
             return vec![];
         };
-        let mut types: Vec<String> = (0..col.len())
-            .filter_map(|i| col.get(i).ok()?.get_str().map(|s| s.to_string()))
+        let unique_series = match col.unique() {
+            Ok(s) => s,
+            Err(_) => return vec![],
+        };
+        let mut types: Vec<String> = (0..unique_series.len())
+            .filter_map(|i| unique_series.get(i).ok()?.get_str().map(|s| s.to_string()))
             .filter(|s| !s.is_empty())
             .collect();
         types.sort();
-        types.dedup();
         types
     }
 
-    // Filter rows based on current search_text and filter_type
+    // Filter rows using Polars lazy engine — builds boolean mask, O(n) extraction only
     fn filtered_rows(&self) -> Vec<usize> {
         let height = self.data.height();
         if height == 0 {
             return vec![];
         }
+        if self.filter_type.is_empty() && self.search_text.is_empty() {
+            return (0..height).collect();
+        }
 
-        let tp_col = self.data.column("TP_APLIC").ok();
-        let isin_col = self.data.column("CD_ISIN").ok();
-        let nome_col = self.data.column("TP_TITPUB").ok();
-        let ativo_col = self.data.column("TP_ATIVO").ok();
-        let cd_ativo_col = self.data.column("CD_ATIVO").ok();
-        let ds_ativo_col = self.data.column("DS_ATIVO").ok();
-        let nm_fundo_col = self.data.column("NM_FUNDO_COTA").ok();
-        let cd_selic_col = self.data.column("CD_SELIC").ok();
+        let mask = match self.build_filter_mask_expr() {
+            Some(expr) => match self
+                .data
+                .clone()
+                .lazy()
+                .select([expr.alias("_mask")])
+                .collect()
+            {
+                Ok(df) => df,
+                Err(_) => return vec![],
+            },
+            None => return vec![],
+        };
 
-        let search = self.search_text.to_lowercase();
-
+        let mask_col = mask.column("_mask").unwrap();
         (0..height)
             .filter(|&i| {
-                // type filter
-                if !self.filter_type.is_empty() {
-                    let tp = tp_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_string()))
-                        .unwrap_or_default();
-                    if tp != self.filter_type {
-                        return false;
-                    }
-                }
-
-                // text search
-                if !search.is_empty() {
-                    let isin = isin_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    let nome = nome_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    let ativo = ativo_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    let aplic = tp_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    let cd_ativo = cd_ativo_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    let ds_ativo = ds_ativo_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    let nm_fundo = nm_fundo_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    let cd_selic = cd_selic_col
-                        .as_ref()
-                        .and_then(|c| c.get(i).ok())
-                        .and_then(|v| v.get_str().map(|s| s.to_lowercase()))
-                        .unwrap_or_default();
-                    if !isin.contains(&search)
-                        && !nome.contains(&search)
-                        && !ativo.contains(&search)
-                        && !aplic.contains(&search)
-                        && !cd_ativo.contains(&search)
-                        && !ds_ativo.contains(&search)
-                        && !nm_fundo.contains(&search)
-                        && !cd_selic.contains(&search)
-                    {
-                        return false;
-                    }
-                }
-                true
+                mask_col
+                    .get(i)
+                    .ok()
+                    .map(|v| matches!(v, polars::prelude::AnyValue::Boolean(true)))
+                    .unwrap_or(false)
             })
             .collect()
     }
 
+    fn build_filter_mask_expr(&self) -> Option<Expr> {
+        let mut conditions: Vec<Expr> = Vec::new();
+
+        if !self.filter_type.is_empty() {
+            conditions.push(col("TP_APLIC").eq(lit(self.filter_type.clone())));
+        }
+
+        let search = self.search_text.to_lowercase();
+        if !search.is_empty() {
+            let s = search.clone();
+            // Only OR across columns that actually exist in the data
+            let searchable_cols: &[&str] = &[
+                "CD_ISIN",
+                "TP_TITPUB",
+                "TP_ATIVO",
+                "TP_APLIC",
+                "CD_ATIVO",
+                "DS_ATIVO",
+                "NM_FUNDO_COTA",
+                "CD_SELIC",
+            ];
+            let existing: Vec<Expr> = searchable_cols
+                .iter()
+                .filter(|c| self.data.column(**c).is_ok())
+                .map(|c| {
+                    col(*c)
+                        .str()
+                        .to_lowercase()
+                        .str()
+                        .contains(lit(s.as_str()), false)
+                })
+                .collect();
+            if let Some(text_filter) = existing.into_iter().reduce(|a, b| a.or(b)) {
+                conditions.push(text_filter);
+            }
+        }
+
+        conditions.into_iter().reduce(|a, b| a.and(b))
+    }
+
     // Trigger load with current date range
     fn trigger_load(&mut self) {
+        self.active_preset_months = 0; // custom date range
         let start_chrono = NaiveDate::from_ymd_opt(
             self.start_date.year() as i32,
             self.start_date.month() as u32,
@@ -194,6 +187,7 @@ impl AssetsMarketTab {
 
     // Apply a date preset and trigger load
     fn apply_preset(&mut self, months_back: u32) {
+        self.active_preset_months = months_back;
         let now = Local::now().naive_local().date();
         let end = jiff_date(now.year() as i16, now.month() as i8, now.day() as i8);
         let start = end
@@ -224,13 +218,28 @@ impl AssetsMarketTab {
             ui.set_min_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 // Label de período
-                ui.label(egui::RichText::new("PERÍODO").size(11.0).strong());
+                ui.label(egui::RichText::new("PERÍODO").size(Scale::DEFAULT.label()).strong());
                 ui.add_space(4.0);
 
                 // Preset buttons styled as pills
                 let dark = ui.visuals().dark_mode;
                 for (label, months) in &[("3M", 3u32), ("6M", 6), ("1A", 12), ("2A", 24)] {
-                    if Components::ghost_button(ui, label, dark).clicked() {
+                    let active = self.active_preset_months == *months;
+                    let resp = if active {
+                        ui.add(
+                            egui::Button::new(
+                                egui::RichText::new(*label)
+                                    .size(Scale::DEFAULT.small_text())
+                                    .strong()
+                                    .color(ui.visuals().window_fill),
+                            )
+                            .fill(ui.visuals().text_color())
+                            .corner_radius(egui::CornerRadius::same(4)),
+                        )
+                    } else {
+                        Components::ghost_button(ui, label, dark)
+                    };
+                    if resp.clicked() {
                         self.apply_preset(*months);
                     }
                 }
@@ -240,12 +249,12 @@ impl AssetsMarketTab {
                 ui.add_space(8.0);
 
                 // Date range inputs
-                ui.label(egui::RichText::new("De:").size(11.0));
+                ui.label(egui::RichText::new("De:").size(Scale::DEFAULT.label()));
                 DatePickerButton::new(&mut self.start_date)
                     .id_salt("ativos_start_date")
                     .ui(ui);
-                ui.label(egui::RichText::new("→").size(12.0).weak());
-                ui.label(egui::RichText::new("Até:").size(11.0));
+                ui.label(egui::RichText::new("→").size(Scale::DEFAULT.small_text()).weak());
+                ui.label(egui::RichText::new("Até:").size(Scale::DEFAULT.label()));
                 DatePickerButton::new(&mut self.end_date)
                     .id_salt("ativos_end_date")
                     .ui(ui);
@@ -268,11 +277,11 @@ impl AssetsMarketTab {
                 ui.add_space(5.0);
 
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("TIPO").size(11.0).strong());
+                    ui.label(egui::RichText::new("TIPO").size(Scale::DEFAULT.label()).strong());
                     ui.add_space(6.0);
                     let all_selected = self.filter_type.is_empty();
                     if ui
-                        .selectable_label(all_selected, egui::RichText::new("Todos").size(11.0))
+                        .selectable_label(all_selected, egui::RichText::new("Todos").size(Scale::DEFAULT.label()))
                         .clicked()
                     {
                         self.filter_type.clear();
@@ -280,7 +289,7 @@ impl AssetsMarketTab {
                     for tp in self.available_types() {
                         let selected = self.filter_type == tp;
                         if ui
-                            .selectable_label(selected, egui::RichText::new(&tp).size(11.0))
+                            .selectable_label(selected, egui::RichText::new(&tp).size(Scale::DEFAULT.label()))
                             .clicked()
                         {
                             self.filter_type = if selected { String::new() } else { tp };
@@ -386,16 +395,16 @@ impl AssetsMarketTab {
                                     card_idx + 1,
                                     &display_nome[..display_nome.len().min(28)]
                                 ))
-                                .size(11.0)
+                                .size(Scale::DEFAULT.label())
                                 .strong(),
                             );
                         });
                         ui.add_space(2.0);
                         if !codigo.is_empty() {
-                            ui.label(egui::RichText::new(format!("ISIN: {}", codigo)).size(10.0));
+                            ui.label(egui::RichText::new(format!("ISIN: {}", codigo)).size(Scale::DEFAULT.badge()));
                         }
                         if !venc.is_empty() {
-                            ui.label(egui::RichText::new(format!("Venc: {}", venc)).size(10.0));
+                            ui.label(egui::RichText::new(format!("Venc: {}", venc)).size(Scale::DEFAULT.badge()));
                         }
                         ui.separator();
 
@@ -488,7 +497,7 @@ impl AssetsMarketTab {
             .sense(Sense::click())
             .column(Column::exact(36.0))
             .column(Column::initial(130.0).at_least(90.0))
-            .column(Column::initial(200.0).at_least(100.0))
+            .column(Column::initial(Scale::COLUMN_MIN).at_least(100.0))
             .column(Column::initial(120.0).at_least(80.0))
             .column(Column::initial(70.0).at_least(50.0))
             .column(Column::initial(70.0).at_least(50.0))
@@ -500,7 +509,7 @@ impl AssetsMarketTab {
             .column(Column::initial(105.0).at_least(75.0))
             .column(Column::initial(105.0).at_least(75.0))
             .column(Column::remainder().at_least(85.0))
-            .header(26.0, |mut header| {
+            .header(Scale::DEFAULT.table_header_height(), |mut header| {
                 let headers = [
                     "#",
                     "Código",
@@ -519,13 +528,13 @@ impl AssetsMarketTab {
                 ];
                 for h in headers.iter() {
                     header.col(|ui| {
-                        ui.label(egui::RichText::new(*h).size(12.0).strong());
+                        ui.label(egui::RichText::new(*h).size(Scale::DEFAULT.small_text()).strong());
                     });
                 }
             })
             .body(|body| {
                 let row_count = rows.len().min(500);
-                body.rows(20.0, row_count, |mut row| {
+                body.rows(Scale::DEFAULT.table_row_height(), row_count, |mut row| {
                     let rank = row.index();
                     let data_row = rows[rank];
 
@@ -554,26 +563,26 @@ impl AssetsMarketTab {
                                 txt_color,
                             );
                         } else {
-                            ui.label(egui::RichText::new(label).size(11.0));
+                            ui.label(egui::RichText::new(label).size(Scale::DEFAULT.label()));
                         }
                     });
 
                     // Código (ISIN preferred)
                     row.col(|ui| {
                         let display = code_or_fallback(data_row);
-                        ui.label(egui::RichText::new(&display).size(11.0).monospace());
+                        ui.label(egui::RichText::new(&display).size(Scale::DEFAULT.label()).monospace());
                     });
 
                     // Nome
                     row.col(|ui| {
                         let display = name_or_fallback(data_row);
-                        ui.label(egui::RichText::new(display).size(11.0))
+                        ui.label(egui::RichText::new(display).size(Scale::DEFAULT.label()))
                             .on_hover_text(get_str(&titpub_col, data_row));
                     });
 
                     // Tipo (TP_APLIC)
                     row.col(|ui| {
-                        ui.label(egui::RichText::new(get_str(&tp_aplic_col, data_row)).size(10.5));
+                        ui.label(egui::RichText::new(get_str(&tp_aplic_col, data_row)).size(Scale::DEFAULT.table_cell()));
                     });
 
                     // N Fundos
@@ -581,7 +590,7 @@ impl AssetsMarketTab {
                         let v = get_u64(&n_fundos_col, data_row);
                         ui.label(
                             egui::RichText::new(format!("{}", v))
-                                .size(10.5)
+                                .size(Scale::DEFAULT.table_cell())
                                 .strong()
                                 .color(egui::Color32::from_rgb(26, 115, 232)),
                         );
@@ -593,12 +602,12 @@ impl AssetsMarketTab {
                         if v > 0 {
                             ui.label(
                                 egui::RichText::new(format!("{}", v))
-                                    .size(11.0)
+                                    .size(Scale::DEFAULT.label())
                                     .strong()
                                     .color(egui::Color32::from_rgb(34, 197, 94)), // emerald
                             );
                         } else {
-                            ui.label(egui::RichText::new("-").size(11.0));
+                            ui.label(egui::RichText::new("-").size(Scale::DEFAULT.label()));
                         }
                     });
 
@@ -608,12 +617,12 @@ impl AssetsMarketTab {
                         if v > 0 {
                             ui.label(
                                 egui::RichText::new(format!("{}", v))
-                                    .size(11.0)
+                                    .size(Scale::DEFAULT.label())
                                     .strong()
                                     .color(egui::Color32::from_rgb(239, 68, 68)), // red-500
                             );
                         } else {
-                            ui.label(egui::RichText::new("-").size(11.0));
+                            ui.label(egui::RichText::new("-").size(Scale::DEFAULT.label()));
                         }
                     });
 
@@ -622,7 +631,7 @@ impl AssetsMarketTab {
                         let v = get_f64(&comprado_col, data_row);
                         ui.label(
                             egui::RichText::new(fmt_currency(v))
-                                .size(11.0)
+                                .size(Scale::DEFAULT.label())
                                 .color(egui::Color32::from_rgb(34, 197, 94)),
                         );
                     });
@@ -632,7 +641,7 @@ impl AssetsMarketTab {
                         let v = get_f64(&vendido_col, data_row);
                         ui.label(
                             egui::RichText::new(fmt_currency(v))
-                                .size(11.0)
+                                .size(Scale::DEFAULT.label())
                                 .color(egui::Color32::from_rgb(239, 68, 68)),
                         );
                     });
@@ -640,7 +649,7 @@ impl AssetsMarketTab {
                     // PL Médio
                     row.col(|ui| {
                         let v = get_f64(&pl_medio_col, data_row);
-                        ui.label(egui::RichText::new(fmt_currency(v)).size(11.0).strong());
+                        ui.label(egui::RichText::new(fmt_currency(v)).size(Scale::DEFAULT.label()).strong());
                     });
 
                     // VL Mín
@@ -652,20 +661,20 @@ impl AssetsMarketTab {
                             } else {
                                 fmt_currency(v)
                             })
-                            .size(10.5),
+                            .size(Scale::DEFAULT.table_cell()),
                         );
                     });
 
                     // VL Máx
                     row.col(|ui| {
                         let v = get_f64(&vl_max_col, data_row);
-                        ui.label(egui::RichText::new(fmt_currency(v)).size(10.5).strong());
+                        ui.label(egui::RichText::new(fmt_currency(v)).size(Scale::DEFAULT.table_cell()).strong());
                     });
 
                     // VL Médio
                     row.col(|ui| {
                         let v = get_f64(&vl_medio_col, data_row);
-                        ui.label(egui::RichText::new(fmt_currency(v)).size(10.5));
+                        ui.label(egui::RichText::new(fmt_currency(v)).size(Scale::DEFAULT.table_cell()));
                     });
 
                     // Vol Total (VL_MERC_TOTAL)
@@ -673,7 +682,7 @@ impl AssetsMarketTab {
                         let v = get_f64(&merc_col, data_row);
                         ui.label(
                             egui::RichText::new(fmt_currency(v))
-                                .size(11.5)
+                                .size(Scale::DEFAULT.caption())
                                 .strong()
                                 .color(egui::Color32::from_rgb(139, 92, 246)),
                         );
@@ -723,7 +732,7 @@ impl Tab for AssetsMarketTab {
                         ui.add_space(60.0);
                         ui.label(
                             egui::RichText::new("Nenhum dado encontrado. Tente ajustar o período ou verifique sua conexão.")
-                                .size(12.0)
+                                .size(Scale::DEFAULT.small_text())
                                 .weak(),
                         );
                     });
@@ -741,7 +750,7 @@ impl Tab for AssetsMarketTab {
                                                 egui_phosphor::regular::FUNNEL,
                                                 total
                                             ))
-                                            .size(12.0),
+                                            .size(Scale::DEFAULT.small_text()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let start_fmt = format!(
@@ -758,7 +767,7 @@ impl Tab for AssetsMarketTab {
                         );
                         ui.label(
                                                     egui::RichText::new(format!("Período: {} → {}", start_fmt, end_fmt))
-                                                        .size(11.0),
+                                                        .size(Scale::DEFAULT.label()),
                         );
                     });
                 });
@@ -775,7 +784,7 @@ impl Tab for AssetsMarketTab {
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS.to_string())
-                                .size(13.0)
+                                .size(Scale::DEFAULT.button())
                                 .weak(),
                         );
                         ui.add(
@@ -905,12 +914,12 @@ fn fmt_currency(value: f64) -> String {
 
 fn kv_row(ui: &mut Ui, label: &str, value: &str, color: egui::Color32) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).size(10.0));
+        ui.label(egui::RichText::new(label).size(Scale::DEFAULT.badge()));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if color == egui::Color32::PLACEHOLDER {
-                ui.label(egui::RichText::new(value).size(11.0).strong());
+                ui.label(egui::RichText::new(value).size(Scale::DEFAULT.label()).strong());
             } else {
-                ui.label(egui::RichText::new(value).size(11.0).strong().color(color));
+                ui.label(egui::RichText::new(value).size(Scale::DEFAULT.label()).strong().color(color));
             }
         });
     });

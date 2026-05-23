@@ -20,7 +20,10 @@ pub async fn async_dataframe(
 ) -> Result<DataFrame, PolarsError> {
     let opts = load().unwrap();
 
-    let path = opts.async_path(start_date, end_date).await.unwrap();
+    let path = opts
+        .async_path(start_date, end_date)
+        .await
+        .map_err(|e| PolarsError::NoData(e.to_string().into()))?;
 
     let mut file = File::open(path)?;
     let df = JsonReader::new(&mut file).finish()?;

@@ -128,7 +128,7 @@ impl Informe {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> Result<DataFrame, PolarsError> {
-        let res = self.async_informes(start_date, end_date).await.unwrap();
+        let res = self.async_informes(start_date, end_date).await?;
         // Ajustar a rentabilidade acumulada
         let cotas = res
             .filter(col("CNPJ_FUNDO").str().contains(lit(cnpj), false))

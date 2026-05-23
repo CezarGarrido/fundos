@@ -1,3 +1,4 @@
+use crate::ui::design::Scale;
 use std::collections::HashMap;
 
 use egui::{Color32, Ui};
@@ -110,7 +111,7 @@ fn fmt(value: f64) -> String {
 fn section(ui: &mut Ui, heading_color: Color32, title: &str) {
     ui.label(
         egui::RichText::new(title)
-            .size(12.0)
+            .size(Scale::DEFAULT.small_text())
             .strong()
             .color(heading_color),
     );
@@ -119,11 +120,11 @@ fn section(ui: &mut Ui, heading_color: Color32, title: &str) {
 
 fn kv(ui: &mut Ui, text_color: Color32, label: &str, value: String, value_color: Option<Color32>) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).size(9.0).color(text_color));
+        ui.label(egui::RichText::new(label).size(Scale::DEFAULT.label_mini()).color(text_color));
         if let Some(c) = value_color {
-            ui.label(egui::RichText::new(value).size(12.0).strong().color(c));
+            ui.label(egui::RichText::new(value).size(Scale::DEFAULT.small_text()).strong().color(c));
         } else {
-            ui.label(egui::RichText::new(value).size(12.0).strong());
+            ui.label(egui::RichText::new(value).size(Scale::DEFAULT.small_text()).strong());
         }
     });
 }
@@ -263,37 +264,37 @@ impl AssetDetailModal {
                             if !codigo.is_empty() {
                                 ui.label(
                                     egui::RichText::new(&codigo)
-                                        .size(16.0)
+                                        .size(Scale::DEFAULT.heading_3())
                                         .strong()
                                         .monospace()
                                         .color(hd),
                                 );
                             }
-                            ui.label(egui::RichText::new(&nome).size(16.0).strong().color(hd));
+                            ui.label(egui::RichText::new(&nome).size(Scale::DEFAULT.heading_3()).strong().color(hd));
                         });
                         ui.horizontal(|ui| {
                             if !tp_aplic.is_empty() {
                                 ui.label(
                                     egui::RichText::new(format!("Tipo: {}", tp_aplic))
-                                        .size(11.0)
+                                        .size(Scale::DEFAULT.label())
                                         .color(tx),
                                 );
                             }
                             if !dt_venc.is_empty() {
                                 ui.label(
                                     egui::RichText::new(format!("Venc: {}", dt_venc))
-                                        .size(11.0)
+                                        .size(Scale::DEFAULT.label())
                                         .color(tx),
                                 );
                             }
                             if elegivel {
-                                ui.label(egui::RichText::new("✅ Yahoo").size(10.0).color(gr));
+                                ui.label(egui::RichText::new("✅ Yahoo").size(Scale::DEFAULT.badge()).color(gr));
                             }
                         });
                         if !nm_fundo.is_empty() {
                             ui.label(
                                 egui::RichText::new(format!("Fundo: {}", nm_fundo))
-                                    .size(11.0)
+                                    .size(Scale::DEFAULT.label())
                                     .color(tx),
                             );
                         }
@@ -305,30 +306,30 @@ impl AssetDetailModal {
                             section(ui, hd, "Presença no Mercado");
                             ui.columns(3, |cols| {
                                 cols[0].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Fundos").size(9.0).color(tx));
+                                    ui.label(egui::RichText::new("Fundos").size(Scale::DEFAULT.label_mini()).color(tx));
                                     ui.label(
                                         egui::RichText::new(format!("{}", n_fd))
-                                            .size(18.0)
+                                            .size(Scale::DEFAULT.metric())
                                             .strong()
                                             .color(az),
                                     );
                                 });
                                 cols[1].vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Compradores").size(9.0).color(tx),
+                                        egui::RichText::new("Compradores").size(Scale::DEFAULT.label_mini()).color(tx),
                                     );
                                     ui.label(
                                         egui::RichText::new(format!("{}", n_cp))
-                                            .size(18.0)
+                                            .size(Scale::DEFAULT.metric())
                                             .strong()
                                             .color(gr),
                                     );
                                 });
                                 cols[2].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Vendedores").size(9.0).color(tx));
+                                    ui.label(egui::RichText::new("Vendedores").size(Scale::DEFAULT.label_mini()).color(tx));
                                     ui.label(
                                         egui::RichText::new(format!("{}", n_vd))
-                                            .size(18.0)
+                                            .size(Scale::DEFAULT.metric())
                                             .strong()
                                             .color(rd),
                                     );
@@ -359,38 +360,38 @@ impl AssetDetailModal {
                             section(ui, hd, "Valor de Compra (por transação)");
                             ui.columns(3, |cols| {
                                 cols[0].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Mínimo").size(9.0).color(tx));
+                                    ui.label(egui::RichText::new("Mínimo").size(Scale::DEFAULT.label_mini()).color(tx));
                                     ui.label(
                                         egui::RichText::new(if vcmin == 0.0 {
                                             "-".to_string()
                                         } else {
                                             fmt(vcmin)
                                         })
-                                        .size(12.0)
+                                        .size(Scale::DEFAULT.small_text())
                                         .strong(),
                                     );
                                 });
                                 cols[1].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Médio").size(9.0).color(tx));
+                                    ui.label(egui::RichText::new("Médio").size(Scale::DEFAULT.label_mini()).color(tx));
                                     ui.label(
                                         egui::RichText::new(if vcmed == 0.0 {
                                             "-".to_string()
                                         } else {
                                             fmt(vcmed)
                                         })
-                                        .size(12.0)
+                                        .size(Scale::DEFAULT.small_text())
                                         .strong(),
                                     );
                                 });
                                 cols[2].vertical(|ui| {
-                                    ui.label(egui::RichText::new("Máximo").size(9.0).color(tx));
+                                    ui.label(egui::RichText::new("Máximo").size(Scale::DEFAULT.label_mini()).color(tx));
                                     ui.label(
                                         egui::RichText::new(if vcmax == 0.0 {
                                             "-".to_string()
                                         } else {
                                             fmt(vcmax)
                                         })
-                                        .size(12.0)
+                                        .size(Scale::DEFAULT.small_text())
                                         .strong(),
                                     );
                                 });
@@ -404,22 +405,22 @@ impl AssetDetailModal {
                             ui.columns(3, |cols| {
                                 cols[0].vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Volume Total").size(9.0).color(tx),
+                                        egui::RichText::new("Volume Total").size(Scale::DEFAULT.label_mini()).color(tx),
                                     );
                                     ui.label(
                                         egui::RichText::new(fmt(vl_md))
-                                            .size(13.0)
+                                            .size(Scale::DEFAULT.button())
                                             .strong()
                                             .color(vt),
                                     );
                                 });
                                 cols[1].vertical(|ui| {
-                                    ui.label(egui::RichText::new("PL Médio").size(9.0).color(tx));
-                                    ui.label(egui::RichText::new(fmt(pl_md)).size(13.0).strong());
+                                    ui.label(egui::RichText::new("PL Médio").size(Scale::DEFAULT.label_mini()).color(tx));
+                                    ui.label(egui::RichText::new(fmt(pl_md)).size(Scale::DEFAULT.button()).strong());
                                 });
                                 cols[2].vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Fluxo Líquido").size(9.0).color(tx),
+                                        egui::RichText::new("Fluxo Líquido").size(Scale::DEFAULT.label_mini()).color(tx),
                                     );
                                     let flx_color = if flx > 0.0 {
                                         gr
@@ -435,7 +436,7 @@ impl AssetDetailModal {
                                             prefix,
                                             fmt(flx.abs())
                                         ))
-                                        .size(13.0)
+                                        .size(Scale::DEFAULT.button())
                                         .strong()
                                         .color(flx_color),
                                     );
@@ -450,18 +451,18 @@ impl AssetDetailModal {
                             ui.columns(2, |cols| {
                                 cols[0].vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Total Comprado").size(9.0).color(tx),
+                                        egui::RichText::new("Total Comprado").size(Scale::DEFAULT.label_mini()).color(tx),
                                     );
                                     ui.label(
-                                        egui::RichText::new(fmt(vcp)).size(13.0).strong().color(gr),
+                                        egui::RichText::new(fmt(vcp)).size(Scale::DEFAULT.button()).strong().color(gr),
                                     );
                                 });
                                 cols[1].vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Total Vendido").size(9.0).color(tx),
+                                        egui::RichText::new("Total Vendido").size(Scale::DEFAULT.label_mini()).color(tx),
                                     );
                                     ui.label(
-                                        egui::RichText::new(fmt(vvd)).size(13.0).strong().color(rd),
+                                        egui::RichText::new(fmt(vvd)).size(Scale::DEFAULT.button()).strong().color(rd),
                                     );
                                 });
                             });
@@ -474,11 +475,11 @@ impl AssetDetailModal {
                             ui.columns(3, |cols| {
                                 cols[0].vertical(|ui| {
                                     ui.label(
-                                        egui::RichText::new("Valor da Posição").size(9.0).color(tx),
+                                        egui::RichText::new("Valor da Posição").size(Scale::DEFAULT.label_mini()).color(tx),
                                     );
                                     ui.label(
                                         egui::RichText::new(fmt(vl_md))
-                                            .size(13.0)
+                                            .size(Scale::DEFAULT.button())
                                             .strong()
                                             .color(vt),
                                     );
@@ -486,21 +487,21 @@ impl AssetDetailModal {
                                 cols[1].vertical(|ui| {
                                     ui.label(
                                         egui::RichText::new("Custo de Aquisição")
-                                            .size(9.0)
+                                            .size(Scale::DEFAULT.label_mini())
                                             .color(tx),
                                     );
                                     ui.label(
                                         egui::RichText::new(fmt(vl_aq))
-                                            .size(13.0)
+                                            .size(Scale::DEFAULT.button())
                                             .strong()
                                             .color(tx),
                                     );
                                 });
                                 cols[2].vertical(|ui| {
-                                    ui.label(egui::RichText::new("% no PL").size(9.0).color(tx));
+                                    ui.label(egui::RichText::new("% no PL").size(Scale::DEFAULT.label_mini()).color(tx));
                                     ui.label(
                                         egui::RichText::new(format!("{:.2}%", self.pct_pl))
-                                            .size(13.0)
+                                            .size(Scale::DEFAULT.button())
                                             .strong(),
                                     );
                                 });
@@ -536,7 +537,7 @@ impl AssetDetailModal {
                                                     "{} Carregar histórico",
                                                     egui_phosphor::regular::ARROW_CLOCKWISE
                                                 ))
-                                                .size(11.5)
+                                                .size(Scale::DEFAULT.caption())
                                                 .color(egui::Color32::WHITE),
                                             )
                                             .fill(egui::Color32::from_rgb(37, 99, 235))
@@ -568,12 +569,12 @@ impl AssetDetailModal {
 
                             ui.horizontal(|ui| {
                                 ui.label(
-                                    egui::RichText::new("Filtrar Fundo:").size(11.0).color(tx),
+                                    egui::RichText::new("Filtrar Fundo:").size(Scale::DEFAULT.label()).color(tx),
                                 );
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.holders_filter)
                                         .margin(egui::vec2(6.0, 4.0))
-                                        .desired_width(200.0)
+                                        .desired_width(Scale::COLUMN_MIN)
                                         .hint_text("Nome ou CNPJ..."),
                                 );
                             });
@@ -642,7 +643,7 @@ impl AssetDetailModal {
                                             .column(
                                                 egui_extras::Column::initial(110.0).at_least(80.0),
                                             )
-                                            .header(24.0, |mut header| {
+                                            .header(Scale::DEFAULT.table_header_height(), |mut header| {
                                                 header.col(|ui| {
                                                     ui.label(
                                                         egui::RichText::new(if has_nm {
@@ -650,27 +651,27 @@ impl AssetDetailModal {
                                                         } else {
                                                             "CNPJ"
                                                         })
-                                                        .size(11.0)
+                                                        .size(Scale::DEFAULT.label())
                                                         .strong(),
                                                     );
                                                 });
                                                 header.col(|ui| {
                                                     ui.label(
                                                         egui::RichText::new("Volume (R$)")
-                                                            .size(11.0)
+                                                            .size(Scale::DEFAULT.label())
                                                             .strong(),
                                                     );
                                                 });
                                                 header.col(|ui| {
                                                     ui.label(
                                                         egui::RichText::new("% PL")
-                                                            .size(11.0)
+                                                            .size(Scale::DEFAULT.label())
                                                             .strong(),
                                                     );
                                                 });
                                             })
                                             .body(|body| {
-                                                body.rows(20.0, rows.len().min(100), |mut row| {
+                                                body.rows(Scale::DEFAULT.table_row_height(), rows.len().min(100), |mut row| {
                                                     let idx = rows[row.index()];
                                                     let c = cnpj_col
                                                         .get(idx)
@@ -700,12 +701,12 @@ impl AssetDetailModal {
                                                             } else {
                                                                 n
                                                             })
-                                                            .size(10.5),
+                                                            .size(Scale::DEFAULT.table_cell()),
                                                         );
                                                     });
                                                     row.col(|ui| {
                                                         ui.label(
-                                                            egui::RichText::new(fmt(v)).size(10.5),
+                                                            egui::RichText::new(fmt(v)).size(Scale::DEFAULT.table_cell()),
                                                         );
                                                     });
                                                     row.col(|ui| {
@@ -714,7 +715,7 @@ impl AssetDetailModal {
                                                                 "{:.2}%",
                                                                 p
                                                             ))
-                                                            .size(10.5),
+                                                            .size(Scale::DEFAULT.table_cell()),
                                                         );
                                                     });
                                                 });
@@ -768,12 +769,12 @@ impl AssetDetailModal {
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(format!("Preço: R$ {:.2}", last_p))
-                    .size(14.0)
+                    .size(Scale::DEFAULT.body())
                     .strong(),
             );
             ui.label(
                 egui::RichText::new(format!("({:+.2}%)", change))
-                    .size(12.0)
+                    .size(Scale::DEFAULT.small_text())
                     .color(change_color),
             );
         });
@@ -797,21 +798,21 @@ impl AssetDetailModal {
         section(ui, hd, "Estimativas");
         ui.columns(3, |cols| {
             cols[0].vertical(|ui| {
-                ui.label(egui::RichText::new("Qtde. Estimada").size(9.0).color(tx));
+                ui.label(egui::RichText::new("Qtde. Estimada").size(Scale::DEFAULT.label_mini()).color(tx));
                 ui.label(
                     egui::RichText::new(format!("{:.0}", qty))
-                        .size(13.0)
+                        .size(Scale::DEFAULT.button())
                         .strong(),
                 );
             });
             cols[1].vertical(|ui| {
-                ui.label(egui::RichText::new("Valor Posição").size(9.0).color(tx));
-                ui.label(egui::RichText::new(fmt(vl_mercado)).size(13.0).strong());
+                ui.label(egui::RichText::new("Valor Posição").size(Scale::DEFAULT.label_mini()).color(tx));
+                ui.label(egui::RichText::new(fmt(vl_mercado)).size(Scale::DEFAULT.button()).strong());
             });
             cols[2].vertical(|ui| {
                 ui.label(
                     egui::RichText::new("Preço Médio Compra")
-                        .size(9.0)
+                        .size(Scale::DEFAULT.label_mini())
                         .color(tx),
                 );
                 ui.label(
@@ -820,7 +821,7 @@ impl AssetDetailModal {
                     } else {
                         "N/A".to_string()
                     })
-                    .size(13.0)
+                    .size(Scale::DEFAULT.button())
                     .strong(),
                 );
             });

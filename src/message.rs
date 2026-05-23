@@ -24,6 +24,9 @@ pub enum Message {
     YahooPriceResult(String, DataFrame),
     FetchAssetHolders(String, NaiveDate, NaiveDate),
     AssetHoldersResult(String, DataFrame),
+    HistoricoTabStatus(String, String), // (cnpj, status_message)
+    HistoricoTabError(String, String), // (cnpj, error_message)
     HistoricoSeriesResult(String, Vec<crate::ui::fund::tab::historico::MonthlySeries>),
+    HistoricoTabPartialResult(String, DataFrame),
     AssetAnalyticsResult(String, crate::analytics::AssetAnalytics),
 }

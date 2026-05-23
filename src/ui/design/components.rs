@@ -1,4 +1,5 @@
 use super::colors::ThemeColors;
+use super::sizing::Scale;
 use egui::{Color32, CornerRadius, Frame, Margin, Response, RichText, Ui};
 
 pub struct Components;
@@ -23,7 +24,7 @@ impl Components {
     pub fn primary_button(ui: &mut Ui, label: &str) -> Response {
         let btn = egui::Button::new(
             RichText::new(label)
-                .size(13.0)
+                .size(Scale::DEFAULT.button())
                 .strong()
                 .color(Color32::WHITE),
         )
@@ -36,7 +37,7 @@ impl Components {
     pub fn ghost_button(ui: &mut Ui, label: &str, dark: bool) -> Response {
         let btn = egui::Button::new(
             RichText::new(label)
-                .size(12.0)
+                .size(Scale::DEFAULT.small_text())
                 .strong()
                 .color(ThemeColors::text_primary(dark)),
         )
@@ -52,7 +53,7 @@ impl Components {
             .corner_radius(CornerRadius::same(10))
             .inner_margin(Margin::symmetric(6, 2))
             .show(ui, |ui| {
-                ui.label(RichText::new(text).size(10.0).strong().color(text_color));
+                ui.label(RichText::new(text).size(Scale::DEFAULT.badge()).strong().color(text_color));
             });
     }
 

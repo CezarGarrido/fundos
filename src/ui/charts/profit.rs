@@ -1,3 +1,4 @@
+use crate::ui::design::Scale;
 use std::ops::RangeInclusive;
 
 use chrono::DateTime;
@@ -146,7 +147,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                         egui::RichText::new(format!(" {:.2}% ", last[1]))
                             .background_color(color)
                             .color(window_fill)
-                            .size(11.0)
+                            .size(Scale::DEFAULT.label())
                             .strong(),
                     )
                     .anchor(egui::Align2::RIGHT_CENTER);
@@ -168,7 +169,7 @@ pub fn chart(dataframe: &DataFrame, indices: Vec<Indice>, ui: &mut Ui) {
                     egui::RichText::new(format!(" {:.2}% ", last[1]))
                         .background_color(strong_text_color)
                         .color(window_fill)
-                        .size(13.0)
+                        .size(Scale::DEFAULT.button())
                         .strong(),
                 )
                 .anchor(egui::Align2::RIGHT_CENTER);

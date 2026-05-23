@@ -1,7 +1,12 @@
+use crate::ui::design::Scale;
 use crate::ui::{charts::stats, tabs::Tab};
 use egui::{Color32, Frame, RichText, Ui, WidgetText};
 
-use polars::frame::DataFrame;
+use polars::{
+    frame::DataFrame,
+    lazy::dsl::{col, lit},
+    prelude::IntoLazy,
+};
 
 pub struct DashboardTab {
     pub title: String,
@@ -128,7 +133,7 @@ impl Tab for DashboardTab {
                     ui.set_min_height(bot_h);
                     ui.label(
                         RichText::new("Fundos Cadastrados por Ano")
-                            .size(13.0)
+                            .size(Scale::DEFAULT.button())
                             .strong(),
                     );
                     ui.separator();
@@ -141,37 +146,34 @@ impl Tab for DashboardTab {
 }
 
 fn get_total_funds(df: &DataFrame) -> u32 {
-    if let Ok(col) = df.column("TP_FUNDO") {
-        let mut sum = 0;
-        for i in 0..col.len() {
-            if let Ok(val) = col.get(i) {
-                sum += val.try_extract::<u32>().unwrap_or(0);
-            }
-        }
-        sum
-    } else {
-        0
-    }
+    df.column("TP_FUNDO")
+        .ok()
+        .and_then(|c| c.sum::<u32>())
+        .unwrap_or(0)
 }
 
 fn get_class_funds(df: &DataFrame, class_name: &str) -> u32 {
-    if let (Ok(class_col), Ok(count_col)) = (df.column("CLASSE"), df.column("TP_FUNDO")) {
-        let mut total = 0;
-        for i in 0..df.height() {
-            if let (Ok(class_val), Ok(count_val)) = (class_col.get(i), count_col.get(i)) {
-                if let Some(class_str) = class_val.get_str() {
-                    if class_str
-                        .to_lowercase()
-                        .contains(&class_name.to_lowercase())
-                    {
-                        total += count_val.try_extract::<u32>().unwrap_or(0);
-                    }
-                }
-            }
-        }
-        total
-    } else {
-        0
+    let cn = class_name.to_lowercase();
+    let result = df
+        .clone()
+        .lazy()
+        .filter(
+            col("CLASSE")
+                .str()
+                .to_lowercase()
+                .str()
+                .contains(lit(cn.as_str()), false),
+        )
+        .select([col("TP_FUNDO").sum()])
+        .collect();
+    match result {
+        Ok(out) => out
+            .column("TP_FUNDO")
+            .ok()
+            .and_then(|c| c.get(0).ok())
+            .and_then(|v| v.try_extract::<u32>().ok())
+            .unwrap_or(0),
+        Err(_) => 0,
     }
 }
 
@@ -191,7 +193,7 @@ fn draw_kpi_card(ui: &mut egui::Ui, title: &str, value: &str, accent_color: egui
                 ui.add_space(10.0);
                 ui.vertical(|ui| {
                     ui.add_space(4.0);
-                    ui.label(RichText::new(title).size(10.0).strong().color(
+                    ui.label(RichText::new(title).size(Scale::DEFAULT.badge()).strong().color(
                         if ui.visuals().dark_mode {
                             Color32::from_rgb(140, 150, 165)
                         } else {
@@ -199,7 +201,7 @@ fn draw_kpi_card(ui: &mut egui::Ui, title: &str, value: &str, accent_color: egui
                         },
                     ));
                     ui.add_space(2.0);
-                    ui.label(RichText::new(value).size(22.0).strong().color(
+                    ui.label(RichText::new(value).size(Scale::DEFAULT.metric_large()).strong().color(
                         if ui.visuals().dark_mode {
                             Color32::WHITE
                         } else {
@@ -252,7 +254,7 @@ fn render_ranking_card(ui: &mut Ui, title: &str, items: &[(String, u32)], max_he
         .inner_margin(egui::Margin::symmetric(10, 6))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.label(RichText::new(title).size(13.0).strong());
+            ui.label(RichText::new(title).size(Scale::DEFAULT.button()).strong());
             ui.separator();
             ui.add_space(4.0);
 
@@ -273,16 +275,16 @@ fn render_ranking_card(ui: &mut Ui, title: &str, items: &[(String, u32)], max_he
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(format!("{:2}.", i + 1))
-                                    .size(11.0)
+                                    .size(Scale::DEFAULT.label())
                                     .color(Color32::from_gray(150)),
                             );
-                            ui.label(RichText::new(label.as_str()).size(11.0));
+                            ui.label(RichText::new(label.as_str()).size(Scale::DEFAULT.label()));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     ui.label(
                                         RichText::new(format!("{}  {:.1}%", value, real_pct))
-                                            .size(11.0),
+                                            .size(Scale::DEFAULT.label()),
                                     );
                                 },
                             );

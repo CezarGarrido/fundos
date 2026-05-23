@@ -1404,9 +1404,31 @@ pub fn compute_top_series(
 
     let asset_names = build_asset_names(data, &top_keys);
 
-    let merc_col = grouped.column("total_merc").ok();
-    let pct_col = grouped.column("total_pct").ok();
-    let akey_col = grouped.column("asset_key").ok();
+    // Single pass over grouped rows → HashMap<key, Vec<(month_idx, pct)>>
+    // O(grouped_rows) instead of O(top_keys * grouped_rows)
+    let mut key_points: std::collections::HashMap<String, Vec<(f64, f64)>> =
+        std::collections::HashMap::new();
+    let top_set: std::collections::HashSet<&String> = top_keys.iter().collect();
+
+    let merc_col_g2 = grouped.column("total_merc").ok();
+    let pct_col_g2 = grouped.column("total_pct").ok();
+    let akey_col_g2 = grouped.column("asset_key").ok();
+
+    if let (Some(mc), Some(ac)) = (merc_col_g2, akey_col_g2) {
+        for mi in 0..grouped.height() {
+            let key = get_str(ac, mi);
+            if !top_set.contains(&key) {
+                continue;
+            }
+            let month_idx = mi as f64;
+            let pct = if let Some(pc) = pct_col_g2 {
+                get_f64(pc, mi)
+            } else {
+                get_f64(mc, mi)
+            };
+            key_points.entry(key).or_default().push((month_idx, pct));
+        }
+    }
 
     for key in &top_keys {
         if let Some(c) = &cancel {
@@ -1415,21 +1437,7 @@ pub fn compute_top_series(
             }
         }
         let name = asset_names.get(key).cloned().unwrap_or_else(|| key.clone());
-        let mut points: Vec<(f64, f64)> = vec![];
-        for mi in 0..grouped.height() {
-            if let (Some(mc), Some(ac)) = (merc_col, akey_col) {
-                if get_str(ac, mi) != *key {
-                    continue;
-                }
-                let month_idx = mi as f64;
-                let pct = if let Some(pc) = pct_col {
-                    get_f64(pc, mi)
-                } else {
-                    get_f64(mc, mi)
-                };
-                points.push((month_idx, pct));
-            }
-        }
+        let mut points = key_points.remove(key).unwrap_or_default();
         points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         series.push((key.clone(), name, points));
     }
@@ -1441,6 +1449,8 @@ fn build_asset_names(
     top_keys: &[String],
 ) -> std::collections::HashMap<String, String> {
     let mut names = std::collections::HashMap::new();
+    let keys_set: std::collections::HashSet<&String> = top_keys.iter().collect();
+
     let cd_ativo_col = data.column("CD_ATIVO").ok();
     let cd_isin_col = data.column("CD_ISIN").ok();
     let ds_ativo_col = data.column("DS_ATIVO").ok();
@@ -1448,6 +1458,10 @@ fn build_asset_names(
     let titpub_col = data.column("TP_TITPUB").ok();
 
     for i in 0..data.height() {
+        // Early exit: all keys resolved
+        if names.len() >= top_keys.len() {
+            break;
+        }
         let cd_ativo = cd_ativo_col
             .as_ref()
             .map(|c| get_str(c, i))
@@ -1461,7 +1475,8 @@ fn build_asset_names(
         } else {
             cd_isin.clone()
         };
-        if key.is_empty() || !top_keys.contains(&key) || names.contains_key(&key) {
+        // O(1) HashSet lookup instead of O(n) Vec::contains
+        if key.is_empty() || !keys_set.contains(&key) || names.contains_key(&key) {
             continue;
         }
         let ds = ds_ativo_col

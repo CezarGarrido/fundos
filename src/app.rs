@@ -53,6 +53,10 @@ pub struct TemplateApp {
     #[serde(skip)]
     dashboard_token: Option<CancellationToken>,
     #[serde(skip)]
+    ativos_token: Option<CancellationToken>,
+    #[serde(skip)]
+    historico_token: Option<CancellationToken>,
+    #[serde(skip)]
     search: Search,
     pub open_logs: bool,
     #[serde(skip)]
@@ -109,6 +113,8 @@ impl Default for TemplateApp {
             portfolio,
             search_token: None,
             dashboard_token: None,
+            ativos_token: None,
+            historico_token: None,
             open_logs: false,
             search,
             asset_detail_modal: AssetDetail {
@@ -267,35 +273,76 @@ impl TemplateApp {
                 }
                 Message::NewTab(cnpj) => {
                     let r = self.register.clone();
+                    let s = sender.clone();
+                    let ctx = ctxc.clone();
                     tokio::spawn(async move {
-                        if let Err(_cache_err) =
-                            handle_fund_data(cnpj.clone(), true, r.clone(), &sender, &ctxc).await
-                        {
-                            util::toaster().add(Toast {
-                                kind: egui_toast::ToastKind::Info,
-                                text: format!(
-                                    "CNPJ {} não cadastrado localmente. Baixando dados online...",
-                                    cnpj
-                                )
-                                .into(),
-                                options: ToastOptions::default().duration_in_seconds(4.0),
-                                ..Default::default()
-                            });
-                            ctxc.request_repaint();
+                        let result = tokio::time::timeout(
+                            Duration::from_secs(30),
+                            handle_fund_data(cnpj.clone(), true, r.clone(), &s, &ctx),
+                        )
+                        .await;
 
-                            if let Err(online_err) =
-                                handle_fund_data(cnpj.clone(), false, r.clone(), &sender, &ctxc)
-                                    .await
-                            {
-                                log::error!(
-                                    "Erro ao obter dados online do fundo {}: {}",
-                                    cnpj,
-                                    online_err
-                                );
+                        match result {
+                            Ok(Ok(_)) => {} // success
+                            Ok(Err(_cache_err)) => {
+                                util::toaster().add(Toast {
+                                    kind: egui_toast::ToastKind::Info,
+                                    text: format!(
+                                        "CNPJ {} não cadastrado localmente. Baixando dados online...",
+                                        cnpj
+                                    )
+                                    .into(),
+                                    options: ToastOptions::default().duration_in_seconds(4.0),
+                                    ..Default::default()
+                                });
+                                ctx.request_repaint();
+
+                                let online_result = tokio::time::timeout(
+                                    Duration::from_secs(30),
+                                    handle_fund_data(cnpj.clone(), false, r.clone(), &s, &ctx),
+                                )
+                                .await;
+
+                                match online_result {
+                                    Ok(Err(online_err)) => {
+                                        log::error!(
+                                            "Erro ao obter dados online do fundo {}: {}",
+                                            cnpj,
+                                            online_err
+                                        );
+                                        util::toaster().add(Toast {
+                                            kind: egui_toast::ToastKind::Error,
+                                            text: format!(
+                                                "Erro ao obter dados online do fundo (CNPJ: {})",
+                                                cnpj
+                                            )
+                                            .into(),
+                                            options: ToastOptions::default().duration_in_seconds(4.0),
+                                            ..Default::default()
+                                        });
+                                    }
+                                    Ok(Ok(_)) => {} // success
+                                    Err(_) => {
+                                        log::error!("Timeout ao carregar fundo online {}", cnpj);
+                                        util::toaster().add(Toast {
+                                            kind: egui_toast::ToastKind::Error,
+                                            text: format!(
+                                                "Tempo limite atingido ao carregar fundo (CNPJ: {})",
+                                                cnpj
+                                            )
+                                            .into(),
+                                            options: ToastOptions::default().duration_in_seconds(4.0),
+                                            ..Default::default()
+                                        });
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                log::error!("Timeout ao carregar fundo {}", cnpj);
                                 util::toaster().add(Toast {
                                     kind: egui_toast::ToastKind::Error,
                                     text: format!(
-                                        "Erro ao obter dados online do fundo (CNPJ: {})",
+                                        "Tempo limite atingido ao carregar fundo (CNPJ: {})",
                                         cnpj
                                     )
                                     .into(),
@@ -610,19 +657,33 @@ impl TemplateApp {
                             _ = token.cancelled() => {
                                 // Search cancelled, do nothing
                             }
-                            res = r.async_find(Some(keyword), class, None, None) => {
+                            res = tokio::time::timeout(
+                                Duration::from_secs(30),
+                                r.async_find(Some(keyword), class, None, None),
+                            ) => {
                                 match res {
-                                    Ok(df) => {
+                                    Ok(Ok(df)) => {
                                         let _ = sender.send(Message::ResultFunds(df));
                                         ctxc.request_repaint();
                                     }
-                                    Err(err) => {
+                                    Ok(Err(err)) => {
                                         let _ = sender.send(Message::ResultFunds(DataFrame::empty()));
                                         ctxc.request_repaint();
                                         log::error!("Erro ao buscar fundos {:?}", err);
                                         util::toaster().add(Toast {
                                             kind: egui_toast::ToastKind::Error,
                                             text: "Erro ao buscar fundos".into(),
+                                            options: ToastOptions::default().duration_in_seconds(3.0),
+                                            ..Default::default()
+                                        });
+                                    }
+                                    Err(_) => {
+                                        log::error!("Timeout ao buscar fundos");
+                                        let _ = sender.send(Message::ResultFunds(DataFrame::empty()));
+                                        ctxc.request_repaint();
+                                        util::toaster().add(Toast {
+                                            kind: egui_toast::ToastKind::Warning,
+                                            text: "Tempo limite atingido na busca de fundos.".into(),
                                             options: ToastOptions::default().duration_in_seconds(3.0),
                                             ..Default::default()
                                         });
@@ -651,14 +712,20 @@ impl TemplateApp {
                             _ = token.cancelled() => {
                                 // Cancelled
                             }
-                            result = r.async_stats() => {
+                            result = tokio::time::timeout(
+                                Duration::from_secs(30),
+                                r.async_stats(),
+                            ) => {
                                 match result {
-                                    Ok((a, b, c)) => {
+                                    Ok(Ok((a, b, c))) => {
                                         let _ = sender.send(Message::DashboardTabResult(a, b, c));
                                         ctxc.request_repaint();
                                     }
-                                    Err(err) => {
+                                    Ok(Err(err)) => {
                                         log::error!("Erro ao buscar estatisticas {}", err);
+                                    }
+                                    Err(_) => {
+                                        log::error!("Timeout ao carregar dashboard");
                                     }
                                 }
                             }
@@ -683,11 +750,11 @@ impl TemplateApp {
                 }
                 Message::OpenAtivosTab(start, end) => {
                     self.add_ativos_tab();
-                    if let Some(token) = &self.dashboard_token {
+                    if let Some(token) = &self.ativos_token {
                         token.cancel();
                     }
                     let token = CancellationToken::new();
-                    self.dashboard_token = Some(token.clone());
+                    self.ativos_token = Some(token.clone());
 
                     let portfolio = self.portfolio.clone();
                     let s = sender.clone();
@@ -696,14 +763,20 @@ impl TemplateApp {
                             _ = token.cancelled() => {
                                 // Cancelled
                             }
-                            result = portfolio.async_market_assets(start, end) => {
+                            result = tokio::time::timeout(
+                                Duration::from_secs(30),
+                                portfolio.async_market_assets(start, end),
+                            ) => {
                                 match result {
-                                    Ok(df) => {
+                                    Ok(Ok(df)) => {
                                         let _ = s.send(Message::AtivosTabResult(df));
                                         ctxc.request_repaint();
                                     }
-                                    Err(err) => {
+                                    Ok(Err(err)) => {
                                         log::error!("Erro ao calcular ativos de mercado: {}", err);
+                                    }
+                                    Err(_) => {
+                                        log::error!("Timeout ao carregar ativos de mercado");
                                     }
                                 }
                             }
@@ -721,19 +794,138 @@ impl TemplateApp {
                     }
                 }
                 Message::OpenHistoricoTab(cnpj, start, end) => {
+                    if let Some(token) = &self.historico_token {
+                        token.cancel();
+                    }
+                    let token = CancellationToken::new();
+                    self.historico_token = Some(token.clone());
+
                     let portfolio = self.portfolio.clone();
                     let s = sender.clone();
+                    let ctx_clone = ctxc.clone();
+                    let cnpj_clone = cnpj.clone();
+
+                    // Compute total months to decide progressive vs single load
+                    let total_months = ((end.year() - start.year()) * 12
+                        + (end.month() as i32 - start.month() as i32))
+                        .unsigned_abs();
+
                     tokio::spawn(async move {
-                        match portfolio
-                            .async_historical_assets(cnpj.clone(), start, end)
-                            .await
-                        {
-                            Ok(df) => {
-                                let _ = s.send(Message::HistoricoTabResult(cnpj, df));
-                                ctxc.request_repaint();
+                        if total_months > 12 {
+                            // ── Progressive loading: 12-month chunks, most recent first ──
+                            let mut current_end = end;
+                            let mut first_batch = true;
+                            let batch_size = chrono::Months::new(12);
+
+                            while current_end > start {
+                                tokio::select! {
+                                    _ = token.cancelled() => { return; }
+                                    _ = async {
+                                        let batch_start = std::cmp::max(
+                                            start,
+                                            current_end
+                                                .checked_sub_months(batch_size)
+                                                .unwrap_or(start),
+                                        );
+
+                                        let _ = s.send(Message::HistoricoTabStatus(
+                                            cnpj_clone.clone(),
+                                            format!(
+                                                "Baixando {:02}/{:02}/{} até {:02}/{:02}/{}...",
+                                                batch_start.day(),
+                                                batch_start.month(),
+                                                batch_start.year(),
+                                                current_end.day(),
+                                                current_end.month(),
+                                                current_end.year(),
+                                            ),
+                                        ));
+                                        ctx_clone.request_repaint();
+
+                                        match tokio::time::timeout(
+                                            Duration::from_secs(30),
+                                            portfolio.async_historical_assets(
+                                                cnpj_clone.clone(),
+                                                batch_start,
+                                                current_end,
+                                            ),
+                                        ).await {
+                                            Ok(Ok(df)) => {
+                                                if first_batch {
+                                                    let _ = s.send(Message::HistoricoTabResult(
+                                                        cnpj_clone.clone(),
+                                                        df,
+                                                    ));
+                                                    first_batch = false;
+                                                } else {
+                                                    let _ = s.send(
+                                                        Message::HistoricoTabPartialResult(
+                                                            cnpj_clone.clone(),
+                                                            df,
+                                                        ),
+                                                    );
+                                                }
+                                                ctx_clone.request_repaint();
+                                            }
+                                            Ok(Err(err)) => {
+                                                log::error!(
+                                                    "Erro ao carregar histórico (lote): {}",
+                                                    err
+                                                );
+                                            }
+                                            Err(_) => {
+                                                log::error!(
+                                                    "Timeout no lote histórico para {}",
+                                                    cnpj_clone
+                                                );
+                                            }
+                                        }
+                                        current_end = batch_start - chrono::Duration::days(1);
+                                    } => {}
+                                }
                             }
-                            Err(err) => {
-                                log::error!("Erro ao carregar histórico: {}", err);
+                            // Status cleared by HistoricoSeriesResult after final recomputation
+                        } else {
+                            // ── Single request for ≤12 months (original path) ──
+                            let _ = s.send(Message::HistoricoTabStatus(
+                                cnpj_clone.clone(),
+                                "Baixando dados da CVM...".to_string(),
+                            ));
+                            ctx_clone.request_repaint();
+
+                            tokio::select! {
+                                _ = token.cancelled() => {}
+                                result = tokio::time::timeout(
+                                    Duration::from_secs(30),
+                                    portfolio.async_historical_assets(cnpj_clone.clone(), start, end),
+                                ) => {
+                                    match result {
+                                        Ok(Ok(df)) => {
+                                            let _ = s.send(Message::HistoricoTabResult(cnpj_clone, df));
+                                            ctx_clone.request_repaint();
+                                        }
+                                        Ok(Err(err)) => {
+                                            log::error!("Erro ao carregar histórico: {}", err);
+                                            let _ = s.send(Message::HistoricoTabError(
+                                                cnpj_clone,
+                                                format!("Erro ao carregar: {}", err),
+                                            ));
+                                            ctx_clone.request_repaint();
+                                        }
+                                        Err(_) => {
+                                            log::error!(
+                                                "Timeout ao carregar historico para {}",
+                                                cnpj_clone
+                                            );
+                                            let _ = s.send(Message::HistoricoTabError(
+                                                cnpj_clone,
+                                                "Tempo limite atingido ao carregar dados da CVM."
+                                                    .to_string(),
+                                            ));
+                                            ctx_clone.request_repaint();
+                                        }
+                                    }
+                                }
                             }
                         }
                     });
@@ -760,6 +952,72 @@ impl TemplateApp {
                         }
                     }
                 }
+                Message::HistoricoTabPartialResult(cnpj, df) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Historico(tab) = tb {
+                            if tab.cnpj == cnpj {
+                                tab.append_data(df.clone());
+                                ctxc.request_repaint();
+                                break;
+                            }
+                        }
+                        if let TabType::Fund(tab) = tb {
+                            if let Some(ref mut htab) = tab.historico_tab {
+                                if htab.cnpj == cnpj {
+                                    htab.append_data(df.clone());
+                                }
+                            }
+                            if tab.portfolio_ui.cnpj == cnpj {
+                                if let Some(ref mut hist) = tab.portfolio_ui.fund_history {
+                                    *hist = hist.vstack(&df).unwrap_or_else(|_| hist.clone());
+                                } else {
+                                    tab.portfolio_ui.fund_history = Some(df.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                Message::HistoricoTabStatus(cnpj, status) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Historico(tab) = tb {
+                            if tab.cnpj == cnpj {
+                                tab.loading_status = status.clone();
+                                ctxc.request_repaint();
+                                break;
+                            }
+                        }
+                        if let TabType::Fund(tab) = tb {
+                            if let Some(ref mut htab) = tab.historico_tab {
+                                if htab.cnpj == cnpj {
+                                    htab.loading_status = status.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+                Message::HistoricoTabError(cnpj, error) => {
+                    let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
+                    for tb in tabs {
+                        if let TabType::Historico(tab) = tb {
+                            if tab.cnpj == cnpj {
+                                tab.loading_status = error.clone();
+                                tab.loading = false;
+                                ctxc.request_repaint();
+                                break;
+                            }
+                        }
+                        if let TabType::Fund(tab) = tb {
+                            if let Some(ref mut htab) = tab.historico_tab {
+                                if htab.cnpj == cnpj {
+                                    htab.loading_status = error.clone();
+                                    htab.loading = false;
+                                }
+                            }
+                        }
+                    }
+                }
                 Message::HistoricoSeriesResult(cnpj, series) => {
                     let tabs: Vec<_> = self.tree.iter_all_tabs_mut().map(|(_, tab)| tab).collect();
                     for tb in tabs {
@@ -767,6 +1025,7 @@ impl TemplateApp {
                             if tab.cnpj == cnpj {
                                 tab.monthly_series = series.clone();
                                 tab.loading = false;
+                                tab.loading_status.clear();
                                 ctxc.request_repaint();
                                 break;
                             }
@@ -776,6 +1035,7 @@ impl TemplateApp {
                                 if htab.cnpj == cnpj {
                                     htab.monthly_series = series.clone();
                                     htab.loading = false;
+                                    htab.loading_status.clear();
                                 }
                             }
                         }
@@ -802,63 +1062,64 @@ impl TemplateApp {
                     let s = sender.clone();
                     tokio::spawn(async move {
                         let ticker = format!("{}.SA", codigo);
-                        match yahoo_finance_api::YahooConnector::new() {
-                            Ok(provider) => {
-                                let start_ts =
-                                    yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(
-                                        NaiveDate::from_ymd_opt(
-                                            start.year(),
-                                            start.month(),
-                                            start.day(),
-                                        )
-                                        .unwrap()
-                                        .and_hms_opt(0, 0, 0)
-                                        .unwrap()
-                                        .and_utc()
-                                        .timestamp(),
-                                    )
-                                    .unwrap();
-                                let end_ts =
-                                    yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(
-                                        NaiveDate::from_ymd_opt(end.year(), end.month(), end.day())
-                                            .unwrap()
-                                            .and_hms_opt(23, 59, 59)
-                                            .unwrap()
-                                            .and_utc()
-                                            .timestamp(),
-                                    )
-                                    .unwrap();
-                                match provider.get_quote_history(&ticker, start_ts, end_ts).await {
-                                    Ok(resp) => {
-                                        if let Ok(quotes) = resp.quotes() {
-                                            let prices: Vec<f64> =
-                                                quotes.iter().map(|q| q.adjclose).collect();
-                                            let dates: Vec<String> = quotes
-                                                .iter()
-                                                .map(|q| {
-                                                    chrono::DateTime::from_timestamp(q.timestamp, 0)
-                                                        .unwrap()
-                                                        .naive_utc()
-                                                        .format("%Y-%m-%d")
-                                                        .to_string()
-                                                })
-                                                .collect();
-                                            let df = polars::frame::DataFrame::new(vec![
-                                                polars::prelude::Series::new("date", dates),
-                                                polars::prelude::Series::new("adjclose", prices),
-                                            ])
-                                            .unwrap_or_default();
-                                            let _ = s.send(Message::YahooPriceResult(codigo, df));
-                                            ctxc.request_repaint();
-                                        }
-                                    }
-                                    Err(err) => {
-                                        log::error!("Yahoo price error for {}: {}", ticker, err);
-                                    }
-                                }
-                            }
+                        let provider = match yahoo_finance_api::YahooConnector::new() {
+                            Ok(p) => p,
                             Err(err) => {
                                 log::error!("YahooConnector error: {}", err);
+                                return;
+                            }
+                        };
+
+                        let start_ts = NaiveDate::from_ymd_opt(start.year(), start.month(), start.day())
+                            .and_then(|d| d.and_hms_opt(0, 0, 0))
+                            .map(|dt| dt.and_utc().timestamp())
+                            .and_then(|ts| yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(ts).ok());
+
+                        let end_ts = NaiveDate::from_ymd_opt(end.year(), end.month(), end.day())
+                            .and_then(|d| d.and_hms_opt(23, 59, 59))
+                            .map(|dt| dt.and_utc().timestamp())
+                            .and_then(|ts| yahoo_finance_api::time::OffsetDateTime::from_unix_timestamp(ts).ok());
+
+                        let (start_ts, end_ts) = match (start_ts, end_ts) {
+                            (Some(s_ts), Some(e_ts)) => (s_ts, e_ts),
+                            _ => {
+                                log::error!("Yahoo date parse error for {}", codigo);
+                                return;
+                            }
+                        };
+
+                        let result = tokio::time::timeout(
+                            Duration::from_secs(15),
+                            provider.get_quote_history(&ticker, start_ts, end_ts),
+                        )
+                        .await;
+
+                        match result {
+                            Ok(Ok(resp)) => {
+                                if let Ok(quotes) = resp.quotes() {
+                                    let prices: Vec<f64> =
+                                        quotes.iter().map(|q| q.adjclose).collect();
+                                    let dates: Vec<String> = quotes
+                                        .iter()
+                                        .filter_map(|q| {
+                                            chrono::DateTime::from_timestamp(q.timestamp, 0)
+                                                .map(|dt| dt.naive_utc().format("%Y-%m-%d").to_string())
+                                        })
+                                        .collect();
+                                    let df = polars::frame::DataFrame::new(vec![
+                                        polars::prelude::Series::new("date", dates),
+                                        polars::prelude::Series::new("adjclose", prices),
+                                    ])
+                                    .unwrap_or_default();
+                                    let _ = s.send(Message::YahooPriceResult(codigo, df));
+                                    ctxc.request_repaint();
+                                }
+                            }
+                            Ok(Err(err)) => {
+                                log::error!("Yahoo price error for {}: {}", ticker, err);
+                            }
+                            Err(_) => {
+                                log::error!("Timeout ao buscar cotacao Yahoo para {}", ticker);
                             }
                         }
                     });
@@ -896,17 +1157,34 @@ impl TemplateApp {
                 Message::FetchAssetHolders(asset_id, start_date, end_date) => {
                     let portfolio = self.portfolio.clone();
                     let s = sender.clone();
+                    let asset = asset_id.clone();
                     tokio::spawn(async move {
-                        match portfolio
-                            .async_asset_holders(asset_id.clone(), start_date, end_date)
-                            .await
-                        {
-                            Ok(df) => {
-                                let _ = s.send(Message::AssetHoldersResult(asset_id, df));
+                        let result = tokio::time::timeout(
+                            Duration::from_secs(30),
+                            portfolio.async_asset_holders(asset.clone(), start_date, end_date),
+                        )
+                        .await;
+
+                        match result {
+                            Ok(Ok(df)) => {
+                                let _ = s.send(Message::AssetHoldersResult(asset, df));
                                 ctxc.request_repaint();
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 log::error!("Erro FetchAssetHolders: {}", e);
+                                let _ = s.send(Message::AssetHoldersResult(
+                                    asset,
+                                    DataFrame::empty(),
+                                ));
+                                ctxc.request_repaint();
+                            }
+                            Err(_) => {
+                                log::error!("Timeout ao carregar cotistas para {}", asset);
+                                let _ = s.send(Message::AssetHoldersResult(
+                                    asset,
+                                    DataFrame::empty(),
+                                ));
+                                ctxc.request_repaint();
                             }
                         }
                     });

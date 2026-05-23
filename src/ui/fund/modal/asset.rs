@@ -1,3 +1,4 @@
+use crate::ui::design::Scale;
 use egui::{Align2, Frame, Grid, Ui, Vec2};
 use polars::prelude::*;
 
@@ -11,9 +12,9 @@ impl AssetDetail {
         egui::Window::new("Detalhes")
             .resizable(false)
             .collapsible(false)
-            .default_width(550.0)
-            .max_width(550.0)
-            .max_height(600.0)
+            .default_width(Scale::MODAL_MEDIUM)
+            .max_width(Scale::MODAL_MEDIUM)
+            .max_height(Scale::MODAL_WIDE)
             .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 150.0))
             .open(&mut self.open_window)
             .show(ui.ctx(), |ui| show_ui(self.asset.clone(), ui));

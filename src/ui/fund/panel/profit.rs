@@ -2,7 +2,7 @@ use crate::{
     message,
     ui::{
         charts::{self, profit::Indice},
-        design::{Components, Typography},
+        design::{Components, Scale, Typography},
         loading,
     },
 };
@@ -33,6 +33,7 @@ pub struct ProfitUI {
     pub ibov: DataFrame,
     pub cnpj: String,
     pub loading: bool,
+    pub loading_status: String,
     pub sender: Option<UnboundedSender<message::Message>>,
 }
 
@@ -61,6 +62,7 @@ impl Default for ProfitUI {
             ),
             open_profit_filter: false,
             loading: false,
+            loading_status: "Carregando rentabilidade...".to_string(),
             ibov: DataFrame::empty(),
         }
     }
@@ -90,7 +92,7 @@ impl ProfitUI {
             ui.add_space(5.0);
 
             if self.loading {
-                loading::show(ui);
+                loading::show(ui, &self.loading_status);
             } else {
                 ui.vertical(|ui| {
                     ui.weak("Rentabilidade");
@@ -218,6 +220,7 @@ impl ProfitUI {
             start_date,
             end_date,
         ));
+        self.loading_status = "Carregando rentabilidade...".to_string();
         self.loading = true;
     }
 
@@ -227,9 +230,9 @@ impl ProfitUI {
         egui::Window::new("Período")
             .resizable(false)
             .collapsible(false)
-            .default_width(200.0)
-            .max_width(200.0)
-            .max_height(350.0)
+            .default_width(Scale::MODAL_WIDTH_KPI)
+            .max_width(Scale::MODAL_WIDTH_KPI)
+            .max_height(Scale::MODAL_HEIGHT_KPI)
             .anchor(Align2::RIGHT_TOP, Vec2::new(-20.0, 150.0))
             .open(&mut open_profit)
             .show(ui.ctx(), |ui| {

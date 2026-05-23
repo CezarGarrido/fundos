@@ -1,3 +1,4 @@
+use crate::ui::design::Scale;
 use crate::{message::Message, provider::cvm::fund::Class, ui::loading};
 use egui::{Align2, Vec2};
 use egui_extras::{Column, TableBuilder};
@@ -11,6 +12,7 @@ pub struct Search {
     pub class: Option<Class>,
     pub result: DataFrame,
     pub loading: bool,
+    pub loading_status: String,
 }
 
 enum Msg {
@@ -27,6 +29,7 @@ impl Search {
             class: None,
             result: DataFrame::empty(),
             loading: false,
+            loading_status: "Buscando fundos...".to_string(),
         }
     }
 
@@ -38,6 +41,7 @@ impl Search {
             }
             Msg::SelectClass(selected_class) => {
                 self.class = selected_class;
+                self.loading_status = "Filtrando fundos...".to_string();
                 self.search_send();
                 self.set_loading(true);
             }
@@ -54,6 +58,9 @@ impl Search {
 
     pub fn set_loading(&mut self, value: bool) {
         self.loading = value;
+        if value {
+            self.loading_status = "Carregando lista de fundos...".to_string();
+        }
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
@@ -75,7 +82,7 @@ impl Search {
             .min_width(450.0f32.min(screen_width * 0.95))
             .default_width(default_modal_width)
             .max_width(screen_width * 0.98)
-            .max_height(600.0)
+            .max_height(Scale::MODAL_WIDE)
             .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, -60.0))
             .open(&mut open)
             .show(ui.ctx(), |ui| {
@@ -103,7 +110,7 @@ impl Search {
 
                 if self.loading {
                     ui.vertical_centered(|ui| {
-                        loading::show(ui);
+                        loading::show(ui, &self.loading_status);
                     });
                 } else {
                     TableBuilder::new(ui)
@@ -114,7 +121,7 @@ impl Search {
                         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                         .striped(true)
                         .resizable(false)
-                        .header(20.0, |mut header| {
+                        .header(Scale::DEFAULT.table_header_height(), |mut header| {
                             header.col(|ui| {
                                 ui.label("CNPJ");
                             });
@@ -126,7 +133,7 @@ impl Search {
                             });
                         })
                         .body(|body| {
-                            body.rows(22.0, nr_rows, |mut row| {
+                            body.rows(Scale::DEFAULT.table_row_height(), nr_rows, |mut row| {
                                 let row_index = row.index();
 
                                 let mut cnpj_str = String::new();
@@ -274,7 +281,7 @@ fn draw_class_badge(ui: &mut egui::Ui, class_str: &str) {
         ui.label(
             egui::RichText::new(format!(" {} ", label_text))
                 .color(text_color)
-                .size(10.0)
+                .size(Scale::DEFAULT.badge())
                 .strong()
                 .background_color(bg_color),
         );

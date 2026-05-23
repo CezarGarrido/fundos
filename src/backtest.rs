@@ -357,6 +357,13 @@ mod tests {
             fund_cnpjs.len()
         );
 
+        let mut total_dir_hits = 0_usize;
+        let mut total_dir_attempts = 0_usize;
+        let mut total_ci_hits = 0_usize;
+        let mut total_ci_observations = 0_usize;
+        let mut total_bias_matches = 0_usize;
+        let mut total_assets = 0_usize;
+
         let mut filter_expr =
             polars::lazy::dsl::col("CNPJ_FUNDO").eq(polars::lazy::dsl::lit(fund_cnpjs[0].clone()));
         for cnpj in fund_cnpjs.iter().skip(1) {
@@ -491,7 +498,7 @@ mod tests {
             };
 
             // Pegamos as séries que o motor de analytics recomenda
-            let top_series = crate::analytics::compute_top_series(&df);
+            let top_series = crate::analytics::compute_top_series(&df, None);
             for series in top_series.into_iter().take(3) {
                 // 3 principais ativos de cada fundo
                 let asset_name = series.0.trim().to_string();
@@ -547,6 +554,66 @@ mod tests {
                     None,
                 ) {
                     if let Some(inference) = analytics.portfolio_inference {
+                        total_assets += 1;
+
+                        // ── Viés Direcional (Directional Bias Accuracy) ─────────
+                        // Compara o sinal preditivo do Kalman (z_score em t-1)
+                        // com o movimento real observado em t.
+                        let states = &inference.historical_states;
+                        let zs = &inference.historical_z_scores;
+                        for i in 1..states.len() {
+                            let prev_z = zs.get(i - 1).copied().unwrap_or(0.0);
+                            let actual_delta = states[i].1 - states[i - 1].1; // real_qty[i] - real_qty[i-1]
+                            if actual_delta.abs() < 1e-9 {
+                                continue; // sem movimento → neutro, não conta
+                            }
+                            let predicted_dir = if prev_z > 2.0 {
+                                1
+                            } else if prev_z < -2.0 {
+                                -1
+                            } else {
+                                0 // sem sinal preditivo → não conta
+                            };
+                            if predicted_dir == 0 {
+                                continue;
+                            }
+                            let actual_dir = if actual_delta > 0.0 { 1 } else { -1 };
+                            total_dir_attempts += 1;
+                            if predicted_dir == actual_dir {
+                                total_dir_hits += 1;
+                            }
+                        }
+
+                        // ── Cobertura IC95 no passado ──────────────────────────
+                        for (_date, real_qty, _filt, ci_lower, ci_upper) in &inference.historical_states
+                        {
+                            total_ci_observations += 1;
+                            if *real_qty >= *ci_lower && *real_qty <= *ci_upper {
+                                total_ci_hits += 1;
+                            }
+                        }
+
+                        // ── TradeBias final vs tendência global ────────────────
+                        if states.len() >= 2 {
+                            let overall_delta = states[states.len() - 1].1 - states[0].1;
+                            let matches = match inference.bias_direction {
+                                crate::analytics::TradeBias::Acumulando => overall_delta > 0.0,
+                                crate::analytics::TradeBias::Distribuindo => overall_delta < 0.0,
+                                crate::analytics::TradeBias::Consistente => {
+                                    let mid = (states[states.len() - 1].1 + states[0].1) / 2.0;
+                                    let pct = if mid > 1.0 {
+                                        overall_delta.abs() / mid
+                                    } else {
+                                        0.0
+                                    };
+                                    pct < 0.05
+                                }
+                            };
+                            if matches {
+                                total_bias_matches += 1;
+                            }
+                        }
+
                         // 1. Exporta a janela de tempo histórica (is_future = 0) com z-scores e resíduos
                         for (t, (_date, real_qty, filtered_qty, ci_lower, ci_upper)) in
                             inference.historical_states.iter().enumerate()
@@ -600,6 +667,37 @@ mod tests {
                 }
             }
         }
+        let dir_acc = if total_dir_attempts > 0 {
+            total_dir_hits as f64 / total_dir_attempts as f64 * 100.0
+        } else {
+            0.0
+        };
+        let ci_cov = if total_ci_observations > 0 {
+            total_ci_hits as f64 / total_ci_observations as f64 * 100.0
+        } else {
+            0.0
+        };
+        let bias_acc = if total_assets > 0 {
+            total_bias_matches as f64 / total_assets as f64 * 100.0
+        } else {
+            0.0
+        };
         println!("Backtest CVM Real exportado para real_cvm_trajectories.csv");
+        println!(
+            "  Assets processados: {}",
+            total_assets
+        );
+        println!(
+            "  Cobertura IC95 (passado): {}/{} = {:.1}%",
+            total_ci_hits, total_ci_observations, ci_cov,
+        );
+        println!(
+            "  Acurácia Direcional (z-score → movimento): {}/{} = {:.1}%",
+            total_dir_hits, total_dir_attempts, dir_acc,
+        );
+        println!(
+            "  TradeBias final vs tendência global: {}/{} = {:.1}%",
+            total_bias_matches, total_assets, bias_acc,
+        );
     }
 }

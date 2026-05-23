@@ -1,10 +1,11 @@
+use crate::ui::design::Scale;
 use egui::{Grid, Ui};
 use polars::prelude::*;
 use std::collections::HashMap;
 
 pub fn show_ui(df: DataFrame, ui: &mut Ui) {
     ui.group(|ui| {
-        ui.heading(egui::RichText::new("Detalhes").size(16.0));
+        ui.heading(egui::RichText::new("Detalhes").size(Scale::DEFAULT.heading_3()));
         ui.separator();
 
         let grouped_columns = get_grouped_columns(&df);
