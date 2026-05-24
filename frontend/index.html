@@ -10,7 +10,7 @@
     <title>eframe template</title>
 
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
-    <link data-trunk rel="rust" data-wasm-opt="2" />
+    <link data-trunk rel="rust" data-wasm-opt="0" />
     <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
     <base data-trunk-public-url />
 
@@ -60,15 +60,13 @@
             width: 100%;
         }
 
-        /* Position canvas in center-top: */
+        /* Position canvas to fill entire viewport: */
         canvas {
-            margin-right: auto;
-            margin-left: auto;
-            display: block;
-            position: absolute;
-            top: 0%;
-            left: 50%;
-            transform: translate(-50%, 0%);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
         }
 
         .centered {
@@ -123,17 +121,24 @@
     <!-- the id is hardcoded in main.rs . so, make sure both match. -->
     <canvas id="the_canvas_id"></canvas>
 
+    <script>
+        // Set initial canvas pixel dimensions to window size before WASM loads.
+        (function() {
+            var c = document.getElementById('the_canvas_id');
+            c.width = window.innerWidth;
+            c.height = window.innerHeight;
+        })();
+    </script>
+
     <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
     <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
     <script>
         // We disable caching during development so that we always view the latest version.
-        /* 
         if ('serviceWorker' in navigator && window.location.hash !== "#dev") {
             window.addEventListener('load', function () {
                 navigator.serviceWorker.register('sw.js');
             });
         }
-        */
     </script>
 </body>
 

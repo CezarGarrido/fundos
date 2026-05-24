@@ -1,0 +1,47 @@
+[package]
+name = "fundos-frontend"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+fundos-common = { path = "../common" }
+
+# UI framework
+egui.workspace = true
+eframe = { workspace = true, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "x11",
+    "wayland",
+] }
+egui_dock.workspace = true
+egui_extras.workspace = true
+egui-phosphor.workspace = true
+egui_plot.workspace = true
+egui-toast.workspace = true
+egui_logger.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+# Utilities
+log.workspace = true
+jiff.workspace = true
+
+# native:
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+nix.workspace = true
+env_logger = "0.10"
+
+# web:
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Document", "Element", "HtmlCanvasElement", "Window"] }
